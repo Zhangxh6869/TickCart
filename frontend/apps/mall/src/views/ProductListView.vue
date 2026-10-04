@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { Category, ProductListItem } from '@tickcart/shared-types'
 import { fetchCategories, fetchProducts } from '@/api/product'
@@ -15,6 +15,8 @@ const keyword = ref('')
 const categoryId = ref<number | null>(null)
 const sortBy = ref('createdAt')
 const order = ref('desc')
+// 首屏由 van-list 自动触发 @load，需等分类与 query 就绪后再允许加载
+const ready = ref(false)
 
 const sortOptions = [
   { text: '综合', value: 'createdAt', order: 'desc' },
@@ -23,9 +25,18 @@ const sortOptions = [
   { text: '价格↑', value: 'price', order: 'asc' },
 ]
 
+// van-tabs 用 0 表示"全部"，与内部 categoryId(null 表示不限) 互转
+const activeCategory = computed<number>({
+  get: () => categoryId.value ?? 0,
+  set: (val) => {
+    categoryId.value = val === 0 ? null : val
+  },
+})
+
 onMounted(async () => {
   categories.value = await fetchCategories()
   categoryId.value = route.query.categoryId ? Number(route.query.categoryId) : null
+  ready.value = true
   await reload()
 })
 
@@ -33,6 +44,7 @@ onMounted(async () => {
 watch(
   () => route.query.categoryId,
   (val) => {
+    if (!ready.value) return
     categoryId.value = val ? Number(val) : null
     reload()
   }
@@ -46,7 +58,7 @@ async function reload() {
 }
 
 async function load() {
-  if (loading.value || finished.value) return
+  if (!ready.value || loading.value || finished.value) return
   loading.value = true
   try {
     const res = await fetchProducts({
@@ -80,8 +92,8 @@ function selectSort(opt: (typeof sortOptions)[number]) {
   <div class="list">
     <van-search v-model="keyword" shape="round" placeholder="搜索商品" @search="onSearch" />
 
-    <van-tabs v-model:active="categoryId" @change="reload">
-      <van-tab title="全部" :name="null" />
+    <van-tabs v-model:active="activeCategory" @change="reload">
+      <van-tab title="全部" :name="0" />
       <van-tab v-for="cat in categories" :key="cat.id" :title="cat.name" :name="cat.id" />
     </van-tabs>
 
