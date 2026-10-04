@@ -1,0 +1,27 @@
+# ---- 后端 ----
+target/
+*.class
+*.jar
+!.mvn/wrapper/*.jar
+.idea/
+*.iml
+
+# ---- 前端 ----
+node_modules/
+dist/
+*.local
+.vite/
+.eslintcache
+
+# ---- 环境与密钥 ----
+.env
+.env.*
+!.env.example
+application-local.yml
+application-prod.yml
+
+# ---- 运行时与系统 ----
+*.log
+logs/
+.DS_Store
+Thumbs.db
