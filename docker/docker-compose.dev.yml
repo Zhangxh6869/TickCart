@@ -1,0 +1,79 @@
+# 本地开发中间件编排。仅包含 MySQL / Redis / RabbitMQ 三个基础组件，
+# 用于阶段1（及后续阶段）本地联调；应用本身在 IDE 里跑，不进容器。
+#
+# 使用：docker compose -f docker/docker-compose.dev.yml up -d
+# 停止：docker compose -f docker/docker-compose.dev.yml down
+# 清空数据：docker compose -f docker/docker-compose.dev.yml down -v
+
+services:
+  # ---------------------------------------------------------------------------
+  # MySQL 8：主库，库名 tickcart（首次启动自动创建）
+  # 账号与 backend/src/main/resources/application.yml 默认值保持一致：root/root
+  # ---------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: tickcart-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: tickcart
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --default-authentication-plugin=mysql_native_password
+    volumes:
+      - tickcart-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # Redis 7：缓存 / 秒杀库存 / 分布式锁（阶段1 仅建立连接）
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: tickcart-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - tickcart-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ 3.13：秒杀削峰 / 订单超时延迟队列（阶段2/3 启用）
+  # 管理台：http://localhost:15672  账号 guest/guest
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: tickcart-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+      TZ: Asia/Shanghai
+    volumes:
+      - tickcart-rabbit-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+volumes:
+  tickcart-mysql-data:
+  tickcart-redis-data:
+  tickcart-rabbit-data:
