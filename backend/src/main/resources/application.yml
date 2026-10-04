@@ -35,6 +35,35 @@ spring:
     # 每次启动检查是否有新脚本，不清理已有数据
     clean-disabled: true
 
+  # ---------------------------------------------------------------------------
+  # Redis（阶段1 仅建立连接；购物车/秒杀库存在后续阶段启用）
+  # ---------------------------------------------------------------------------
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DATABASE:0}
+      timeout: 3s
+
+# -----------------------------------------------------------------------------
+# TickCart 自定义配置
+# -----------------------------------------------------------------------------
+tickcart:
+  jwt:
+    # 生产环境务必通过环境变量覆盖（HS256 要求密钥 >= 32 字节）
+    secret: ${JWT_SECRET:tickcart-dev-secret-key-please-change-in-production-0123456789}
+    # access token 有效期（分钟）
+    access-token-minutes: ${JWT_ACCESS_MINUTES:30}
+    # refresh token 有效期（天）
+    refresh-token-days: ${JWT_REFRESH_DAYS:7}
+    issuer: tickcart
+  # 模拟短信验证码：开发环境固定返回该验证码，便于联调（不接真实短信网关）
+  sms:
+    mock-enabled: ${SMS_MOCK_ENABLED:true}
+    mock-code: ${SMS_MOCK_CODE:123456}
+    # 验证码有效期（秒）
+    code-expire-seconds: 300
+
 # -----------------------------------------------------------------------------
 # MyBatis-Plus 配置
 # -----------------------------------------------------------------------------
