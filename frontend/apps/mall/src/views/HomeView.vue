@@ -37,8 +37,13 @@ function goAll() {
     <van-search
       placeholder="搜索商品"
       readonly
-      @click="router.push({ name: 'product-list' })"
-    />
+      show-action
+      @click="goAll"
+    >
+      <template #action>
+        <button class="search-btn" type="button" @click.stop="goAll">搜索</button>
+      </template>
+    </van-search>
 
     <div class="section">
       <div class="section__header">
@@ -77,6 +82,20 @@ function goAll() {
 .home :deep(.van-search__content) {
   border-radius: 6px;
   border: 2px solid var(--color-brand);
+}
+/* 搜索按钮容器：左 2px = 与搜索框边框的间距；右 12px = 与左侧留白对齐（Vant 默认右 0/8px） */
+.home :deep(.van-search__action) {
+  padding: 0 12px 0 2px;
+}
+.search-btn {
+  height: 34px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 6px;
+  background: var(--color-brand);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
 }
 .section {
   background: #fff;
