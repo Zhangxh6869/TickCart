@@ -104,8 +104,7 @@ function goAll() {
   padding: 2px; /* 内部元素与边框保持 2px 间距 */
   border: 2px solid var(--color-brand);
   border-radius: 6px;
-  /* 与页面背景同色（App.vue 里把 --van-background 设成了 rgb(245, 240, 232)） */
-  background: var(--van-background);
+  background: rgb(220, 229, 212); /* #DCE5D4，搜索框底色 */
 }
 /* 自定义搜索图标：尺寸对齐 Vant 默认图标（--van-field-icon-size = 18px），颜色走 currentColor */
 .search-icon {
