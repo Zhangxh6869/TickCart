@@ -15,7 +15,9 @@ services:
     container_name: tickcart-mysql
     restart: unless-stopped
     ports:
-      - "3306:3306"
+      # 宿主机 3306 已被本机 MySQL80 服务占用，容器改映射到 3307。
+      # 后端启动时需指定 MYSQL_PORT=3307（见 application.yml 的 ${MYSQL_PORT:3306}）。
+      - "3307:3306"
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: tickcart
