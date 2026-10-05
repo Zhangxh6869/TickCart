@@ -77,21 +77,31 @@ function goAll() {
 .home {
   /* 品牌绿，用于搜索框描边 */
   --color-brand: rgb(125, 155, 118);
+  /* 用 padding 而非给搜索框加 margin-top：否则 margin 会塌陷穿透 .layout，凭空多出 12px 页面高度 */
+  padding-top: 12px;
 }
-/* 搜索框：去掉胶囊形（Vant shape="round" 的 999px 圆角），改为圆角长方形并加品牌绿描边 */
-.home :deep(.van-search__content) {
-  border-radius: 6px;
+/* 搜索区：整个 van-search 作为圆角长方形容器（品牌绿描边），按钮嵌在容器内部 */
+.home :deep(.van-search) {
+  margin: 0 12px;
+  padding: 2px; /* 内部元素与边框保持 2px 间距 */
   border: 2px solid var(--color-brand);
+  border-radius: 6px;
+  background: #fff;
 }
-/* 搜索按钮容器：左 2px = 与搜索框边框的间距；右 12px = 与左侧留白对齐（Vant 默认右 0/8px） */
+/* 输入区不再单独描边/填色，融入外层容器 */
+.home :deep(.van-search__content) {
+  border: none;
+  background: transparent;
+}
+/* 去掉 Vant 默认的 0 8px 内边距，与边框的间距统一由外层 padding 控制 */
 .home :deep(.van-search__action) {
-  padding: 0 12px 0 2px;
+  padding: 0;
 }
 .search-btn {
-  height: 34px;
+  height: var(--van-search-input-height); /* 34px，与输入区等高 */
   padding: 0 14px;
   border: none;
-  border-radius: 6px;
+  border-radius: 4px; /* 容器圆角 6px - 内缩 2px */
   background: var(--color-brand);
   color: #fff;
   font-size: 14px;
