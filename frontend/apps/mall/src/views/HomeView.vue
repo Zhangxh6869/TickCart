@@ -35,7 +35,6 @@ function goAll() {
 <template>
   <div class="home">
     <van-search
-      shape="round"
       placeholder="搜索商品"
       readonly
       @click="router.push({ name: 'product-list' })"
@@ -70,6 +69,15 @@ function goAll() {
 </template>
 
 <style scoped>
+.home {
+  /* 品牌绿，用于搜索框描边 */
+  --color-brand: rgb(125, 155, 118);
+}
+/* 搜索框：去掉胶囊形（Vant shape="round" 的 999px 圆角），改为圆角长方形并加品牌绿描边 */
+.home :deep(.van-search__content) {
+  border-radius: 6px;
+  border: 1px solid var(--color-brand);
+}
 .section {
   background: #fff;
   margin: 12px;
