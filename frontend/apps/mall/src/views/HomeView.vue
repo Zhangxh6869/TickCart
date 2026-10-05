@@ -117,6 +117,10 @@ function goAll() {
   grid-template-columns: repeat(2, 1fr);
   gap: 10px;
 }
+/* 首页热销商品：商品图改为竖版长方形（宽:高 = 3:4），仅作用于首页，不影响商品列表页 */
+.product-grid :deep(.product-card__image) {
+  aspect-ratio: 3 / 4;
+}
 .loading {
   padding: 20px;
   text-align: center;
