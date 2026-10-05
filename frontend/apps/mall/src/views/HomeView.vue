@@ -40,6 +40,19 @@ function goAll() {
       show-action
       @click="goAll"
     >
+      <template #left-icon>
+        <svg
+          class="search-icon"
+          viewBox="0 0 1024 1024"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+        >
+          <path
+            d="M932.571429 493.714286C932.571429 261.485714 744.228571 73.142857 512 73.142857S91.428571 261.485714 91.428571 493.714286s188.342857 420.571429 420.571429 420.571428c89.6 0 171.885714-27.428571 239.542857-74.971428l111.542857 111.542857 51.2-51.2-106.057143-106.057143c76.8-76.8 124.342857-182.857143 124.342858-299.885714zM164.571429 493.714286C164.571429 301.714286 320 146.285714 512 146.285714s347.428571 155.428571 347.428571 347.428572-155.428571 347.428571-347.428571 347.428571S164.571429 685.714286 164.571429 493.714286z"
+            fill="currentColor"
+          />
+        </svg>
+      </template>
       <template #action>
         <button class="search-btn" type="button" @click.stop="goAll">搜索</button>
       </template>
@@ -77,16 +90,27 @@ function goAll() {
 .home {
   /* 品牌绿，用于搜索框描边 */
   --color-brand: rgb(125, 155, 118);
+  /* 搜索图标与「搜索商品」占位文字共用的颜色 */
+  --color-search-icon: #515151;
   /* 用 padding 而非给搜索框加 margin-top：否则 margin 会塌陷穿透 .layout，凭空多出 12px 页面高度 */
   padding-top: 12px;
 }
 /* 搜索区：整个 van-search 作为圆角长方形容器（品牌绿描边），按钮嵌在容器内部 */
 .home :deep(.van-search) {
+  /* 图标与占位文字同色：直接复用 Vant 自己的两个颜色变量 */
+  --van-search-left-icon-color: var(--color-search-icon);
+  --van-field-placeholder-text-color: var(--color-search-icon);
   margin: 0 12px;
   padding: 2px; /* 内部元素与边框保持 2px 间距 */
   border: 2px solid var(--color-brand);
   border-radius: 6px;
   background: #fff;
+}
+/* 自定义搜索图标：尺寸对齐 Vant 默认图标（--van-field-icon-size = 18px），颜色走 currentColor */
+.search-icon {
+  display: block;
+  width: var(--van-field-icon-size);
+  height: var(--van-field-icon-size);
 }
 /* 输入区不再单独描边/填色，融入外层容器 */
 .home :deep(.van-search__content) {
