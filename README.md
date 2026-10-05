@@ -27,10 +27,84 @@ TickCart/
 - 数据与中间件：MySQL 8 + Redis 7 + RabbitMQ 3.13
 - 部署：Docker + docker-compose
 
-## 文档
+## 快速启动
 
-- `docs/` 下为详细设计与阶段划分（见《TickCart详细设计-架构与模块.md》《TickCart项目阶段划分.md》）
+### 0. 环境要求
 
-## 启动（待补）
+| 依赖 | 版本 | 说明 |
+|---|---|---|
+| JDK | 17+ | 后端（已在 JDK 21 上验证通过） |
+| Maven | 3.9+ | 后端构建 |
+| Node | 18+ | 前端 |
+| pnpm | 12.9.1 | 前端包管理（版本已由 `frontend/package.json` 的 `packageManager` 钉住） |
+| Docker Desktop | 最新版 | 本地中间件（MySQL / Redis / RabbitMQ） |
 
-- 见各阶段 checklist（《TickCart项目阶段划分.md》）
+### 1. 启动中间件
+
+```bash
+docker compose -f docker/docker-compose.dev.yml up -d
+```
+
+| 组件 | 宿主机端口 | 账号 |
+|---|---|---|
+| MySQL 8 | **3307** → 容器 3306 | root / root，库 `tickcart` |
+| Redis 7 | 6379 | — |
+| RabbitMQ 3.13 | 5672 / 15672 | guest / guest |
+
+> ⚠️ **MySQL 为什么映射到 3307**：宿主机 3306 常被本机自带的 MySQL 服务（Windows 服务名 `MySQL80`）占用，容器改用 3307 规避冲突。**因此后端启动必须指定 `MYSQL_PORT=3307`**（见下一步）。
+
+### 2. 启动后端
+
+```bash
+cd backend
+```
+
+```powershell
+# PowerShell
+$env:MYSQL_PORT="3307"; mvn spring-boot:run
+```
+
+```bash
+# Git Bash / macOS / Linux
+MYSQL_PORT=3307 mvn spring-boot:run
+```
+
+- 启动时 **Flyway 自动执行 `V1→V5` 迁移**（建表 + 种子数据），无需手动建表
+- 服务地址：http://localhost:8080
+- 健康探针：http://localhost:8080/api/health
+- Swagger UI：http://localhost:8080/swagger-ui/index.html
+
+> 若报「端口 xxx 被占用」，可显式指定端口（命令行参数优先级最高）：
+> `mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=8080"`
+
+### 3. 启动前端
+
+```bash
+cd frontend
+pnpm install        # 首次
+pnpm dev:mall       # 前台 → http://localhost:5173
+pnpm dev:admin      # 后台 → http://localhost:5174（另开一个终端）
+```
+
+两个 app 的 `vite.config.ts` 均已把 `/api` 反代到 `http://localhost:8080`，无需额外配跨域。
+
+### 4. 访问地址与账号
+
+| 入口 | 地址 | 账号 |
+|---|---|---|
+| 前台商城 | http://localhost:5173 | `demo` / `123456` |
+| 后台管理 | http://localhost:5174 | `admin` / `admin123` |
+| 短信验证码 | — | 开发环境 Mock，固定 `123456` |
+
+### 5. 常见问题
+
+- **Docker 报 `docker_engine` / `dockerDesktopLinuxEngine` 管道不存在**：Docker Desktop 未启动或引擎未就绪。重启 Docker Desktop，等鲸鱼图标变绿后再执行。
+- **MySQL 容器起不来、提示 3306 端口被占用**：本机 MySQL 服务占用了 3306。本项目已改用 3307；若仍冲突，可停掉本机服务（管理员执行 `net stop MySQL80`）。
+- **`ERR_PNPM_IGNORED_BUILDS`**：pnpm 新版默认拦截依赖的构建脚本。白名单已配置在 `frontend/pnpm-workspace.yaml` 的 `allowBuilds`（esbuild / vue-demi）。
+
+---
+
+## 详细设计
+
+- 设计文档见根目录《TickCart详细设计-架构与模块.md》《TickCart项目阶段划分.md》
+- 数据库口径见 `docs/数据库设计说明.md`
