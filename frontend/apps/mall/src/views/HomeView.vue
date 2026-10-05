@@ -76,7 +76,7 @@ function goAll() {
 /* 搜索框：去掉胶囊形（Vant shape="round" 的 999px 圆角），改为圆角长方形并加品牌绿描边 */
 .home :deep(.van-search__content) {
   border-radius: 6px;
-  border: 1px solid var(--color-brand);
+  border: 2px solid var(--color-brand);
 }
 .section {
   background: #fff;
