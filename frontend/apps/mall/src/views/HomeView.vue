@@ -41,12 +41,6 @@ function goAll() {
       @click="router.push({ name: 'product-list' })"
     />
 
-    <van-swipe class="banner" :autoplay="3000" indicator-color="#fff">
-      <van-swipe-item v-for="n in 3" :key="n">
-        <div class="banner__item">TickCart 限时秒杀 · 敬请期待</div>
-      </van-swipe-item>
-    </van-swipe>
-
     <div class="section">
       <div class="section__header">
         <span class="section__title">商品分类</span>
@@ -76,22 +70,6 @@ function goAll() {
 </template>
 
 <style scoped>
-.banner {
-  height: 140px;
-  margin: 0 12px;
-  border-radius: 8px;
-  overflow: hidden;
-}
-.banner__item {
-  height: 140px;
-  background: linear-gradient(135deg, #ee0a24, #ff6034);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  font-weight: 600;
-}
 .section {
   background: #fff;
   margin: 12px;
