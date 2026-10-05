@@ -116,6 +116,12 @@ function goAll() {
 .home :deep(.van-search__content) {
   border: none;
   background: transparent;
+  /* 图标距搜索框左侧 6px = 外层 .van-search 的 2px + 这里的 4px */
+  padding-left: 4px;
+}
+/* 图标与右侧「搜索商品」文字的间距同为 6px（Vant 默认是 --van-padding-base = 4px） */
+.home :deep(.van-field__left-icon) {
+  margin-right: 6px;
 }
 /* 去掉 Vant 默认的 0 8px 内边距，与边框的间距统一由外层 padding 控制 */
 .home :deep(.van-search__action) {
