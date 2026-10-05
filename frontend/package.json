@@ -2,6 +2,7 @@
   "name": "tickcart-frontend",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@12.9.1",
   "scripts": {
     "dev:mall": "pnpm --filter mall dev",
     "dev:admin": "pnpm --filter admin dev",

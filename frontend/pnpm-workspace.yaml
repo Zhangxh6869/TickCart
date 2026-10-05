@@ -1,7 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
-# pnpm 11 出于安全默认拦截依赖的构建脚本。esbuild 需下载平台二进制、
+# pnpm（11 起）出于安全默认拦截依赖的构建脚本。esbuild 需下载平台二进制、
 # vue-demi 需按 Vue 版本切换实现，二者必须放行，否则 Vite 无法启动。
 allowBuilds:
   esbuild: true
