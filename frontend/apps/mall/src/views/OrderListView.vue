@@ -75,6 +75,9 @@ async function onConfirm(order: OrderSummary) {
     // 错误提示由请求拦截器统一处理
   }
 }
+
+// 进入页面即加载「全部」tab，否则首屏会一直显示空列表
+onMounted(load)
 </script>
 
 <template>
