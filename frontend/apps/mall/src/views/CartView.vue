@@ -68,8 +68,7 @@ function onCheckout() {
     showToast('请先选择要结算的商品')
     return
   }
-  // 结算页在切片 3 落地，这里先占位提示，避免跳转到不存在的路由
-  showToast('结算页开发中')
+  router.push({ name: 'checkout' })
 }
 
 function goHome() {

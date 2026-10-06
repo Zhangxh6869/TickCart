@@ -172,3 +172,71 @@ export interface CartAddRequest {
   skuId?: number
   quantity: number
 }
+
+/** 订单状态码：0待付款 1待发货 2待收货 3已完成 4已取消 5已超时关闭 */
+export type OrderStatusValue = 0 | 1 | 2 | 3 | 4 | 5
+
+/** 订单明细项（下单时的快照）。 */
+export interface OrderItem {
+  productId: number
+  skuId: number
+  productName: string
+  productImage?: string | null
+  specValue?: string | null
+  price: number
+  quantity: number
+  subtotal: number
+}
+
+/** 订单列表项。 */
+export interface OrderSummary {
+  orderNo: string
+  status: OrderStatusValue
+  statusLabel: string
+  totalAmount: number
+  payAmount: number
+  totalQuantity: number
+  createdAt: string
+  items: OrderItem[]
+}
+
+/** 订单详情。 */
+export interface OrderDetail {
+  orderNo: string
+  status: OrderStatusValue
+  statusLabel: string
+  totalAmount: number
+  payAmount: number
+  receiver: string
+  receiverPhone: string
+  receiverAddr: string
+  remark?: string | null
+  createdAt: string
+  payTime?: string | null
+  shipTime?: string | null
+  finishTime?: string | null
+  cancelTime?: string | null
+  items: OrderItem[]
+}
+
+/** 创建订单请求。 */
+export interface OrderCreateRequest {
+  addressId: number
+  remark?: string
+}
+
+/** 下单结果。 */
+export interface OrderCreateResult {
+  orderNo: string
+  status: OrderStatusValue
+  totalAmount: number
+  payAmount: number
+  createdAt: string
+}
+
+/** 订单列表查询条件。 */
+export interface OrderQuery {
+  status?: number | null
+  page?: number
+  size?: number
+}
