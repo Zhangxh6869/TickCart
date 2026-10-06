@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { showToast } from 'vant'
 import type { Category, ProductListItem } from '@tickcart/shared-types'
 import { fetchCategories, fetchProducts } from '@/api/product'
 import ProductCard from '@/components/ProductCard.vue'
@@ -9,27 +10,70 @@ const router = useRouter()
 const categories = ref<Category[]>([])
 const products = ref<ProductListItem[]>([])
 const loading = ref(true)
+/** 当前选中的分类；null 表示「全部」（首页默认，展示热销榜） */
+const activeCategoryId = ref<number | null>(null)
+
+/** 分类栏数据：首项固定为「全部」，其余为接口返回的启用分类 */
+const categoryTabs = computed<{ id: number | null; name: string }[]>(() => [
+  { id: null, name: '全部' },
+  ...categories.value.map((cat) => ({ id: cat.id as number | null, name: cat.name })),
+])
+
+/** 商品区标题：全部时是热销榜，选中分类时是分类名 */
+const productTitle = computed(() => {
+  if (activeCategoryId.value === null) return '热销商品'
+  return categories.value.find((cat) => cat.id === activeCategoryId.value)?.name ?? '热销商品'
+})
+
+// 请求序号：连点分类时丢弃过期响应，避免先发的慢请求覆盖后发的快请求
+let requestSeq = 0
+
+/** 按当前选中的分类拉取首页商品（固定 8 条，按销量倒序）。 */
+async function loadProducts() {
+  const seq = ++requestSeq
+  loading.value = true
+  try {
+    const page = await fetchProducts({
+      page: 1,
+      size: 8,
+      categoryId: activeCategoryId.value ?? undefined,
+      sortBy: 'sales',
+      order: 'desc',
+    })
+    if (seq !== requestSeq) return
+    products.value = page.records
+  } catch {
+    if (seq !== requestSeq) return
+    products.value = []
+    showToast('商品加载失败')
+  } finally {
+    if (seq === requestSeq) loading.value = false
+  }
+}
+
+/** 切换分类：原地刷新下方商品，不跳转页面。 */
+function selectCategory(id: number | null) {
+  if (activeCategoryId.value === id) return
+  activeCategoryId.value = id
+  loadProducts()
+}
+
+/** 跳商品列表页，带上当前分类，保证列表页与首页看到的是同一批商品。 */
+function goList() {
+  router.push({
+    name: 'product-list',
+    query: activeCategoryId.value === null ? {} : { categoryId: activeCategoryId.value },
+  })
+}
 
 onMounted(async () => {
   try {
-    const [cats, page] = await Promise.all([
-      fetchCategories(),
-      fetchProducts({ page: 1, size: 8, sortBy: 'sales', order: 'desc' }),
-    ])
-    categories.value = cats
-    products.value = page.records
-  } finally {
-    loading.value = false
+    categories.value = await fetchCategories()
+  } catch {
+    showToast('分类加载失败')
   }
+  await loadProducts()
 })
-
-function goCategory(id: number) {
-  router.push({ name: 'product-list', query: { categoryId: id } })
-}
-
-function goAll() {
-  router.push({ name: 'product-list' })
-}
 </script>
 
 <template>
@@ -38,7 +82,7 @@ function goAll() {
       placeholder="搜索商品"
       readonly
       show-action
-      @click="goAll"
+      @click="goList"
     >
       <template #left-icon>
         <svg
@@ -54,31 +98,31 @@ function goAll() {
         </svg>
       </template>
       <template #action>
-        <button class="search-btn" type="button" @click.stop="goAll">搜索</button>
+        <button class="search-btn" type="button" @click.stop="goList">搜索</button>
       </template>
     </van-search>
 
-    <div class="section">
-      <div class="section__header">
-        <span class="section__title">商品分类</span>
-        <span class="section__more" @click="goAll">全部 ›</span>
+    <!-- 分类栏：搜索栏下方一行，横向可滑动，点击后原地切换下方商品 -->
+    <div class="cat-bar">
+      <div
+        v-for="tab in categoryTabs"
+        :key="tab.id ?? 'all'"
+        class="cat-bar__item"
+        :class="{ 'is-active': activeCategoryId === tab.id }"
+        @click="selectCategory(tab.id)"
+      >
+        <span class="cat-bar__name">{{ tab.name }}</span>
+        <span class="cat-bar__bar" />
       </div>
-      <van-grid :column-num="4" :border="false">
-        <van-grid-item
-          v-for="cat in categories"
-          :key="cat.id"
-          :text="cat.name"
-          @click="goCategory(cat.id)"
-        />
-      </van-grid>
     </div>
 
     <div class="section">
       <div class="section__header">
-        <span class="section__title">热销商品</span>
-        <span class="section__more" @click="goAll">更多 ›</span>
+        <span class="section__title">{{ productTitle }}</span>
+        <span class="section__more" @click="goList">更多 ›</span>
       </div>
       <van-loading v-if="loading" class="loading" />
+      <van-empty v-else-if="products.length === 0" description="暂无商品" />
       <div v-else class="product-grid">
         <ProductCard v-for="p in products" :key="p.id" :product="p" />
       </div>
@@ -88,7 +132,7 @@ function goAll() {
 
 <style scoped>
 .home {
-  /* 品牌绿，用于搜索框描边 */
+  /* 品牌色，用于搜索框描边、搜索按钮底色与分类栏选中小横杆 */
   --color-brand: rgb(107, 163, 200);
   /* 搜索图标与「搜索商品」占位文字共用的颜色 */
   --color-search-icon: #515151;
@@ -142,6 +186,59 @@ function goAll() {
   margin: 12px;
   border-radius: 8px;
   padding: 12px;
+}
+/* 分类栏：紧贴搜索栏下方，单行横向排列，超出部分横向滚动（隐藏滚动条） */
+.cat-bar {
+  display: flex;
+  gap: 20px;
+  /* 按首行基线对齐：选中项放大后，其余分类名仍与其处在同一水平线上 */
+  align-items: baseline;
+  /* 与搜索框（margin 0 12px）左对齐，右侧留白靠 overflow 自然延伸 */
+  padding: 12px 12px 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.cat-bar::-webkit-scrollbar {
+  display: none;
+}
+.cat-bar__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* 名称与小横杆的间距 */
+  gap: 3px;
+  /* 不被 flex 压缩，保证横向滚动而不是挤成一团 */
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+.cat-bar__name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #646566;
+  white-space: nowrap;
+  /* 0.15s 的加速过渡：点中后名称迅速放大变深 */
+  transition: font-size 0.15s ease-out, color 0.15s ease-out;
+}
+/* 选中态：名称放大、加粗、颜色加深 */
+.cat-bar__item.is-active .cat-bar__name {
+  font-size: 18px;
+  font-weight: 700;
+  color: #323233;
+}
+/* 小横杆：仅选中项显示，未选中时保留占位（避免切换时整行高度跳动） */
+.cat-bar__bar {
+  width: 18px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-brand);
+  opacity: 0;
+  transform: scaleX(0.2);
+  transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+}
+.cat-bar__item.is-active .cat-bar__bar {
+  opacity: 1;
+  transform: scaleX(1);
 }
 .section__header {
   display: flex;

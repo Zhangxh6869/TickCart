@@ -20,7 +20,6 @@ function go(name: string) {
 
     <van-tabbar :model-value="active" @change="go">
       <van-tabbar-item name="home" icon="home-o">首页</van-tabbar-item>
-      <van-tabbar-item name="product-list" icon="apps-o">分类</van-tabbar-item>
       <van-tabbar-item name="member" icon="user-o">我的</van-tabbar-item>
     </van-tabbar>
   </div>
