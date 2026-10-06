@@ -103,6 +103,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '订单详情', requiresAuth: true, depth: 3 },
   },
   {
+    path: '/pay/:orderNo',
+    name: 'pay',
+    component: () => import('@/views/PayView.vue'),
+    meta: { title: '收银台', requiresAuth: true, depth: 3 },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('@/views/NotFoundView.vue'),

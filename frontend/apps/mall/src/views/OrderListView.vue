@@ -42,6 +42,10 @@ function goDetail(orderNo: string) {
   router.push({ name: 'order-detail', params: { orderNo } })
 }
 
+function goPay(orderNo: string) {
+  router.push({ name: 'pay', params: { orderNo } })
+}
+
 async function onCancel(order: OrderSummary) {
   try {
     await showConfirmDialog({ title: '取消订单', message: '确认取消这笔订单？库存将自动回补。' })
@@ -119,6 +123,16 @@ async function onConfirm(order: OrderSummary) {
             @click="onCancel(order)"
           >
             取消订单
+          </van-button>
+          <van-button
+            v-if="order.status === 0"
+            size="small"
+            round
+            type="primary"
+            color="rgb(107,163,200)"
+            @click="goPay(order.orderNo)"
+          >
+            去支付
           </van-button>
           <van-button
             v-if="order.status === 2"

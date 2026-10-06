@@ -240,3 +240,22 @@ export interface OrderQuery {
   page?: number
   size?: number
 }
+
+/** 支付渠道：1微信 2支付宝（0为模拟，前端不直接使用） */
+export type PaymentChannel = 1 | 2
+
+/** 发起支付请求。 */
+export interface PaymentRequest {
+  channel: PaymentChannel
+}
+
+/** 支付结果。 */
+export interface PaymentResult {
+  payNo: string
+  orderNo: string
+  amount: number
+  channel: number
+  /** 0待支付 1成功 2失败 */
+  status: number
+  payTime?: string | null
+}

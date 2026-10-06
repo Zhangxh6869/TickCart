@@ -80,8 +80,7 @@ async function onConfirm() {
 }
 
 function onPay() {
-  // 支付页在切片 4 落地
-  showToast('支付功能开发中')
+  router.push({ name: 'pay', params: { orderNo } })
 }
 
 onMounted(load)

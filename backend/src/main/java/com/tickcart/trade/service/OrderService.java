@@ -187,8 +187,30 @@ public class OrderService {
         orderMapper.updateById(order);
     }
 
+    /**
+     * 支付成功后推进订单：待付款 → 待发货，并记录支付时间。
+     *
+     * <p>由支付回调触发，因此调用方没有用户上下文，这里只按订单号定位。
+     * 状态流转仍走状态机，保证「超时关单」与「支付回调」并发时不会把已关闭的订单又推成待发货。</p>
+     *
+     * @throws BizException 订单不存在、订单当前状态不允许支付
+     */
+    @Transactional
+    public void markPaid(String orderNo) {
+        Order order = orderMapper.selectOne(
+                new LambdaQueryWrapper<Order>().eq(Order::getOrderNo, orderNo));
+        if (order == null) {
+            throw BizException.notFound("订单不存在");
+        }
+        OrderStatus.of(order.getStatus()).assertTransitionTo(OrderStatus.PENDING_SHIPMENT, "支付");
+
+        order.setStatus(OrderStatus.PENDING_SHIPMENT.getCode());
+        order.setPayTime(LocalDateTime.now());
+        orderMapper.updateById(order);
+    }
+
     /** 按订单号取订单并校验归属；他人的订单按不存在处理。 */
-    private Order getOwned(Long userId, String orderNo) {
+    public Order getOwned(Long userId, String orderNo) {
         Order order = orderMapper.selectOne(
                 new LambdaQueryWrapper<Order>().eq(Order::getOrderNo, orderNo));
         if (order == null || !userId.equals(order.getUserId())) {
