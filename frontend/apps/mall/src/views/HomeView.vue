@@ -148,7 +148,7 @@ onMounted(async () => {
   padding: 2px; /* 内部元素与边框保持 2px 间距 */
   border: 2px solid var(--color-brand);
   border-radius: 6px;
-  background: rgb(232, 240, 248); /* #DCE5D4，搜索框底色 */
+  background: rgb(232, 240, 248); /* #E8F0F8，搜索框底色 */
 }
 /* 自定义搜索图标：尺寸对齐 Vant 默认图标（--van-field-icon-size = 18px），颜色走 currentColor */
 .search-icon {
