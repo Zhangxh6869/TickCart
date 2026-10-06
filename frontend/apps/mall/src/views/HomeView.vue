@@ -6,6 +6,9 @@ import type { Category, ProductListItem } from '@tickcart/shared-types'
 import { fetchCategories, fetchProducts } from '@/api/product'
 import ProductCard from '@/components/ProductCard.vue'
 
+// 显式声明组件名：App.vue 里用 <KeepAlive include="HomeView"> 缓存首页
+defineOptions({ name: 'HomeView' })
+
 const router = useRouter()
 const categories = ref<Category[]>([])
 const products = ref<ProductListItem[]>([])
