@@ -1,12 +1,14 @@
 package com.tickcart.trade.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tickcart.cart.service.CartService;
 import com.tickcart.cart.vo.CartItemVO;
 import com.tickcart.cart.vo.CartSummary;
 import com.tickcart.common.api.PageResult;
 import com.tickcart.common.exception.BizException;
+import com.tickcart.common.mq.OrderMessageProducer;
 import com.tickcart.member.entity.UserAddress;
 import com.tickcart.member.service.AddressService;
 import com.tickcart.trade.dto.OrderCreateRequest;
@@ -20,6 +22,8 @@ import com.tickcart.trade.vo.OrderDetailVO;
 import com.tickcart.trade.vo.OrderItemVO;
 import com.tickcart.trade.vo.OrderListItemVO;
 import com.tickcart.trade.vo.OrderVO;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,6 +43,8 @@ import java.util.stream.Collectors;
 @Service
 public class OrderService {
 
+    private static final Logger log = LoggerFactory.getLogger(OrderService.class);
+
     /** 普通订单号前缀（秒杀订单为 SK） */
     private static final String ORDER_NO_PREFIX = "NO";
 
@@ -55,17 +61,20 @@ public class OrderService {
     private final AddressService addressService;
     private final CartService cartService;
     private final InventoryService inventoryService;
+    private final OrderMessageProducer orderMessageProducer;
 
     public OrderService(OrderMapper orderMapper,
                         OrderItemMapper orderItemMapper,
                         AddressService addressService,
                         CartService cartService,
-                        InventoryService inventoryService) {
+                        InventoryService inventoryService,
+                        OrderMessageProducer orderMessageProducer) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.addressService = addressService;
         this.cartService = cartService;
         this.inventoryService = inventoryService;
+        this.orderMessageProducer = orderMessageProducer;
     }
 
     /**
@@ -123,6 +132,11 @@ public class OrderService {
         }
 
         cartService.deleteChecked(userId);
+
+        // 投递超时延迟消息：消息在 MQ 里滞留 TTL 后转入死信队列，触发自动关单。
+        // 投递失败只记日志（见 OrderMessageProducer），不影响本次下单结果。
+        orderMessageProducer.sendOrderTimeout(order.getOrderNo());
+
         return toOrderVO(order);
     }
 
@@ -191,29 +205,75 @@ public class OrderService {
      * 支付成功后推进订单：待付款 → 待发货，并记录支付时间。
      *
      * <p>由支付回调触发，因此调用方没有用户上下文，这里只按订单号定位。
-     * 状态流转仍走状态机，保证「超时关单」与「支付回调」并发时不会把已关闭的订单又推成待发货。</p>
+     * 落库用「带状态条件的 UPDATE」，与超时关单并发时只有一个能成功，
+     * 避免已关闭的订单被重新推成待发货。</p>
      *
-     * @throws BizException 订单不存在、订单当前状态不允许支付
+     * @throws BizException 订单不存在、订单当前状态不允许支付、并发下状态已被他人变更
      */
     @Transactional
     public void markPaid(String orderNo) {
-        Order order = orderMapper.selectOne(
-                new LambdaQueryWrapper<Order>().eq(Order::getOrderNo, orderNo));
-        if (order == null) {
-            throw BizException.notFound("订单不存在");
+        Order order = loadByOrderNo(orderNo);
+        OrderStatus status = OrderStatus.of(order.getStatus());
+        if (!status.canTransitionTo(OrderStatus.PENDING_SHIPMENT)) {
+            throw BizException.conflict("订单当前为「" + status.getLabel() + "」，无法支付");
         }
-        OrderStatus.of(order.getStatus()).assertTransitionTo(OrderStatus.PENDING_SHIPMENT, "支付");
 
-        order.setStatus(OrderStatus.PENDING_SHIPMENT.getCode());
-        order.setPayTime(LocalDateTime.now());
-        orderMapper.updateById(order);
+        int affected = orderMapper.update(null, new LambdaUpdateWrapper<Order>()
+                .eq(Order::getOrderNo, orderNo)
+                .eq(Order::getStatus, OrderStatus.PENDING_PAYMENT.getCode())
+                .set(Order::getStatus, OrderStatus.PENDING_SHIPMENT.getCode())
+                .set(Order::getPayTime, LocalDateTime.now()));
+        if (affected == 0) {
+            throw BizException.conflict("订单状态已变更，请刷新后重试");
+        }
+    }
+
+    /**
+     * 超时关单：待付款订单超过支付时限后关闭并回补库存。
+     *
+     * <p>由 MQ 死信消费者调用，必须幂等：订单不存在、或已不是待付款（已支付/已取消/已关闭）
+     * 都直接跳过，不抛异常。落库同样使用「带状态条件的 UPDATE」抢占，
+     * 与支付回调并发时只有一个能改成功，因此不会出现「已付款订单被关单并回补库存」。</p>
+     *
+     * @param orderNo 订单号
+     */
+    @Transactional
+    public void closeTimeout(String orderNo) {
+        if (orderMapper.selectOne(new LambdaQueryWrapper<Order>()
+                .eq(Order::getOrderNo, orderNo)) == null) {
+            log.info("超时关单：订单 {} 不存在，跳过", orderNo);
+            return;
+        }
+
+        int affected = orderMapper.update(null, new LambdaUpdateWrapper<Order>()
+                .eq(Order::getOrderNo, orderNo)
+                .eq(Order::getStatus, OrderStatus.PENDING_PAYMENT.getCode())
+                .set(Order::getStatus, OrderStatus.TIMEOUT_CLOSED.getCode())
+                .set(Order::getCancelTime, LocalDateTime.now()));
+        if (affected == 0) {
+            log.info("超时关单：订单 {} 当前已非待付款，跳过", orderNo);
+            return;
+        }
+
+        // 只有成功抢到状态流转才回补库存，保证不会重复回补
+        restoreStock(orderNo);
+        log.info("超时关单成功：{}", orderNo);
     }
 
     /** 按订单号取订单并校验归属；他人的订单按不存在处理。 */
     public Order getOwned(Long userId, String orderNo) {
+        Order order = loadByOrderNo(orderNo);
+        if (!userId.equals(order.getUserId())) {
+            throw BizException.notFound("订单不存在");
+        }
+        return order;
+    }
+
+    /** 按订单号取订单；不存在则抛 404。 */
+    private Order loadByOrderNo(String orderNo) {
         Order order = orderMapper.selectOne(
                 new LambdaQueryWrapper<Order>().eq(Order::getOrderNo, orderNo));
-        if (order == null || !userId.equals(order.getUserId())) {
+        if (order == null) {
             throw BizException.notFound("订单不存在");
         }
         return order;

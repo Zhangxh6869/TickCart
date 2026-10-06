@@ -77,6 +77,12 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
+        <!-- 消息队列：RabbitMQ（阶段2 启用：订单超时延迟队列 + 死信关单） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
         <!-- 数据库：MySQL 驱动 -->
         <dependency>
             <groupId>com.mysql</groupId>

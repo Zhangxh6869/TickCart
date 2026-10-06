@@ -45,6 +45,21 @@ spring:
       database: ${REDIS_DATABASE:0}
       timeout: 3s
 
+  # ---------------------------------------------------------------------------
+  # RabbitMQ（阶段2 启用：订单超时延迟队列 + 死信关单）
+  # 队列/交换机声明见 com.tickcart.common.mq.OrderMqConfig
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        # 手动 ack：成功/重投/丢弃由 OrderTimeoutConsumer 自行决定
+        acknowledge-mode: manual
+        prefetch: 10
+
 # -----------------------------------------------------------------------------
 # TickCart 自定义配置
 # -----------------------------------------------------------------------------
@@ -63,6 +78,10 @@ tickcart:
     mock-code: ${SMS_MOCK_CODE:123456}
     # 验证码有效期（秒）
     code-expire-seconds: 300
+  # 订单
+  order:
+    # 待付款订单自动关闭时限（毫秒），即 trade.order.timeout 队列的 TTL
+    timeout-ttl-ms: ${ORDER_TIMEOUT_TTL_MS:900000}
 
 # -----------------------------------------------------------------------------
 # MyBatis-Plus 配置

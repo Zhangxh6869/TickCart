@@ -1,11 +1,15 @@
 package com.tickcart.trade.service;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tickcart.cart.service.CartService;
 import com.tickcart.cart.vo.CartItemVO;
 import com.tickcart.cart.vo.CartSummary;
 import com.tickcart.common.exception.BizException;
+import com.tickcart.common.mq.OrderMessageProducer;
 import com.tickcart.member.entity.UserAddress;
 import com.tickcart.member.service.AddressService;
 import com.tickcart.trade.dto.OrderCreateRequest;
@@ -17,6 +21,8 @@ import com.tickcart.trade.mapper.OrderItemMapper;
 import com.tickcart.trade.mapper.OrderMapper;
 import com.tickcart.trade.vo.OrderDetailVO;
 import com.tickcart.trade.vo.OrderVO;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,6 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -57,9 +64,21 @@ class OrderServiceTest {
     private CartService cartService;
     @Mock
     private InventoryService inventoryService;
+    @Mock
+    private OrderMessageProducer orderMessageProducer;
 
     @InjectMocks
     private OrderService orderService;
+
+    /**
+     * 纯单元测试没有 Spring 容器，而 {@code LambdaUpdateWrapper.set(SFunction, value)}
+     * 会立即解析列名，需先手动初始化实体的 TableInfo 缓存，否则报 "can not find lambda cache"。
+     */
+    @BeforeAll
+    static void initTableInfo() {
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""), Order.class);
+    }
 
     private UserAddress address() {
         UserAddress a = new UserAddress();
@@ -147,6 +166,8 @@ class OrderServiceTest {
 
         verify(inventoryService).deduct(10L, 0L, 2);
         verify(cartService).deleteChecked(UID);
+        // 下单后必须投递超时延迟消息，否则订单永远不会自动关闭
+        verify(orderMessageProducer).sendOrderTimeout(result.getOrderNo());
     }
 
     @Test
@@ -311,6 +332,80 @@ class OrderServiceTest {
         assertThatThrownBy(() -> orderService.confirm(UID, "NO5"))
                 .isInstanceOf(BizException.class)
                 .hasMessage("订单当前为「待付款」，无法确认收货");
+    }
+
+    // ---------------- 支付推进与超时关单 ----------------
+
+    @Test
+    @DisplayName("支付成功：待付款置为待发货并写支付时间")
+    void markPaidAdvancesStatus() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO12", UID, OrderStatus.PENDING_PAYMENT));
+        when(orderMapper.update(ArgumentMatchers.<Order>isNull(), any())).thenReturn(1);
+
+        orderService.markPaid("NO12");
+
+        verify(orderMapper).update(ArgumentMatchers.<Order>isNull(), any());
+    }
+
+    @Test
+    @DisplayName("已支付订单不能重复推进")
+    void markPaidRejectedWhenNotPending() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO13", UID, OrderStatus.PENDING_SHIPMENT));
+
+        assertThatThrownBy(() -> orderService.markPaid("NO13"))
+                .isInstanceOf(BizException.class)
+                .hasMessage("订单当前为「待发货」，无法支付");
+        verify(orderMapper, never()).update(any(), any());
+    }
+
+    @Test
+    @DisplayName("并发下状态被抢先变更时支付失败")
+    void markPaidRejectedWhenConcurrentUpdateLoses() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO14", UID, OrderStatus.PENDING_PAYMENT));
+        when(orderMapper.update(ArgumentMatchers.<Order>isNull(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> orderService.markPaid("NO14"))
+                .isInstanceOf(BizException.class)
+                .hasMessage("订单状态已变更，请刷新后重试");
+    }
+
+    @Test
+    @DisplayName("超时关单：待付款订单关闭并回补库存")
+    void closeTimeoutPendingOrder() {
+        OrderItem item = new OrderItem();
+        item.setProductId(10L);
+        item.setSkuId(5L);
+        item.setQuantity(2);
+        when(orderMapper.selectOne(any())).thenReturn(order("NO15", UID, OrderStatus.PENDING_PAYMENT));
+        when(orderMapper.update(ArgumentMatchers.<Order>isNull(), any())).thenReturn(1);
+        when(orderItemMapper.selectList(any())).thenReturn(List.of(item));
+
+        orderService.closeTimeout("NO15");
+
+        verify(orderMapper).update(ArgumentMatchers.<Order>isNull(), any());
+        verify(inventoryService).restore(10L, 5L, 2);
+    }
+
+    @Test
+    @DisplayName("超时关单幂等：已支付订单不关单、不回补库存")
+    void closeTimeoutSkipsPaidOrder() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO16", UID, OrderStatus.PENDING_SHIPMENT));
+        when(orderMapper.update(ArgumentMatchers.<Order>isNull(), any())).thenReturn(0);
+
+        orderService.closeTimeout("NO16");
+
+        verifyNoInteractions(inventoryService);
+    }
+
+    @Test
+    @DisplayName("超时关单幂等：订单不存在时静默跳过")
+    void closeTimeoutSkipsUnknownOrder() {
+        when(orderMapper.selectOne(any())).thenReturn(null);
+
+        orderService.closeTimeout("NO_MISSING");
+
+        verify(orderMapper, never()).update(any(), any());
+        verifyNoInteractions(inventoryService);
     }
 
     // ---------------- 查询 ----------------
