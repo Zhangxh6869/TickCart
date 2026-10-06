@@ -18,12 +18,12 @@ import TabBarLayout from '@/layouts/TabBarLayout.vue'
 
 :root {
   /* 页面背景色：同步覆盖 Vant 的页面背景变量，避免 van-image 等组件仍用旧的灰色底 */
-  --van-background: rgb(245, 240, 232);
+  --van-background: rgb(255, 255, 255);
 }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', sans-serif;
-  background: rgb(245, 240, 232);
+  background: rgb(255, 255, 255);
   color: #323233;
 }
 </style>

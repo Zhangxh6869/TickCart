@@ -89,7 +89,7 @@ function goAll() {
 <style scoped>
 .home {
   /* 品牌绿，用于搜索框描边 */
-  --color-brand: rgb(125, 155, 118);
+  --color-brand: rgb(107, 163, 200);
   /* 搜索图标与「搜索商品」占位文字共用的颜色 */
   --color-search-icon: #515151;
   /* 用 padding 而非给搜索框加 margin-top：否则 margin 会塌陷穿透 .layout，凭空多出 12px 页面高度 */
@@ -104,7 +104,7 @@ function goAll() {
   padding: 2px; /* 内部元素与边框保持 2px 间距 */
   border: 2px solid var(--color-brand);
   border-radius: 6px;
-  background: rgb(220, 229, 212); /* #DCE5D4，搜索框底色 */
+  background: rgb(232, 240, 248); /* #DCE5D4，搜索框底色 */
 }
 /* 自定义搜索图标：尺寸对齐 Vant 默认图标（--van-field-icon-size = 18px），颜色走 currentColor */
 .search-icon {
