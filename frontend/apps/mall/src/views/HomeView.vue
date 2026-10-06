@@ -105,44 +105,47 @@ onMounted(async () => {
 
 <template>
   <div class="home">
-    <van-search
-      placeholder="搜索商品"
-      readonly
-      show-action
-      @click="goList"
-    >
-      <template #left-icon>
-        <svg
-          class="search-icon"
-          viewBox="0 0 1024 1024"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden="true"
-        >
-          <path
-            d="M932.571429 493.714286C932.571429 261.485714 744.228571 73.142857 512 73.142857S91.428571 261.485714 91.428571 493.714286s188.342857 420.571429 420.571429 420.571428c89.6 0 171.885714-27.428571 239.542857-74.971428l111.542857 111.542857 51.2-51.2-106.057143-106.057143c76.8-76.8 124.342857-182.857143 124.342858-299.885714zM164.571429 493.714286C164.571429 301.714286 320 146.285714 512 146.285714s347.428571 155.428571 347.428571 347.428572-155.428571 347.428571-347.428571 347.428571S164.571429 685.714286 164.571429 493.714286z"
-            fill="currentColor"
-          />
-        </svg>
-      </template>
-      <template #action>
-        <button class="search-btn" type="button" @click.stop="goList">搜索</button>
-      </template>
-    </van-search>
-
-    <!-- 分类栏：搜索栏下方一行；「全部」钉在左侧不动，其余分类横向滑动，点击后原地切换下方商品 -->
-    <div ref="catBarRef" class="cat-bar">
-      <div
-        v-for="tab in categoryTabs"
-        :key="tab.id ?? 'all'"
-        class="cat-bar__item"
-        :class="{
-          'is-active': activeCategoryId === tab.id,
-          'cat-bar__item--pinned': tab.id === null,
-        }"
-        @click="selectCategory(tab.id)"
+    <!-- 吸顶区：搜索栏 + 分类栏作为整体钉在页面顶部，纵向滚动时保持不动 -->
+    <div class="home__sticky">
+      <van-search
+        placeholder="搜索商品"
+        readonly
+        show-action
+        @click="goList"
       >
-        <span class="cat-bar__name">{{ tab.name }}</span>
-        <span class="cat-bar__bar" />
+        <template #left-icon>
+          <svg
+            class="search-icon"
+            viewBox="0 0 1024 1024"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M932.571429 493.714286C932.571429 261.485714 744.228571 73.142857 512 73.142857S91.428571 261.485714 91.428571 493.714286s188.342857 420.571429 420.571429 420.571428c89.6 0 171.885714-27.428571 239.542857-74.971428l111.542857 111.542857 51.2-51.2-106.057143-106.057143c76.8-76.8 124.342857-182.857143 124.342858-299.885714zM164.571429 493.714286C164.571429 301.714286 320 146.285714 512 146.285714s347.428571 155.428571 347.428571 347.428572-155.428571 347.428571-347.428571 347.428571S164.571429 685.714286 164.571429 493.714286z"
+              fill="currentColor"
+            />
+          </svg>
+        </template>
+        <template #action>
+          <button class="search-btn" type="button" @click.stop="goList">搜索</button>
+        </template>
+      </van-search>
+
+      <!-- 分类栏：搜索栏下方一行；「全部」钉在左侧不动，其余分类横向滑动，点击后原地切换下方商品 -->
+      <div ref="catBarRef" class="cat-bar">
+        <div
+          v-for="tab in categoryTabs"
+          :key="tab.id ?? 'all'"
+          class="cat-bar__item"
+          :class="{
+            'is-active': activeCategoryId === tab.id,
+            'cat-bar__item--pinned': tab.id === null,
+          }"
+          @click="selectCategory(tab.id)"
+        >
+          <span class="cat-bar__name">{{ tab.name }}</span>
+          <span class="cat-bar__bar" />
+        </div>
       </div>
     </div>
 
@@ -162,8 +165,19 @@ onMounted(async () => {
   --color-brand: rgb(107, 163, 200);
   /* 搜索图标与「搜索商品」占位文字共用的颜色 */
   --color-search-icon: #515151;
-  /* 用 padding 而非给搜索框加 margin-top：否则 margin 会塌陷穿透 .layout，凭空多出 12px 页面高度 */
+}
+/* 吸顶区：搜索栏 + 分类栏作为整体钉在页面顶部，纵向滚动时保持不动。
+   背景必须是不透明实底，否则下方商品会从吸顶区后面透出来；
+   z-index 让吸顶区盖在 .section 之上（sticky 已是定位元素，写死 z-index 更稳妥）。 */
+.home__sticky {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  /* 吸顶后本区即页面最顶部，原本 .home 上的 12px 顶部留白挪到这里：
+     静止时版面与改动前逐像素一致（搜索栏 bottom 54、分类栏 54~98、商品区 top 110）。
+     仍用 padding 而非给搜索框加 margin-top——margin 会塌陷穿透出去凭空多出 12px 高度 */
   padding-top: 12px;
+  background: var(--van-background);
 }
 /* 搜索区：整个 van-search 作为圆角长方形容器（品牌绿描边），按钮嵌在容器内部 */
 .home :deep(.van-search) {
