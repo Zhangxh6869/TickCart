@@ -230,12 +230,14 @@ onMounted(async () => {
      钉住的「全部」需要把右侧那段间距一起画进自己的背景里（见下） */
   /* 按首行基线对齐：选中项放大后，其余分类名仍与其处在同一水平线上 */
   align-items: baseline;
-  /* 高度写死 44px（含 12px 上内边距，内容区 32px）：
+  /* 高度写死 44px（含 16px 上内边距，内容区 28px）：
      选中项字号是 0.15s 过渡，切换途中新旧两项都经过 16px，行高（取最高项）会先降后升，
      不写死的话下方商品区会跟着上下抖一下 */
   height: 44px;
-  /* 左内边距交给钉住的「全部」项自己承担（见下），否则滚动时分类名会从它左侧那 12px 里漏出来 */
-  padding: 12px 12px 0 0;
+  /* 左内边距交给钉住的「全部」项自己承担（见下），否则滚动时分类名会从它左侧那 12px 里漏出来。
+     上内边距 16px 与 .cat-bar__name 的行高 22px 是一对：两者相加正好 44px 填满高度，
+     并让名称基线与小横杆都停在改动前的位置（基线 y=87、横杆 95~98） */
+  padding: 16px 12px 0 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
@@ -275,14 +277,23 @@ onMounted(async () => {
   font-weight: 500;
   color: #646566;
   white-space: nowrap;
-  /* 0.15s 的加速过渡：点中后名称迅速放大变深 */
-  transition: font-size 0.15s ease-out, color 0.15s ease-out;
+  /* 行高写死 22px：名称盒高不随选中状态变化（放大走 transform，不占布局），
+     小横杆的纵向位置才不会跟着动；22px 与容器的上内边距 16px 配套，合计 44px */
+  line-height: 22px;
+  /* 0.15s 的加速过渡：点中后名称迅速放大变深。
+     放大走 transform 而不是 font-size —— transform 不参与布局，
+     所以既没有横向回流，也不会让 flex 的基线锚点（由最高项决定）浮动 */
+  transition: transform 0.15s ease-out, color 0.15s ease-out;
 }
-/* 选中态：名称放大、加粗、颜色加深 */
+/* 选中态：名称放大、加粗、颜色加深。
+   1.2857 = 18 / 14，即把 14px 等效放大到 18px（改字号要同步改这个比值）；
+   translateY 抵消「绕盒中心缩放会把基线推低」的量 = (scale - 1) × 6px ≈ 1.72px，
+   其中 6px 是本项目字体栈在 14px 下「基线到行盒中心」的距离，换字体需重新量；
+   两项用同一条缓动同步插值，故每一帧都精确抵消 */
 .cat-bar__item.is-active .cat-bar__name {
-  font-size: 18px;
   font-weight: 700;
   color: #323233;
+  transform: translateY(-1.72px) scale(1.2857);
 }
 /* 小横杆：仅选中项显示，未选中时保留占位（避免切换时整行高度跳动） */
 .cat-bar__bar {
