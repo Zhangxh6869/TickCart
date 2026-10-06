@@ -112,6 +112,10 @@ public class CartService {
             throw BizException.badRequest("购买数量必须大于 0");
         }
 
+        // 唯一键不含 deleted 列：先物理清掉同规格的历史逻辑删除残留，
+        // 否则用户「删掉再加回来」会撞唯一键报错
+        cartItemMapper.purgeDeleted(userId, product.getId(), skuId);
+
         CartItem existing = cartItemMapper.selectOne(new LambdaQueryWrapper<CartItem>()
                 .eq(CartItem::getUserId, userId)
                 .eq(CartItem::getProductId, product.getId())

@@ -130,6 +130,19 @@ class CartServiceTest {
     }
 
     @Test
+    @DisplayName("加购前清理同规格的历史逻辑删除残留（避免撞唯一键）")
+    void addPurgesDeletedResidue() {
+        when(productMapper.selectById(1L)).thenReturn(product(1L, 1, 100));
+        when(productSkuMapper.selectById(7L)).thenReturn(sku(7L, 1L, "88.00", 10));
+        when(cartItemMapper.selectOne(any())).thenReturn(null);
+        when(cartItemMapper.insert(any(CartItem.class))).thenReturn(1);
+
+        cartService.add(UID, addReq(1L, 7L, 1));
+
+        verify(cartItemMapper).purgeDeleted(UID, 1L, 7L);
+    }
+
+    @Test
     @DisplayName("合并后超过单件上限时拒绝")
     void addBeyondMaxQuantity() {
         when(productMapper.selectById(1L)).thenReturn(product(1L, 1, 100));
