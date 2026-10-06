@@ -73,6 +73,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '个人中心', requiresAuth: true, depth: 1 },
   },
   {
+    path: '/cart',
+    name: 'cart',
+    component: () => import('@/views/CartView.vue'),
+    meta: { title: '购物车', requiresAuth: true, depth: 1 },
+  },
+  {
     path: '/address',
     name: 'address',
     component: () => import('@/views/AddressListView.vue'),

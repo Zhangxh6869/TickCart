@@ -134,3 +134,41 @@ export interface AddressSaveRequest {
   /** 是否设为默认 0否 1是；编辑时传 1 才生效 */
   isDefault?: number
 }
+
+/** 购物车项（购物车记录 + 商品/SKU 实时信息）。 */
+export interface CartItem {
+  id: number
+  productId: number
+  skuId: number
+  quantity: number
+  /** 是否勾选 0否 1是 */
+  checked: number
+  productName: string
+  productImage?: string | null
+  specValue?: string | null
+  price: number
+  stock: number
+  subtotal: number
+  /** 商品下架 / 规格删除 / 库存不足时为 false */
+  valid: boolean
+  invalidReason?: string | null
+}
+
+/** 购物车汇总。 */
+export interface CartSummary {
+  items: CartItem[]
+  /** 勾选且有效的总件数 */
+  checkedCount: number
+  /** 勾选且有效的合计金额 */
+  checkedAmount: number
+  /** 购物车项总条数 */
+  totalCount: number
+}
+
+/** 加入购物车请求。 */
+export interface CartAddRequest {
+  productId: number
+  /** 无规格商品传 0 或省略 */
+  skuId?: number
+  quantity: number
+}

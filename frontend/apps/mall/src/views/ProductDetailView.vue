@@ -5,9 +5,13 @@ import { showToast } from 'vant'
 import type { ProductDetail, ProductSku } from '@tickcart/shared-types'
 import { formatCount, formatPrice } from '@tickcart/shared-utils'
 import { fetchProductDetail } from '@/api/product'
+import { useCartStore } from '@/stores/cart'
+import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
 const router = useRouter()
+const cartStore = useCartStore()
+const userStore = useUserStore()
 
 const detail = ref<ProductDetail | null>(null)
 const loading = ref(true)
@@ -94,27 +98,47 @@ function onShare() {
 }
 
 function onCart() {
-  showToast('购物车将在阶段2开通')
+  if (!requireLogin()) return
+  router.push({ name: 'cart' })
 }
 
 function onFavorite() {
   showToast('收藏功能将在阶段2开通')
 }
 
-function onAddToCart() {
-  if (!canBuy.value) {
-    showToast('该规格已售罄')
-    return
-  }
-  showToast('加入购物车功能将在阶段2开通')
+/** 需要登录的操作统一走这里：未登录时带 redirect 跳登录页 */
+function requireLogin(): boolean {
+  if (userStore.isLoggedIn) return true
+  router.push({ name: 'login', query: { redirect: route.fullPath } })
+  return false
 }
 
-function onBuyNow() {
+async function onAddToCart() {
   if (!canBuy.value) {
     showToast('该规格已售罄')
     return
   }
-  showToast('立即购买功能将在阶段2开通')
+  if (!requireLogin()) return
+  try {
+    await cartStore.add(detail.value!.id, 1, selectedSku.value?.id ?? 0)
+    showToast('已加入购物车')
+  } catch {
+    // 库存不足等错误提示由请求拦截器统一处理
+  }
+}
+
+async function onBuyNow() {
+  if (!canBuy.value) {
+    showToast('该规格已售罄')
+    return
+  }
+  if (!requireLogin()) return
+  try {
+    await cartStore.add(detail.value!.id, 1, selectedSku.value?.id ?? 0)
+    router.push({ name: 'cart' })
+  } catch {
+    // 库存不足等错误提示由请求拦截器统一处理
+  }
 }
 </script>
 
