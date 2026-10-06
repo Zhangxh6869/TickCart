@@ -73,6 +73,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '个人中心', requiresAuth: true, depth: 1 },
   },
   {
+    path: '/address',
+    name: 'address',
+    component: () => import('@/views/AddressListView.vue'),
+    meta: { title: '收货地址', requiresAuth: true, depth: 2 },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('@/views/NotFoundView.vue'),

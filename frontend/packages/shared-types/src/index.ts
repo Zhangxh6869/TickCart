@@ -106,3 +106,31 @@ export interface ProductQuery {
   sortBy?: string
   order?: string
 }
+
+/** 收货地址。 */
+export interface UserAddress {
+  id: number
+  userId: number
+  receiver: string
+  phone: string
+  province: string
+  city: string
+  district: string
+  detail: string
+  /** 是否默认 0否 1是 */
+  isDefault: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+/** 收货地址新增/编辑请求。 */
+export interface AddressSaveRequest {
+  receiver: string
+  phone: string
+  province: string
+  city: string
+  district: string
+  detail: string
+  /** 是否设为默认 0否 1是；编辑时传 1 才生效 */
+  isDefault?: number
+}

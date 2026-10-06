@@ -25,7 +25,7 @@ async function onLogout() {
 
     <van-cell-group inset class="member__cells">
       <van-cell title="我的订单" is-link value="阶段2开通" />
-      <van-cell title="收货地址" is-link value="阶段2开通" />
+      <van-cell title="收货地址" is-link @click="router.push({ name: 'address' })" />
       <van-cell title="我的收藏" is-link value="阶段2开通" />
     </van-cell-group>
 
