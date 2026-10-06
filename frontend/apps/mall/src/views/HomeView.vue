@@ -21,12 +21,6 @@ const categoryTabs = computed<{ id: number | null; name: string }[]>(() => [
   ...categories.value.map((cat) => ({ id: cat.id as number | null, name: cat.name })),
 ])
 
-/** 商品区标题：全部时是热销榜，选中分类时是分类名 */
-const productTitle = computed(() => {
-  if (activeCategoryId.value === null) return '热销商品'
-  return categories.value.find((cat) => cat.id === activeCategoryId.value)?.name ?? '热销商品'
-})
-
 // 请求序号：连点分类时丢弃过期响应，避免先发的慢请求覆盖后发的快请求
 let requestSeq = 0
 // 居中滚动序号：连点分类时丢弃过期的滚动，避免两次滚动互相打架
@@ -153,10 +147,6 @@ onMounted(async () => {
     </div>
 
     <div class="section">
-      <div class="section__header">
-        <span class="section__title">{{ productTitle }}</span>
-        <span class="section__more" @click="goList">更多 ›</span>
-      </div>
       <van-loading v-if="loading" class="loading" />
       <van-empty v-else-if="products.length === 0" description="暂无商品" />
       <div v-else class="product-grid">
@@ -230,9 +220,11 @@ onMounted(async () => {
      钉住的「全部」需要把右侧那段间距一起画进自己的背景里（见下） */
   /* 按首行基线对齐：选中项放大后，其余分类名仍与其处在同一水平线上 */
   align-items: baseline;
-  /* 高度写死 44px（含 16px 上内边距，内容区 28px）：
-     选中项字号是 0.15s 过渡，切换途中新旧两项都经过 16px，行高（取最高项）会先降后升，
-     不写死的话下方商品区会跟着上下抖一下 */
+  /* 高度写死 44px（16px 上内边距 + 28px 内容区）。
+     内容区 28px = 名称行高 22px + 间距 3px + 小横杆 3px，本身已恒定：
+     选中态放大走 transform（不占布局），名称盒高不随切换变化。
+     这里再写死一次是为了兜底——将来若误把放大改回 font-size，
+     行高（flex 取最高项）就会先降后升，下方商品区会跟着上下抖一下 */
   height: 44px;
   /* 左内边距交给钉住的「全部」项自己承担（见下），否则滚动时分类名会从它左侧那 12px 里漏出来。
      上内边距 16px 与 .cat-bar__name 的行高 22px 是一对：两者相加正好 44px 填满高度，
@@ -309,77 +301,13 @@ onMounted(async () => {
   opacity: 1;
   transform: scaleX(1);
 }
-.section__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-.section__title {
-  font-size: 16px;
-  font-weight: 600;
-}
-.section__more {
-  font-size: 13px;
-  color: #969799;
-}
-/* 首页热销商品：一行 5 个的小卡片网格（仅首页，商品列表页不受影响） */
+/* 首页商品网格：一行两个（与商品列表页一致）。
+   两列后卡片宽度充足，直接沿用 ProductCard 的默认样式，不再为挤进一行而压缩字号/隐藏信息 */
 .product-grid {
   display: grid;
-  /* minmax(0, 1fr) 而非 1fr：否则列宽会被卡片内文字的最小内容宽度撑开，导致 5 列溢出 */
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px;
-}
-/* 商品图：竖版长方形（宽:高 = 3:4） */
-.product-grid :deep(.product-card__image) {
-  aspect-ratio: 3 / 4;
-}
-.product-grid :deep(.product-card) {
-  border-radius: 4px;
-}
-/* 移动端优先：窄屏下每张卡仅约 1/5 屏宽，压缩内边距与字号并隐藏次要信息，避免文字溢出 */
-.product-grid :deep(.product-card__body) {
-  padding: 4px 2px;
-}
-.product-grid :deep(.product-card__name) {
-  font-size: 11px;
-}
-.product-grid :deep(.product-card__subtitle),
-.product-grid :deep(.product-card__sales) {
-  display: none;
-}
-.product-grid :deep(.product-card__footer) {
-  justify-content: center;
-  margin-top: 4px;
-}
-.product-grid :deep(.product-card__price) {
-  font-size: 11px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* 宽屏（PC）下卡片随之变宽，恢复完整信息与常规字号 */
-@media (min-width: 600px) {
-  .product-grid :deep(.product-card__body) {
-    padding: 8px;
-  }
-  .product-grid :deep(.product-card__name) {
-    font-size: 14px;
-  }
-  .product-grid :deep(.product-card__subtitle) {
-    display: block;
-  }
-  .product-grid :deep(.product-card__sales) {
-    display: inline;
-  }
-  .product-grid :deep(.product-card__footer) {
-    justify-content: space-between;
-    margin-top: 6px;
-  }
-  .product-grid :deep(.product-card__price) {
-    font-size: 16px;
-  }
+  /* minmax(0, 1fr) 而非 1fr：否则列宽会被卡片内文字的最小内容宽度撑开而溢出 */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 .loading {
   padding: 20px;
