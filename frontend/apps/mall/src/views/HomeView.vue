@@ -13,7 +13,7 @@ const loading = ref(true)
 /** 当前选中的分类；null 表示「全部」（首页默认，展示热销榜） */
 const activeCategoryId = ref<number | null>(null)
 
-/** 分类栏数据：首项固定为「全部」，其余为接口返回的启用分类 */
+/** 分类栏数据：首项固定为「全部」（渲染时钉在分类栏最左侧，不随其余分类横向滑动） */
 const categoryTabs = computed<{ id: number | null; name: string }[]>(() => [
   { id: null, name: '全部' },
   ...categories.value.map((cat) => ({ id: cat.id as number | null, name: cat.name })),
@@ -102,13 +102,16 @@ onMounted(async () => {
       </template>
     </van-search>
 
-    <!-- 分类栏：搜索栏下方一行，横向可滑动，点击后原地切换下方商品 -->
+    <!-- 分类栏：搜索栏下方一行；「全部」钉在左侧不动，其余分类横向滑动，点击后原地切换下方商品 -->
     <div class="cat-bar">
       <div
         v-for="tab in categoryTabs"
         :key="tab.id ?? 'all'"
         class="cat-bar__item"
-        :class="{ 'is-active': activeCategoryId === tab.id }"
+        :class="{
+          'is-active': activeCategoryId === tab.id,
+          'cat-bar__item--pinned': tab.id === null,
+        }"
         @click="selectCategory(tab.id)"
       >
         <span class="cat-bar__name">{{ tab.name }}</span>
@@ -190,11 +193,12 @@ onMounted(async () => {
 /* 分类栏：紧贴搜索栏下方，单行横向排列，超出部分横向滚动（隐藏滚动条） */
 .cat-bar {
   display: flex;
-  gap: 20px;
+  /* 项间距用 .cat-bar__item 的 margin-right 实现，不用 gap：
+     钉住的「全部」需要把右侧那段间距一起画进自己的背景里（见下） */
   /* 按首行基线对齐：选中项放大后，其余分类名仍与其处在同一水平线上 */
   align-items: baseline;
-  /* 与搜索框（margin 0 12px）左对齐，右侧留白靠 overflow 自然延伸 */
-  padding: 12px 12px 0;
+  /* 左内边距交给钉住的「全部」项自己承担（见下），否则滚动时分类名会从它左侧那 12px 里漏出来 */
+  padding: 12px 12px 0 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
@@ -210,7 +214,26 @@ onMounted(async () => {
   gap: 3px;
   /* 不被 flex 压缩，保证横向滚动而不是挤成一团 */
   flex: 0 0 auto;
+  /* 项间距 */
+  margin-right: 20px;
   cursor: pointer;
+}
+.cat-bar__item:last-child {
+  margin-right: 0;
+}
+/* 「全部」钉在分类栏最左侧：横向滑动时原地不动，其余分类从它后面滑过 */
+.cat-bar__item--pinned {
+  position: sticky;
+  left: 0;
+  /* 左 12px：自身盒子贴住滚动区左边缘（x=0），文字被顶到 12px，与搜索框左对齐；
+     右 32px：把「项间距」一并画进背景，让滑到它后面的分类名从标签外侧才露出来，
+     否则紧贴着「全部」露半截会连读成一个词（如「全部洗护」） */
+  padding: 0 32px 0 12px;
+  margin-right: 0;
+  /* 背景在最后 20px 由页面底色渐隐到透明：被压住的分类名柔和淡出而不是硬切；
+     前 12px 仍是实底，保证「全部」四周是干净的整块留白 */
+  background: linear-gradient(to right, var(--van-background) calc(100% - 20px), transparent);
+  z-index: 1;
 }
 .cat-bar__name {
   font-size: 14px;
