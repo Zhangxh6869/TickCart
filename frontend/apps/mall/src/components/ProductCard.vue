@@ -67,8 +67,9 @@ const router = useRouter()
   align-items: baseline;
   margin-top: 6px;
 }
+/* 价格用正文色，不用电商惯用的红色（开发者要求，勿改回 #ee0a24） */
 .product-card__price {
-  color: #ee0a24;
+  color: #323233;
   font-size: 16px;
   font-weight: 600;
 }
