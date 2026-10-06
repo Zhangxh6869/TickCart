@@ -178,6 +178,15 @@ onMounted(async () => {
      仍用 padding 而非给搜索框加 margin-top——margin 会塌陷穿透出去凭空多出 12px 高度 */
   padding-top: 12px;
   background: var(--van-background);
+  /* 底部分隔：1px 发丝线给出明确的分界，下面再叠一层 8px 柔影避免像硬边框。
+     阴影画在盒子外侧（向下 1~10px），落在 .section 的 12px 上外边距和卡片顶部；
+     吸顶区 z-index 更高，阴影不会被 .section 盖住。
+     强度实测（390px 视口，量边界下方像素灰度，纯白 = 255）：
+       单层 0 1px 4px rgba(0,0,0,.08) → 最深 244（仅差 11，几乎看不出，故弃用）
+       本组合 → 最深 221（差 34），再经约 10px 渐变回纯白 */
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.08),
+    0 2px 8px rgba(0, 0, 0, 0.1);
 }
 /* 搜索区：整个 van-search 作为圆角长方形容器（品牌绿描边），按钮嵌在容器内部 */
 .home :deep(.van-search) {
