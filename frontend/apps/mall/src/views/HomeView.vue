@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import type { Category, ProductListItem } from '@tickcart/shared-types'
@@ -10,6 +10,8 @@ const router = useRouter()
 const categories = ref<Category[]>([])
 const products = ref<ProductListItem[]>([])
 const loading = ref(true)
+/** 分类栏元素，用于把选中的分类滚到屏幕中间 */
+const catBarRef = ref<HTMLElement | null>(null)
 /** 当前选中的分类；null 表示「全部」（首页默认，展示热销榜） */
 const activeCategoryId = ref<number | null>(null)
 
@@ -27,6 +29,35 @@ const productTitle = computed(() => {
 
 // 请求序号：连点分类时丢弃过期响应，避免先发的慢请求覆盖后发的快请求
 let requestSeq = 0
+// 居中滚动序号：连点分类时丢弃过期的滚动，避免两次滚动互相打架
+let centerSeq = 0
+
+/** 把当前选中的分类横向滚到分类栏可视区的正中间。 */
+function scrollActiveToCenter(token: number) {
+  const bar = catBarRef.value
+  if (!bar || token !== centerSeq) return
+  // 「全部」钉在最左侧、无法居中，此时直接回到起点
+  if (activeCategoryId.value === null) {
+    bar.scrollTo({ left: 0, behavior: 'smooth' })
+    return
+  }
+  const item = bar.querySelector<HTMLElement>('.cat-bar__item.is-active')
+  if (!item) return
+  const barRect = bar.getBoundingClientRect()
+  const itemRect = item.getBoundingClientRect()
+  // 选中项中心当前相对可视区左缘的偏移，换算成让它落在可视区中点所需的 scrollLeft
+  const centerOffset = itemRect.left + itemRect.width / 2 - barRect.left
+  const left = Math.max(0, bar.scrollLeft + centerOffset - bar.clientWidth / 2)
+  bar.scrollTo({ left, behavior: 'smooth' })
+}
+
+/** 选中项字号有 0.15s 过渡，宽度在过渡中还会变，所以等过渡结束再校正一次。 */
+async function centerActiveCategory() {
+  const token = ++centerSeq
+  await nextTick()
+  scrollActiveToCenter(token)
+  window.setTimeout(() => scrollActiveToCenter(token), 200)
+}
 
 /** 按当前选中的分类拉取首页商品（固定 8 条，按销量倒序）。 */
 async function loadProducts() {
@@ -51,11 +82,13 @@ async function loadProducts() {
   }
 }
 
-/** 切换分类：原地刷新下方商品，不跳转页面。 */
+/** 切换分类：原地刷新下方商品、不跳页，并把选中的分类滚到屏幕中间。 */
 function selectCategory(id: number | null) {
-  if (activeCategoryId.value === id) return
-  activeCategoryId.value = id
-  loadProducts()
+  if (activeCategoryId.value !== id) {
+    activeCategoryId.value = id
+    loadProducts()
+  }
+  centerActiveCategory()
 }
 
 /** 跳商品列表页，带上当前分类，保证列表页与首页看到的是同一批商品。 */
@@ -103,7 +136,7 @@ onMounted(async () => {
     </van-search>
 
     <!-- 分类栏：搜索栏下方一行；「全部」钉在左侧不动，其余分类横向滑动，点击后原地切换下方商品 -->
-    <div class="cat-bar">
+    <div ref="catBarRef" class="cat-bar">
       <div
         v-for="tab in categoryTabs"
         :key="tab.id ?? 'all'"
@@ -226,13 +259,11 @@ onMounted(async () => {
   position: sticky;
   left: 0;
   /* 左 12px：自身盒子贴住滚动区左边缘（x=0），文字被顶到 12px，与搜索框左对齐；
-     右 32px：把「项间距」一并画进背景，让滑到它后面的分类名从标签外侧才露出来，
-     否则紧贴着「全部」露半截会连读成一个词（如「全部洗护」） */
-  padding: 0 32px 0 12px;
+     右 16px：把「项间距」一并画进背景，滑到它后面的分类名从标签外侧才露出来 */
+  padding: 0 16px 0 12px;
   margin-right: 0;
-  /* 背景在最后 20px 由页面底色渐隐到透明：被压住的分类名柔和淡出而不是硬切；
-     前 12px 仍是实底，保证「全部」四周是干净的整块留白 */
-  background: linear-gradient(to right, var(--van-background) calc(100% - 20px), transparent);
+  /* 实底，与 App.vue 的页面底色同源：盖住滑到它后面的分类名 */
+  background: var(--van-background);
   z-index: 1;
 }
 .cat-bar__name {
