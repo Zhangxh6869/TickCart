@@ -23,11 +23,11 @@ const PAGE_SIZE = 10
 /**
  * 加载动画的最短展示时长。
  * 本机接口 ~10ms 就返回，动画会一闪而过、看起来像「商品凭空冒出来」，
- * 所以给动画兜一个下限：无论接口多快，都先让圆环转完**一圈半**再展示商品。
- * 圆环每 0.8s 转一圈（Vant 的 --van-loading-spinner-duration），1.5 圈 = 1200ms。
+ * 所以给动画兜一个下限：无论接口多快，都先让圆环完整转完**一圈**再展示商品。
+ * 圆环每 0.8s 转一圈（Vant 的 --van-loading-spinner-duration），1 圈 = 800ms。
  * 改这个值要同步改 .workbuddy-ai/tmp/cdp/home-loading-verify.mjs 里的同名常量。
  */
-const MIN_LOADING_MS = 1200
+const MIN_LOADING_MS = 800
 
 /** van-list 的加载态（由组件 v-model 驱动） */
 const listLoading = ref(false)
