@@ -29,6 +29,15 @@ public class ProductQuery {
     @Schema(description = "排序方向：asc / desc", example = "desc")
     private String order = "desc";
 
+    /**
+     * 随机种子。传入后忽略 {@link #sortBy} / {@link #order}，改为「随机排序 + 分页」。
+     *
+     * <p>同一个种子下顺序稳定，因此翻页既不重复也不漏项；换一个种子即换一批随机结果。
+     * 不传则按常规排序分页。</p>
+     */
+    @Schema(description = "随机种子；传入则按随机顺序分页（同种子顺序稳定，翻页不重复）", example = "20261007")
+    private Long seed;
+
     public Integer getPage() {
         return page == null || page < 1 ? 1 : page;
     }
@@ -86,5 +95,13 @@ public class ProductQuery {
 
     public void setOrder(String order) {
         this.order = order;
+    }
+
+    public Long getSeed() {
+        return seed;
+    }
+
+    public void setSeed(Long seed) {
+        this.seed = seed;
     }
 }

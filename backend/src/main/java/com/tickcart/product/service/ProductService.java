@@ -21,7 +21,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Random;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 商品服务：CRUD、上下架、改库存、列表/详情查询。
@@ -32,6 +39,9 @@ public class ProductService {
     /** 状态：上架 / 下架 */
     private static final int STATUS_ON = 1;
     private static final int STATUS_OFF = 0;
+
+    /** 随机分页时最多参与打乱的商品数，避免数据量变大后一次拉回整表 id。 */
+    private static final int RANDOM_POOL_LIMIT = 2000;
 
     private final ProductMapper productMapper;
     private final ProductSkuMapper skuMapper;
@@ -51,19 +61,16 @@ public class ProductService {
     /**
      * 商品分页列表。
      *
+     * <p>查询条件带 {@code seed} 时走随机分页（见 {@link #randomPage}），否则按常规排序分页。</p>
+     *
      * @param onlyOnSale 前台调用置 true，强制只查上架商品
      */
     public PageResult<ProductListItem> page(ProductQuery query, boolean onlyOnSale) {
-        LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<Product>()
-                .like(StringUtils.hasText(query.getKeyword()), Product::getName, query.getKeyword())
-                .eq(query.getCategoryId() != null, Product::getCategoryId, query.getCategoryId());
-
-        if (onlyOnSale) {
-            wrapper.eq(Product::getStatus, STATUS_ON);
-        } else if (query.getStatus() != null) {
-            wrapper.eq(Product::getStatus, query.getStatus());
+        if (query.getSeed() != null) {
+            return randomPage(query, onlyOnSale);
         }
 
+        LambdaQueryWrapper<Product> wrapper = filterWrapper(query, onlyOnSale);
         applySort(wrapper, query.getSortBy(), query.getOrder());
 
         Page<Product> page = productMapper.selectPage(
@@ -73,6 +80,65 @@ public class ProductService {
                 .map(ProductListItem::from)
                 .toList();
         return new PageResult<>(items, page.getTotal(), page.getCurrent(), page.getSize(), page.getPages());
+    }
+
+    /**
+     * 随机分页：同一 seed 下顺序稳定，因此翻页既不重复也不漏项。
+     *
+     * <p>为什么不在数据库里随机：{@code ORDER BY RAND()} 每页各自随机，翻页必然重复/漏项；
+     * {@code ORDER BY RAND(seed)} 虽然带种子，但取值依赖行的读取顺序，执行计划一变顺序就变，
+     * 同样不能保证翻页一致。所以这里取回候选 id、在应用层用 seed 做确定性洗牌，再切出当前页。</p>
+     *
+     * <p>代价说明：会取回符合条件的**全部** id（上限 {@link #RANDOM_POOL_LIMIT}），
+     * 适合演示数据量（几十~几千条）。若商品量级上到十万级，应改为落库一个随机权重列并建索引，
+     * 用「按权重排序 + 游标翻页」替代本实现。</p>
+     */
+    private PageResult<ProductListItem> randomPage(ProductQuery query, boolean onlyOnSale) {
+        List<Long> ids = productMapper.selectList(
+                        filterWrapper(query, onlyOnSale)
+                                .select(Product::getId)
+                                .orderByAsc(Product::getId)
+                                .last("LIMIT " + RANDOM_POOL_LIMIT))
+                .stream()
+                .map(Product::getId)
+                .toList();
+
+        List<Long> shuffled = new ArrayList<>(ids);
+        Collections.shuffle(shuffled, new Random(query.getSeed()));
+
+        int size = query.getSize();
+        int from = Math.min((query.getPage() - 1) * size, shuffled.size());
+        int to = Math.min(from + size, shuffled.size());
+        List<Long> window = shuffled.subList(from, to);
+        long pages = (shuffled.size() + size - 1L) / size;
+        if (window.isEmpty()) {
+            return new PageResult<>(List.of(), shuffled.size(), query.getPage(), size, pages);
+        }
+
+        // selectBatchIds 不保证返回顺序，按洗牌后的窗口顺序重排，翻页顺序才稳定
+        Map<Long, Product> byId = productMapper.selectBatchIds(window).stream()
+                .collect(Collectors.toMap(Product::getId, Function.identity()));
+        List<ProductListItem> items = window.stream()
+                .map(byId::get)
+                .filter(Objects::nonNull)
+                .map(ProductListItem::from)
+                .toList();
+
+        return new PageResult<>(items, shuffled.size(), query.getPage(), size, pages);
+    }
+
+    /** 组装筛选条件（关键字 / 分类 / 状态），常规分页与随机分页共用。 */
+    private LambdaQueryWrapper<Product> filterWrapper(ProductQuery query, boolean onlyOnSale) {
+        LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<Product>()
+                .like(StringUtils.hasText(query.getKeyword()), Product::getName, query.getKeyword())
+                .eq(query.getCategoryId() != null, Product::getCategoryId, query.getCategoryId());
+
+        if (onlyOnSale) {
+            wrapper.eq(Product::getStatus, STATUS_ON);
+        } else if (query.getStatus() != null) {
+            wrapper.eq(Product::getStatus, query.getStatus());
+        }
+        return wrapper;
     }
 
     /** 商品详情（含 SKU、图集、分类名）。 */
@@ -268,5 +334,8 @@ public class ProductService {
             case "sales" -> wrapper.orderBy(true, asc, Product::getSales);
             default -> wrapper.orderBy(true, asc, Product::getCreatedAt);
         }
+        // 主键兜底次序：排序键不唯一时（如批量导入的演示商品 created_at 完全相同），
+        // MySQL 不保证两次查询的行序一致，翻页会重复/漏项。补一个唯一键收口。
+        wrapper.orderBy(true, asc, Product::getId);
     }
 }

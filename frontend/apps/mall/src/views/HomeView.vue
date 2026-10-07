@@ -12,11 +12,34 @@ defineOptions({ name: 'HomeView' })
 const router = useRouter()
 const categories = ref<Category[]>([])
 const products = ref<ProductListItem[]>([])
-const loading = ref(true)
 /** 分类栏元素，用于把选中的分类滚到屏幕中间 */
 const catBarRef = ref<HTMLElement | null>(null)
 /** 当前选中的分类；null 表示「全部」（首页默认，展示热销榜） */
 const activeCategoryId = ref<number | null>(null)
+
+/** 首页每屏加载的商品数 */
+const PAGE_SIZE = 10
+
+/** van-list 的加载态（由组件 v-model 驱动） */
+const listLoading = ref(false)
+/** 已无更多数据 */
+const listFinished = ref(false)
+/** 本次加载失败，等待用户点击重试 */
+const listError = ref(false)
+/** 下一页页码 */
+const pageNo = ref(1)
+
+/**
+ * 随机种子：**同一次浏览内保持不变**，因此后端返回的随机顺序稳定，翻页不会重复或漏项。
+ * 进入首页、以及每次切换分类时重新生成，得到新的一批随机商品。
+ * 在 setup 阶段就初始化（不能放到 onMounted）—— van-list 挂载时即会触发首次加载，
+ * 那时种子必须已经就绪。
+ */
+const seed = ref(newSeed())
+
+function newSeed(): number {
+  return Math.floor(Math.random() * 1_000_000_000) + 1
+}
 
 /** 分类栏数据：首项固定为「全部」（渲染时钉在分类栏最左侧，不随其余分类横向滑动） */
 const categoryTabs = computed<{ id: number | null; name: string }[]>(() => [
@@ -85,34 +108,59 @@ async function centerActiveCategory() {
   }, 200)
 }
 
-/** 按当前选中的分类拉取首页商品（固定 8 条，按销量倒序）。 */
-async function loadProducts() {
+/**
+ * 加载下一页商品（van-list 触底时回调，也用于重置后立即拉第一页）。
+ *
+ * 注意不能写成「不满足条件就提前 return」的形式：van-list 会先把 loading 置 true
+ * 再 emit load，一旦中途返回且没人复位 loading，列表就再也加载不出东西了。
+ * 这里所有分支都保证走到 finally 复位。
+ */
+async function loadMore() {
   const seq = ++requestSeq
-  loading.value = true
+  listError.value = false
   try {
     const page = await fetchProducts({
-      page: 1,
-      size: 8,
+      page: pageNo.value,
+      size: PAGE_SIZE,
       categoryId: activeCategoryId.value ?? undefined,
-      sortBy: 'sales',
-      order: 'desc',
+      seed: seed.value,
     })
+    // 期间切换了分类：丢弃过期响应，交给最新一次请求去更新状态
     if (seq !== requestSeq) return
-    products.value = page.records
+    products.value.push(...page.records)
+    pageNo.value += 1
+    // 取满总数、或本页已经返回空，都视为没有更多，避免空转
+    listFinished.value = products.value.length >= page.total || page.records.length === 0
   } catch {
     if (seq !== requestSeq) return
-    products.value = []
-    showToast('商品加载失败')
+    listError.value = true
   } finally {
-    if (seq === requestSeq) loading.value = false
+    if (seq === requestSeq) listLoading.value = false
   }
 }
 
-/** 切换分类：原地刷新下方商品、不跳页，并把选中的分类滚到屏幕中间。 */
+/**
+ * 重新随机并回到第一页（首次进入首页、切换分类时调用）。
+ *
+ * 先手动把 loading 置 true，是为了压住 van-list 因列表被清空而自动触发的那次 load，
+ * 否则会和我们这里发起的请求撞在一起（虽然请求序号能兜住，但白白多打一次接口）。
+ */
+function resetList() {
+  requestSeq += 1 // 作废所有在途请求
+  products.value = []
+  pageNo.value = 1
+  listFinished.value = false
+  listError.value = false
+  seed.value = newSeed()
+  listLoading.value = true
+  loadMore()
+}
+
+/** 切换分类：原地重新随机并刷新商品、不跳页，并把选中的分类滚到屏幕中间。 */
 function selectCategory(id: number | null) {
   if (activeCategoryId.value !== id) {
     activeCategoryId.value = id
-    loadProducts()
+    resetList()
   }
   centerActiveCategory()
 }
@@ -133,7 +181,9 @@ onMounted(async () => {
   } catch {
     showToast('分类加载失败')
   }
-  await loadProducts()
+  // 首屏商品不在这里拉：van-list 挂载时会做一次「内容是否撑满滚动容器」的检查，
+  // 此刻列表为空必然不撑满，于是自动 emit 一次 load，走的正是 loadMore()。
+  // 这里若再手动拉一次只会白打一次接口（随机种子在 setup 阶段就已就绪，首屏随机性不受影响）。
 })
 
 // 从商品详情等页面返回时，浏览器会恢复分类栏的横向滚动位置但不触发 scroll 事件，这里补一次
@@ -191,11 +241,27 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="section">
-      <van-loading v-if="loading" class="loading" />
-      <van-empty v-else-if="products.length === 0" description="暂无商品" />
-      <div v-else class="product-grid">
-        <ProductCard v-for="p in products" :key="p.id" :product="p" />
-      </div>
+      <!-- 商品列表：触底自动加载下一页交给 van-list 托管。
+           它的挂载检查（immediate-check 默认开启）会在列表为空时自动 emit 一次 load，
+           所以首屏 10 个商品不用在 onMounted 里手动拉 —— 见 script 里的说明。
+           finished / error 的提示文案也由组件负责，我们只在 @load 里取数据。 -->
+      <van-list
+        v-model:loading="listLoading"
+        v-model:error="listError"
+        :finished="listFinished"
+        finished-text="没有更多了"
+        error-text="加载失败，点击重试"
+        @load="loadMore"
+      >
+        <div class="product-grid">
+          <ProductCard v-for="p in products" :key="p.id" :product="p" />
+        </div>
+        <!-- 空态只在「确实没有数据」时出现：加载中列表本来就空，不能误判成暂无商品 -->
+        <van-empty
+          v-if="listFinished && products.length === 0"
+          description="暂无商品"
+        />
+      </van-list>
     </div>
   </div>
 </template>
@@ -393,9 +459,5 @@ onBeforeUnmount(() => {
   /* minmax(0, 1fr) 而非 1fr：否则列宽会被卡片内文字的最小内容宽度撑开而溢出 */
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
-}
-.loading {
-  padding: 20px;
-  text-align: center;
 }
 </style>

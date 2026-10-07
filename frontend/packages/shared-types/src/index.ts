@@ -105,6 +105,11 @@ export interface ProductQuery {
   status?: number | null
   sortBy?: string
   order?: string
+  /**
+   * 随机种子。传入后忽略 `sortBy` / `order`，按随机顺序分页：
+   * 同一个种子下顺序稳定，翻页不重复也不漏项；换种子即换一批随机结果。
+   */
+  seed?: number | null
 }
 
 /** 收货地址。 */
