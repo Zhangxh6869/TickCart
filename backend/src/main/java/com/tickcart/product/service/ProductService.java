@@ -176,7 +176,7 @@ public class ProductService {
         product.setStock(sumSkuStock(req.getSkus()));
         productMapper.insert(product);
 
-        saveSkus(product.getId(), req.getSkus());
+        saveSkus(product.getId(), req.getSkus(), product.getPrice());
         saveImages(product.getId(), req.getImages());
         return product.getId();
     }
@@ -203,7 +203,7 @@ public class ProductService {
             // 全量重建 SKU：先逻辑删除旧的，再插入新的
             skuMapper.delete(new LambdaQueryWrapper<ProductSku>()
                     .eq(ProductSku::getProductId, id));
-            saveSkus(id, req.getSkus());
+            saveSkus(id, req.getSkus(), product.getPrice());
             product.setStock(sumSkuStock(req.getSkus()));
         }
         productMapper.updateById(product);
@@ -292,7 +292,7 @@ public class ProductService {
         return skus.stream().mapToInt(s -> s.getStock() == null ? 0 : s.getStock()).sum();
     }
 
-    private void saveSkus(Long productId, List<ProductSaveRequest.SkuItem> skus) {
+    private void saveSkus(Long productId, List<ProductSaveRequest.SkuItem> skus, BigDecimal productPrice) {
         if (skus == null || skus.isEmpty()) {
             return;
         }
@@ -302,10 +302,31 @@ public class ProductService {
             sku.setSpecName(item.getSpecName());
             sku.setSpecValue(item.getSpecValue());
             sku.setSkuImage(item.getSkuImage());
-            sku.setPrice(item.getPrice() == null ? BigDecimal.ZERO : item.getPrice());
+            sku.setPrice(resolveSkuPrice(item, productPrice));
             sku.setStock(item.getStock() == null ? 0 : item.getStock());
             skuMapper.insert(sku);
         }
+    }
+
+    /**
+     * 计算落库的 SKU 价格。
+     *
+     * <p>后台新建商品表单会预置一行「规格名 / 规格值 / 价格都为空」的 SKU，开发者往往只填库存，
+     * 于是这行会以 price=0 落库；而商城详情页会自动选中第一个有库存的 SKU 并以它的价格成交，
+     * 结果是整件商品显示并可按 ¥0.00 下单（商品 6/7 就踩了这个坑）。
+     *
+     * <p>所以价格未填（&lt;=0）的 SKU 一律继承商品价格 —— 价格没填不等于免费；
+     * 规格名为空的行同理，它代表商品默认规格，本就不该有独立价格。
+     * 有规格且填了正价的行完全不受影响。
+     */
+    private BigDecimal resolveSkuPrice(ProductSaveRequest.SkuItem item, BigDecimal productPrice) {
+        boolean blankSpec = !StringUtils.hasText(item.getSpecName())
+                && !StringUtils.hasText(item.getSpecValue());
+        BigDecimal price = item.getPrice();
+        if (!blankSpec && price != null && price.compareTo(BigDecimal.ZERO) > 0) {
+            return price;
+        }
+        return productPrice == null ? BigDecimal.ZERO : productPrice;
     }
 
     private void saveImages(Long productId, List<String> images) {

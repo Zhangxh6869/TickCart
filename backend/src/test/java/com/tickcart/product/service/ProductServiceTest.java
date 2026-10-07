@@ -19,6 +19,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -67,6 +68,26 @@ class ProductServiceTest {
         return req;
     }
 
+    /** 捕获落库的 SKU，供断言价格用。 */
+    private List<ProductSku> captureSkus() {
+        List<ProductSku> saved = new ArrayList<>();
+        when(skuMapper.insert(any(ProductSku.class))).thenAnswer(inv -> {
+            saved.add(inv.getArgument(0));
+            return 1;
+        });
+        return saved;
+    }
+
+    /** 规格名与规格值都为空的 SKU（后台新建商品表单预置的那一行）。 */
+    private ProductSaveRequest.SkuItem blankSku(BigDecimal price, int stock) {
+        ProductSaveRequest.SkuItem item = new ProductSaveRequest.SkuItem();
+        item.setSpecName("");
+        item.setSpecValue("");
+        item.setPrice(price);
+        item.setStock(stock);
+        return item;
+    }
+
     @Test
     @DisplayName("新增商品时总库存 = 各 SKU 库存之和")
     void createSumsSkuStock() {
@@ -81,6 +102,75 @@ class ProductServiceTest {
         when(skuMapper.insert(any(ProductSku.class))).thenReturn(1);
 
         productService.create(productReq(List.of(sku(10), sku(20))));
+    }
+
+    @Test
+    @DisplayName("空壳 SKU（规格为空、价格未填）继承商品价格")
+    void blankSkuWithoutPriceInheritsProductPrice() {
+        categoryExists();
+        when(productMapper.insert(any(Product.class))).thenReturn(1);
+        List<ProductSku> saved = captureSkus();
+
+        productService.create(productReq(List.of(blankSku(BigDecimal.ZERO, 4))));
+
+        assertThat(saved).hasSize(1);
+        assertThat(saved.get(0).getPrice()).isEqualByComparingTo("99.00");
+    }
+
+    @Test
+    @DisplayName("空壳 SKU 里手填的价格被忽略，仍取商品价")
+    void blankSkuIgnoresTypedPrice() {
+        categoryExists();
+        when(productMapper.insert(any(Product.class))).thenReturn(1);
+        List<ProductSku> saved = captureSkus();
+
+        productService.create(productReq(List.of(blankSku(new BigDecimal("4.00"), 15))));
+
+        assertThat(saved.get(0).getPrice()).isEqualByComparingTo("99.00");
+    }
+
+    @Test
+    @DisplayName("有规格的 SKU 保留自己填的价格")
+    void namedSkuKeepsOwnPrice() {
+        categoryExists();
+        when(productMapper.insert(any(Product.class))).thenReturn(1);
+        List<ProductSku> saved = captureSkus();
+
+        ProductSaveRequest.SkuItem item = sku(10);
+        item.setPrice(new BigDecimal("88.00"));
+        productService.create(productReq(List.of(item)));
+
+        assertThat(saved.get(0).getPrice()).isEqualByComparingTo("88.00");
+    }
+
+    @Test
+    @DisplayName("有规格但价格未填的 SKU 也继承商品价，不会变成 0 元")
+    void namedSkuWithoutPriceInheritsProductPrice() {
+        categoryExists();
+        when(productMapper.insert(any(Product.class))).thenReturn(1);
+        List<ProductSku> saved = captureSkus();
+
+        ProductSaveRequest.SkuItem item = sku(10);
+        item.setPrice(BigDecimal.ZERO);
+        productService.create(productReq(List.of(item)));
+
+        assertThat(saved.get(0).getPrice()).isEqualByComparingTo("99.00");
+    }
+
+    @Test
+    @DisplayName("编辑商品时重建的 SKU 同样继承商品价")
+    void updateRebuiltSkuInheritsProductPrice() {
+        Product product = new Product();
+        product.setId(1L);
+        product.setPrice(new BigDecimal("99.00"));
+        when(productMapper.selectById(1L)).thenReturn(product);
+        categoryExists();
+        List<ProductSku> saved = captureSkus();
+
+        productService.update(1L, productReq(List.of(blankSku(BigDecimal.ZERO, 4))));
+
+        assertThat(saved).hasSize(1);
+        assertThat(saved.get(0).getPrice()).isEqualByComparingTo("99.00");
     }
 
     @Test
