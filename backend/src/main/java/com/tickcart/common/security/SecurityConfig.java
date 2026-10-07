@@ -67,6 +67,9 @@ public class SecurityConfig {
                         // 前台公开商品读接口（浏览无需登录）
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/products/**", "/api/categories/**").permitAll()
+                        // 上传图片的静态访问：<img src> 不会携带 Authorization 头，必须放行
+                        .requestMatchers(org.springframework.http.HttpMethod.GET,
+                                "/api/files/**").permitAll()
                         // 支付渠道异步通知：由渠道服务端回调，无用户令牌（真实场景靠验签鉴权）
                         .requestMatchers("/api/payments/callback/**").permitAll()
                         // 后台管理接口需管理员

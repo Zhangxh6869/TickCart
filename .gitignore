@@ -23,6 +23,9 @@ application-prod.yml
 # ---- 运行时与系统 ----
 *.log
 logs/
+
+# 后台上传的图片（本地运行时产物，不入库）
+backend/uploads/
 .DS_Store
 Thumbs.db
 .pnpm-store/

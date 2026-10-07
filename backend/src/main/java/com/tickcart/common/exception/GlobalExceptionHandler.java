@@ -16,6 +16,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.stream.Collectors;
 
@@ -67,6 +68,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<R<Void>> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
                 .body(R.fail(ResultCode.METHOD_NOT_ALLOWED));
+    }
+
+    /** 上传文件超过 multipart 硬上限（业务侧还有更小的图片上限，见 {@code tickcart.upload.max-size-mb}）。 */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<R<Void>> handleMaxUploadSize(MaxUploadSizeExceededException ex) {
+        return badRequest("上传文件过大，请压缩后重试");
     }
 
     /** 认证失败（未登录/令牌无效）。 */

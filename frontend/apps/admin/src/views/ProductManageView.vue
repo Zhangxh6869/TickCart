@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, type UploadFile } from 'element-plus'
+import { Plus } from '@element-plus/icons-vue'
 import type { Category, ProductListItem } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import {
@@ -13,6 +14,7 @@ import {
   updateProduct,
   type ProductPayload,
 } from '@/api/product'
+import { ACCEPT_IMAGE_TYPES, MAX_IMAGE_SIZE_MB, uploadImage } from '@/api/upload'
 
 const loading = ref(false)
 const list = ref<ProductListItem[]>([])
@@ -107,6 +109,34 @@ function addSku() {
 
 function removeSku(index: number) {
   form.value.skus?.splice(index, 1)
+}
+
+// ---------------- 主图：本地选图 → 上传 → 回填 URL ----------------
+const uploading = ref(false)
+
+/** 选择本地图片后立即上传，成功后把后端返回的相对 URL 写入主图字段。 */
+async function onMainImageChange(uploadFile: UploadFile) {
+  const raw = uploadFile.raw
+  if (!raw) return
+  if (!raw.type.startsWith('image/')) {
+    ElMessage.warning('请选择图片文件')
+    return
+  }
+  if (raw.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+    ElMessage.warning(`图片大小不能超过 ${MAX_IMAGE_SIZE_MB}MB`)
+    return
+  }
+  uploading.value = true
+  try {
+    form.value.mainImage = await uploadImage(raw)
+    ElMessage.success('图片上传成功')
+  } finally {
+    uploading.value = false
+  }
+}
+
+function clearMainImage() {
+  form.value.mainImage = ''
 }
 
 async function onSubmit() {
@@ -236,8 +266,40 @@ function categoryName(id: number): string {
         <el-form-item label="副标题">
           <el-input v-model="form.subtitle" />
         </el-form-item>
-        <el-form-item label="主图URL">
-          <el-input v-model="form.mainImage" />
+        <el-form-item label="商品主图">
+          <div class="image-picker">
+            <el-upload
+              class="image-picker__upload"
+              :show-file-list="false"
+              :auto-upload="false"
+              :accept="ACCEPT_IMAGE_TYPES"
+              :disabled="uploading"
+              :on-change="onMainImageChange"
+            >
+              <div v-loading="uploading" class="image-picker__box">
+                <el-image v-if="form.mainImage" :src="form.mainImage" fit="cover" class="image-picker__img" />
+                <template v-else>
+                  <el-icon class="image-picker__icon"><Plus /></el-icon>
+                  <span class="image-picker__tip">选择图片</span>
+                </template>
+              </div>
+            </el-upload>
+            <div class="image-picker__side">
+              <span v-if="form.mainImage" class="image-picker__path">{{ form.mainImage }}</span>
+              <span v-else class="image-picker__tip">
+                支持 JPG / PNG / GIF / WEBP，不超过 {{ MAX_IMAGE_SIZE_MB }}MB
+              </span>
+              <el-button
+                v-if="form.mainImage"
+                link
+                type="danger"
+                :disabled="uploading"
+                @click="clearMainImage"
+              >
+                移除
+              </el-button>
+            </div>
+          </div>
         </el-form-item>
         <el-form-item label="展示价格">
           <el-input-number v-model="form.price" :min="0" :precision="2" :step="1" />
@@ -290,5 +352,57 @@ function categoryName(id: number): string {
   gap: 8px;
   margin-bottom: 8px;
   align-items: center;
+}
+
+/* ---- 主图选择器 ---- */
+.image-picker {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.image-picker__box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100px;
+  height: 100px;
+  overflow: hidden;
+  color: #8c939d;
+  background: #fafafa;
+  border: 1px dashed #d9d9d9;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.image-picker__box:hover {
+  border-color: var(--el-color-primary);
+}
+.image-picker__img {
+  width: 100%;
+  height: 100%;
+}
+.image-picker__icon {
+  font-size: 22px;
+}
+.image-picker__tip {
+  font-size: 12px;
+  line-height: 18px;
+}
+.image-picker__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding-top: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: #909399;
+}
+.image-picker__path {
+  max-width: 400px;
+  word-break: break-all;
+  color: #606266;
 }
 </style>
