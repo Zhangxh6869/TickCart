@@ -21,16 +21,30 @@ const activeCategoryId = ref<number | null>(null)
 const PAGE_SIZE = 10
 
 /**
- * 加载动画的最短展示时长。
+ * **翻页**加载动画的最短展示时长。
  * 本机接口 ~10ms 就返回，动画会一闪而过、看起来像「商品凭空冒出来」，
- * 所以给动画兜一个下限：无论接口多快，都先让圆环完整转完**一圈**再展示商品。
+ * 所以给翻页的圆环兜一个下限：无论接口多快，都先让圆环完整转完**一圈**再追加商品。
  * 圆环每 0.8s 转一圈（Vant 的 --van-loading-spinner-duration），1 圈 = 800ms。
+ *
+ * **只作用于触底翻页（第二页起）**。一批商品的第一页（首次进入首页、切换分类）
+ * 不播加载动画、也不吃这个下限 —— 首屏要直接看到商品，见 loadingFirstPage。
  * 改这个值要同步改 .workbuddy-ai/tmp/cdp/home-loading-verify.mjs 里的同名常量。
  */
 const MIN_LOADING_MS = 800
 
 /** van-list 的加载态（由组件 v-model 驱动） */
 const listLoading = ref(false)
+
+/**
+ * 正在加载「一批商品的第一页」—— 首次进入首页、以及每次切换分类后的第一屏。
+ *
+ * 这种加载**不播加载动画**：打开首页应当直接看到商品，而不是先看 800ms 圆环；
+ * 切换分类同理，用户刚点了分类就想立刻看到新商品。
+ * 只有触底翻页（第二页起）才播动画 —— 那时列表里已经有商品，动画是「后面还有」的提示。
+ *
+ * 由 loadMore 按 pageNo 判定，同时驱动 van-list 的 #loading 插槽是否渲染圆环。
+ */
+const loadingFirstPage = ref(false)
 /** 已无更多数据 */
 const listFinished = ref(false)
 /** 本次加载失败，等待用户点击重试 */
@@ -126,6 +140,10 @@ async function centerActiveCategory() {
  */
 async function loadMore() {
   const seq = ++requestSeq
+  // 第一页（首次进入 / 切换分类后的第一屏）不播动画；第二页起才播。
+  // 这里读 pageNo 必须在发请求之前 —— 请求成功后 pageNo 会自增。
+  const isFirstPage = pageNo.value === 1
+  loadingFirstPage.value = isFirstPage
   listError.value = false
   const startedAt = Date.now()
   try {
@@ -137,9 +155,10 @@ async function loadMore() {
     })
     // 期间切换了分类：丢弃过期响应，交给最新一次请求去更新状态
     if (seq !== requestSeq) return
-    // 先补足动画的最短展示时长，再往列表里放商品 ——
-    // 这样「看到加载动画 → 商品出现」的顺序才成立，接口再快也不会变成凭空冒出来
-    await waitMinLoading(startedAt)
+    // 只有翻页才补足动画的最短展示时长，再往列表里追加商品 ——
+    // 这样「看到加载动画 → 商品出现」的顺序才成立，接口再快也不会变成凭空冒出来。
+    // 第一页直接展示，不等。
+    if (!isFirstPage) await waitMinLoading(startedAt)
     if (seq !== requestSeq) return
     products.value.push(...page.records)
     pageNo.value += 1
@@ -149,11 +168,14 @@ async function loadMore() {
     if (seq !== requestSeq) return
     listError.value = true
   } finally {
-    if (seq === requestSeq) listLoading.value = false
+    if (seq === requestSeq) {
+      listLoading.value = false
+      loadingFirstPage.value = false
+    }
   }
 }
 
-/** 本次加载若快于 MIN_LOADING_MS，补齐差额，保证加载动画至少完整展示一次。 */
+/** 翻页加载若快于 MIN_LOADING_MS，补齐差额，保证圆环至少完整展示一次。 */
 function waitMinLoading(startedAt: number): Promise<void> {
   const rest = MIN_LOADING_MS - (Date.now() - startedAt)
   return rest > 0 ? new Promise((resolve) => setTimeout(resolve, rest)) : Promise.resolve()
@@ -164,6 +186,8 @@ function waitMinLoading(startedAt: number): Promise<void> {
  *
  * 先手动把 loading 置 true，是为了压住 van-list 因列表被清空而自动触发的那次 load，
  * 否则会和我们这里发起的请求撞在一起（虽然请求序号能兜住，但白白多打一次接口）。
+ *
+ * 这里发出的第一页请求**不播加载动画**（loadMore 按 pageNo === 1 判定，见 loadingFirstPage）。
  */
 function resetList() {
   requestSeq += 1 // 作废所有在途请求
@@ -283,9 +307,11 @@ onBeforeUnmount(() => {
         />
         <!-- 触底加载动画：列表末尾留白里居中转的一个空心圆环。
              放在文档流内而不是做浮层 —— 浮层会盖住商品、也和 tabbar 抢位置；
-             放这里才符合「拉到最下边，在留白区域转圈」的预期。 -->
+             放这里才符合「拉到最下边，在留白区域转圈」的预期。
+             第一页（首次进入 / 切换分类）不渲染它：那时列表里还没有商品，
+             要的是「直接展示」，不是先看一圈动画。 -->
         <template #loading>
-          <div class="list-loading">
+          <div v-if="!loadingFirstPage" class="list-loading">
             <van-loading class="list-loading__spinner" size="20" />
           </div>
         </template>
