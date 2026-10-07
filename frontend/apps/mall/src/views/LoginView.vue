@@ -9,14 +9,6 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
-const props = defineProps<{
-  /** 登录成功后的去处。内嵌在「我的」页时传 '/member'；不传则用路由 query.redirect，最后回首页 */
-  redirect?: string
-  /** 内嵌模式：由「我的」页渲染。去掉独立页的 nav bar（那是页面级标题，内嵌时重复），
-   *  改用与个人中心同源的渐变头部，让用户知道「还在我的页里，只是还没登录」 */
-  embedded?: boolean
-}>()
-
 const mode = ref<'login' | 'register'>('login')
 const method = ref<'password' | 'sms'>('password')
 const loading = ref(false)
@@ -63,8 +55,8 @@ async function submit() {
       })
       showToast('注册成功')
     }
-    const redirect = props.redirect || (route.query.redirect as string) || '/'
-    // 目标与当前地址相同就不跳（内嵌在 /member 时即此场景）——避免一次冗余导航
+    const redirect = (route.query.redirect as string) || '/'
+    // 目标与当前地址相同就不跳 —— 避免一次冗余导航
     if (redirect !== route.fullPath) router.replace(redirect)
   } finally {
     loading.value = false
@@ -73,22 +65,11 @@ async function submit() {
 </script>
 
 <template>
-  <div class="login" :class="{ 'login--embedded': props.embedded }">
+  <div class="login">
     <!-- 独立全屏层：左返回 + **唯一**标题。
          原先 nav bar 写「登录」、下面又有一行「登录 / 注册」切换，两处说同一件事；
          现在标题跟着 mode 走，注册入口挪到表单下方的文字链（见 .login__links）。 -->
-    <van-nav-bar
-      v-if="!props.embedded"
-      :title="mode === 'login' ? '登录' : '注册'"
-      left-arrow
-      @click-left="goBack"
-    />
-
-    <!-- 内嵌在「我的」页里：用与 .member__header 同源的渐变头部，保住「这是我的页」的归属感 -->
-    <div v-else class="login__hero">
-      <div class="login__hero-title">{{ mode === 'login' ? '登录' : '注册' }}</div>
-      <div class="login__hero-sub">登录后查看你的订单与收货地址</div>
-    </div>
+    <van-nav-bar :title="mode === 'login' ? '登录' : '注册'" left-arrow @click-left="goBack" />
 
     <van-form @submit="submit">
       <template v-if="method === 'password' || mode === 'register'">
@@ -148,28 +129,6 @@ async function submit() {
 .login {
   min-height: 100vh;
   background: #fff;
-}
-/* 内嵌在「我的」tab 里，不是独立层：高度交给父页面，背景跟着页面走 */
-.login--embedded {
-  min-height: 0;
-  background: transparent;
-}
-
-/* 内嵌时替代 nav bar 的渐变头部。与 MemberView 的 .member__header 同源，
-   改色值要两处一起改。 */
-.login__hero {
-  padding: 24px 20px;
-  background: linear-gradient(135deg, #ee0a24, #ff6034);
-  color: #fff;
-}
-.login__hero-title {
-  font-size: 18px;
-  font-weight: 600;
-}
-.login__hero-sub {
-  margin-top: 4px;
-  font-size: 13px;
-  opacity: 0.9;
 }
 
 .login__submit {

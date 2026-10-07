@@ -177,9 +177,22 @@ body {
    relative 的 top: 100% 会把文档撑出额外一屏的纵向可滚动区域。横向那套有
    .layout__content { overflow-x: clip } 收口，纵向没有对应手段（给祖先加 overflow-y: clip
    有可能影响首页 .home__sticky 的吸顶），而 fixed 元素不参与文档滚动尺寸，
-   过渡那 300ms 里不会出现「能上下滚」的穿帮。 */
-.page-slide-up-enter-active,
-.page-slide-down-leave-active {
+   过渡那 300ms 里不会出现「能上下滚」的穿帮。
+
+   【⚠ 选择器必须绑定 .login】
+   这两组类名描述的是「登录页这一层的出现 / 消失」，只有登录页会用到
+   （router 里只有 to/from 是 login 时才返回 up/down）。但**必须把 .login 写进选择器**：
+   Vue 在 KeepAlive 复用被缓存的页面时，会把**上一次过渡残留的 hooks 一起复用**，
+   别的页面因此也会被挂上 page-slide-up-enter-*。
+   实测（拦截 pageTransition 写入 + MutationObserver 记录类名变更时刻，同一份数据里 pt 全程为
+   page-slide-down）：
+     购物车 → 登录 → 回购物车   进入的 .cart   拿到 page-slide-down-enter-*  ✓ 与 pt 一致
+     我的   → 登录 → 回我的     进入的 .member 拿到 page-slide-up-enter-*    ✗ 上一次过渡的残留
+   不绑定时，后者会被 fixed + top: 100% 拉出文档流，和正在下移的登录页叠在一起
+   （.member 自身没有背景色，过渡期间会直接透出登录页）。
+   绑定后：只有登录页会上滑 / 下滑，其它页面不管被挂上什么类名都留在文档流里当 static。 */
+.login.page-slide-up-enter-active,
+.login.page-slide-down-leave-active {
   position: fixed;
   top: 0;
   left: 0;
@@ -187,8 +200,8 @@ body {
   z-index: 10;
   transition: top 300ms cubic-bezier(0.32, 0.72, 0, 1);
 }
-.page-slide-up-enter-from,
-.page-slide-down-leave-to {
+.login.page-slide-up-enter-from,
+.login.page-slide-down-leave-to {
   top: 100%;
 }
 /* 旧页：钉回它原来的文档位置，并且**必须保持 fixed、不能留在文档流里**。

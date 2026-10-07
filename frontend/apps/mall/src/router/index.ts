@@ -117,8 +117,9 @@ const routes: RouteRecordRaw[] = [
   {
     // 需要登录的页面统一在此挂 meta.requiresAuth。
     // 例外：tabbar 的「购物车」「个人中心」**不挂** —— 未登录时也允许进入，
-    // 由页面自身展示登录引导（CartView 显示提示 + 去登录按钮，MemberView 直接内嵌登录表单），
-    // 而不是被守卫重定向走。真正需要登录才能操作的行为（结算、订单、地址等）仍走 requiresAuth。
+    // 由页面自身展示登录引导（CartView 显示提示 + 去登录按钮；MemberView 展示与已登录
+    // 完全相同的页面结构，只有头部那块是「点击登录」入口），而不是被守卫重定向走。
+    // 真正需要登录才能操作的行为（结算、订单、地址等）仍走 requiresAuth。
     path: '/member',
     name: 'member',
     component: () => import('@/views/MemberView.vue'),
