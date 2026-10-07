@@ -98,7 +98,7 @@ function onShare() {
 }
 
 function onCart() {
-  if (!requireLogin()) return
+  // 购物车页自己处理未登录态（就地提示登录），这里不再拦到登录页，与底部 tabbar 行为保持一致
   router.push({ name: 'cart' })
 }
 

@@ -5,9 +5,11 @@ import { showConfirmDialog, showToast } from 'vant'
 import type { CartItem } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import { useCartStore } from '@/stores/cart'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
 const cartStore = useCartStore()
+const userStore = useUserStore()
 
 const items = computed(() => cartStore.items)
 /** 有效项（失效项不参与全选判断） */
@@ -24,9 +26,17 @@ const totalPriceInCents = computed(() => Math.round(cartStore.checkedAmount * 10
  *   首次激活 → 带 loading 正常加载；
  *   之后切回 → 静默刷新，既能拿到别处加购/下单后的最新数据，又不会闪一下 loading。
  * onActivated 在首次挂载后也会触发，因此不需要再写 onMounted。
+ *
+ * 未登录时**不发请求**（购物车接口要鉴权，必然 401），就地展示登录引导。
+ * 同时把 activatedBefore 复位，这样从登录页回来后的第一次加载会带 loading 态，
+ * 不会先闪一下「购物车还是空的」再出现商品。
  */
 let activatedBefore = false
 onActivated(() => {
+  if (!userStore.isLoggedIn) {
+    activatedBefore = false
+    return
+  }
   cartStore.load(activatedBefore)
   activatedBefore = true
 })
@@ -82,13 +92,23 @@ function onCheckout() {
 function goHome() {
   router.push({ name: 'home' })
 }
+
+/** 未登录时的入口：跳登录页，登录成功后由 redirect 带回购物车 */
+function goLogin() {
+  router.push({ name: 'login', query: { redirect: '/cart' } })
+}
 </script>
 
 <template>
   <div class="cart">
     <van-nav-bar title="购物车" />
 
-    <van-empty v-if="!cartStore.loading && items.length === 0" description="购物车还是空的">
+    <!-- 未登录：不跳转登录页，就地提示并给一个去登录的入口 -->
+    <van-empty v-if="!userStore.isLoggedIn" description="请先登录后查看购物车">
+      <van-button round type="primary" class="cart__empty-btn" @click="goLogin">去登录</van-button>
+    </van-empty>
+
+    <van-empty v-else-if="!cartStore.loading && items.length === 0" description="购物车还是空的">
       <van-button round type="primary" class="cart__empty-btn" @click="goHome">去逛逛</van-button>
     </van-empty>
 
@@ -133,7 +153,7 @@ function goHome() {
     </div>
 
     <van-submit-bar
-      v-if="items.length > 0"
+      v-if="userStore.isLoggedIn && items.length > 0"
       class="cart__bar"
       :price="totalPriceInCents"
       :button-text="`结算(${cartStore.checkedCount})`"

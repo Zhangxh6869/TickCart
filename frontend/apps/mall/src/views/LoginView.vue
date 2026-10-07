@@ -9,6 +9,13 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
+/**
+ * 登录成功后的去处。
+ * 由调用方显式指定时优先（如 MemberView 内嵌本组件时传 "/member"，登录后就地变成个人中心）；
+ * 否则用路由 query.redirect（守卫重定向、详情页「需要登录」跳转都会带上）；最后回首页。
+ */
+const props = defineProps<{ redirect?: string }>()
+
 const mode = ref<'login' | 'register'>('login')
 const method = ref<'password' | 'sms'>('password')
 const loading = ref(false)
@@ -49,8 +56,9 @@ async function submit() {
       })
       showToast('注册成功')
     }
-    const redirect = (route.query.redirect as string) || '/'
-    router.replace(redirect)
+    const redirect = props.redirect || (route.query.redirect as string) || '/'
+    // 目标与当前地址相同就不跳（内嵌在 /member 时即此场景）——避免一次冗余导航
+    if (redirect !== route.fullPath) router.replace(redirect)
   } finally {
     loading.value = false
   }
