@@ -20,6 +20,13 @@ const activeCategoryId = ref<number | null>(null)
 /** 首页每屏加载的商品数 */
 const PAGE_SIZE = 10
 
+/**
+ * 加载动画的最短展示时长。
+ * 本机接口 ~10ms 就返回，动画会一闪而过、看起来像「商品凭空冒出来」，
+ * 所以给动画兜一个下限：无论接口多快，都先让动画完整转一圈，再展示商品。
+ */
+const MIN_LOADING_MS = 400
+
 /** van-list 的加载态（由组件 v-model 驱动） */
 const listLoading = ref(false)
 /** 已无更多数据 */
@@ -118,6 +125,7 @@ async function centerActiveCategory() {
 async function loadMore() {
   const seq = ++requestSeq
   listError.value = false
+  const startedAt = Date.now()
   try {
     const page = await fetchProducts({
       page: pageNo.value,
@@ -126,6 +134,10 @@ async function loadMore() {
       seed: seed.value,
     })
     // 期间切换了分类：丢弃过期响应，交给最新一次请求去更新状态
+    if (seq !== requestSeq) return
+    // 先补足动画的最短展示时长，再往列表里放商品 ——
+    // 这样「看到加载动画 → 商品出现」的顺序才成立，接口再快也不会变成凭空冒出来
+    await waitMinLoading(startedAt)
     if (seq !== requestSeq) return
     products.value.push(...page.records)
     pageNo.value += 1
@@ -137,6 +149,12 @@ async function loadMore() {
   } finally {
     if (seq === requestSeq) listLoading.value = false
   }
+}
+
+/** 本次加载若快于 MIN_LOADING_MS，补齐差额，保证加载动画至少完整展示一次。 */
+function waitMinLoading(startedAt: number): Promise<void> {
+  const rest = MIN_LOADING_MS - (Date.now() - startedAt)
+  return rest > 0 ? new Promise((resolve) => setTimeout(resolve, rest)) : Promise.resolve()
 }
 
 /**
@@ -261,6 +279,16 @@ onBeforeUnmount(() => {
           v-if="listFinished && products.length === 0"
           description="暂无商品"
         />
+        <!-- 加载动画：不用 Vant 默认的列表末尾占位（见样式里的原因，它基本落在屏幕外），
+             改成一个浮在 tabbar 上方的胶囊 -->
+        <template #loading>
+          <div class="list-loading">
+            <div class="list-loading__pill">
+              <van-loading class="list-loading__spinner" size="20" />
+              <span class="list-loading__text">正在加载…</span>
+            </div>
+          </div>
+        </template>
       </van-list>
     </div>
   </div>
@@ -459,5 +487,41 @@ onBeforeUnmount(() => {
   /* minmax(0, 1fr) 而非 1fr：否则列宽会被卡片内文字的最小内容宽度撑开而溢出 */
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+/* 加载动画：做成浮在底部 tabbar 上方的胶囊。
+   为什么不用「列表末尾的常规占位」——那是 Vant 的默认做法，但实测不可用：
+   van-list 在距底 300px 时就触发加载，此刻列表末尾还在视口下方，
+   占位块量出来 top=770 / bottom=872，而视口只有 844 高 —— 几乎整块在屏幕外，
+   再叠加固定 tabbar（占底部 50px），用户基本看不到，会以为「没有加载动画」。
+   改成 fixed 后，无论滚到哪个位置都稳定可见。
+   bottom: 62px = tabbar 高 50px + 12px 间隙，正好落在 tabbar 上方。
+   用 left/right + justify-content 居中，不用 transform —— 本项目对 transform 有历史包袱
+   （会让祖先成为 fixed 后代的包含块，并干扰吸顶），能避就避。 */
+.list-loading {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 62px;
+  z-index: 3; /* 高于吸顶区（2）与 tabbar（1） */
+  display: flex;
+  justify-content: center;
+  /* 纯提示，不要拦截下方商品的点击 */
+  pointer-events: none;
+}
+.list-loading__pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+  color: #646566;
+  font-size: 13px;
+  white-space: nowrap;
+}
+/* 转圈用品牌色，和搜索框、分类小横杆同一套视觉语言 */
+.list-loading__spinner {
+  color: var(--color-brand);
 }
 </style>
