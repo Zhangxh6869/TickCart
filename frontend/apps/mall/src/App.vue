@@ -13,7 +13,7 @@ const CACHED_VIEWS = ['HomeView', 'CartView', 'MemberView']
 
 <template>
   <TabBarLayout>
-    <!-- 页面切换过渡：方向由路由层级决定，tab 三页互切走淡入（见 router/index.ts）；
+    <!-- 页面切换过渡：方向由路由层级决定，tab 三页互切按左右顺序滑动（见 router/index.ts）；
          被缓存的页面切回来时商品数据与滚动位置都还在 -->
     <RouterView v-slot="{ Component, route }">
       <Transition :name="pageTransition">
@@ -52,11 +52,14 @@ body {
    1) 滑动过渡（前进/后退）期间两页都临时脱离文档流（position: fixed），否则一进一出
       会上下堆叠成两屏。离开的那一页用 --page-scroll-y 反向偏移——该变量在路由守卫里
       写入「切换前的 window.scrollY」——把它钉回原来的文档位置，所以过渡期间不会纵向跳动。
-      淡入过渡（tab 互切）不用这套写法，原因见下方 .page-fade-* 的注释。
-   2) 位移动画一律用 left / top，不用 transform：transform 会让祖先元素变成 fixed 后代的
-      包含块（van-popup 的遮罩、详情页底部操作栏都可能因此错位），也会干扰祖先链上的
-      position: sticky（首页吸顶区）。left / top 没有这些副作用，代价是每帧重排，页面上限
-      一个屏幕，300ms 内可以接受。
+      tab 互切（.page-slide-tab-*）不这么写，原因见下方注释。
+   2) 位移动画一律用 left / top，不用 transform。实测依据（不是推测）：
+      页面根加 transform 后，页面内的 position: fixed 元素会从「贴视口底」变成
+      「贴页面内容底」——塞一个 fixed 探针实测 top 由 836 变 1021。购物车的
+      van-submit-bar 正是这种元素，长购物车里会飞出屏幕。
+      （注：早先这里写的是「transform 会破坏首页吸顶」，实测该说法不成立——
+      吸顶在 transform 下仍然正常，真正会坏的是 fixed 后代。）
+      left / top 没有这些副作用，代价是每帧重排，页面上限一个屏幕，300ms 内可以接受。
    3) 过渡结束类名被移除，页面自动回到正常文档流。 */
 .page-slide-left-enter-active,
 .page-slide-left-leave-active,
@@ -102,47 +105,63 @@ body {
   left: 100%;
 }
 
-/* ── 底部 tabbar 同级切换：新页覆盖旧页淡入 ──────────────────────────────
-   三页是平级关系，没有前进/后退语义，所以不做横向滑动，只做淡入。
+/* ── 底部 tabbar 同级切换：按 tab 左右顺序滑动 ───────────────────────────
+   方向由 tab 的左右顺序决定（首页 0 / 购物车 1 / 我的 2，见 router/index.ts）：
+   切到右边的 tab → 新页从右侧滑入、旧页向左让位；切到左边则反之。
 
-   【为什么进入页留在文档流里】
-   滑动过渡让两页都是 fixed，文档高度会瞬间塌缩到 min-height: 100vh，
+   【为什么新页留在文档流里、只有旧页 fixed】
+   滑动过渡（前进/后退）两页都 fixed，文档高度会瞬间塌缩到 min-height: 100vh，
    浏览器随即把 window.scrollY 夹到 0 —— 切回一个滚过一段的 tab 页时，
-   scrollBehavior 想恢复的位置根本滚不过去，恢复就静默失效了。
-   把进入页留在流里，文档高度始终由它撑着，滚动位置才能正常恢复。
+   scrollBehavior 想恢复的位置根本滚不过去，恢复就静默失效。
+   把新页留在流里，文档高度始终由它撑着，滚动位置才能正常恢复。
 
-   【为什么由新页淡入、而不是旧页淡出】
-   旧页用 fixed + top: -var(--page-scroll-y) 钉在视口上（fixed 相对视口定位，
-   过渡期间窗口从旧页滚动位置滚到新页目标位置时它纹丝不动，显示的内容始终正确），
-   并保持完全不透明当底色；新页抬到它上面淡入。
-   反过来做（旧页淡出、新页留在下面）会让两页同时处于半透明，
-   白底透出来，中间那段明显发灰。
+   【为什么新页用 relative + left，而不是 transform】
+   transform 会让页面根变成 fixed 后代的包含块。实测：页面里塞一个 fixed 探针，
+   加 transform 后它从「贴视口底」（top 836）变成「贴页面内容底」（top 1021）——
+   购物车的 van-submit-bar 正是这种元素，长购物车里会直接飞出屏幕。
+   position: relative 不会影响 fixed 后代，实测位置零变化；left 只对定位元素生效，
+   所以新页必须是 relative 才能用 left 位移。
 
-   z-index：旧页 0、新页 1，与 van-tabbar（--van-tabbar-z-index: 1）同层——
-   tabbar 在 DOM 里更靠后，绘制在上，所以过渡期间底部导航不会被盖住。 */
-.page-fade-leave-active {
+   【横向溢出】
+   新页 left: 100% 会把文档 scrollWidth 撑到两倍宽、还能横向滚。已在
+   TabBarLayout 给 .layout__content 加 overflow-x: clip 收口（必须是 clip 不是 hidden）。
+   这里不用再管。
+
+   旧页是 fixed，fixed 元素不参与文档的滚动溢出，所以它横移不会撑宽文档。 */
+
+/* 起止位置基线：left 必须显式写 0（relative 元素的 left 初始值是 auto，不可插值，
+   从 100% 过渡到 auto 不会产生动画）。下面 -enter-from / -leave-to 靠声明顺序覆盖它。 */
+.page-slide-tab-left-leave-active,
+.page-slide-tab-right-leave-active {
   position: fixed;
   top: calc(-1 * var(--page-scroll-y, 0px));
   left: 0;
   width: 100%;
   z-index: 0;
-  /* 旧页不做视觉变化（它会被新页盖住），但 transition 必须声明：
-     Vue 的 <Transition> 是靠 computedStyle 上的 transition-duration 判断
-     何时移除离开元素的，不声明就会被当成「没有过渡」而立刻删掉，新页就没了底色。
-     from / to 都是 opacity: 1，所以声明了也看不出任何变化。 */
-  transition: opacity 180ms linear;
+  transition: left 300ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.page-slide-tab-left-enter-active,
+.page-slide-tab-right-enter-active {
+  position: relative;
+  left: 0;
+  z-index: 1;
+  transition: left 300ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/* 新页淡入。用 position: relative 抬层级，不用 transform——
-   transform 会变成祖先链上的 transform，首页 .home__sticky 的吸顶会直接失效
-   （见长期记忆）。relative 不会破坏 sticky，也不会成为 fixed 后代的包含块。 */
-.page-fade-enter-active {
-  position: relative;
-  z-index: 1;
-  transition: opacity 180ms ease-out;
+/* 往右切（首页→购物车→我的）：新页从右边进，旧页向左让位 */
+.page-slide-tab-left-enter-from {
+  left: 100%;
 }
-.page-fade-enter-from {
-  opacity: 0;
+.page-slide-tab-left-leave-to {
+  left: -30%;
+}
+
+/* 往左切（我的→购物车→首页）：新页从左边进，旧页向右让位 */
+.page-slide-tab-right-enter-from {
+  left: -100%;
+}
+.page-slide-tab-right-leave-to {
+  left: 30%;
 }
 
 /* 用户开启「减弱动态效果」时，过渡时长压到接近瞬时，只保留状态切换 */
@@ -150,8 +169,10 @@ body {
   .page-slide-left-enter-active,
   .page-slide-left-leave-active,
   .page-slide-right-leave-active,
-  .page-fade-enter-active,
-  .page-fade-leave-active {
+  .page-slide-tab-left-enter-active,
+  .page-slide-tab-left-leave-active,
+  .page-slide-tab-right-enter-active,
+  .page-slide-tab-right-leave-active {
     transition-duration: 1ms;
   }
 }

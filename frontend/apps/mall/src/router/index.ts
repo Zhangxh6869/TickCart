@@ -9,21 +9,32 @@ import { useUserStore } from '@/stores/user'
 
 /**
  * 页面切换动画名，由 App.vue 的 <Transition :name> 消费：
- *   page-slide-left  前进：新页从右侧滑入
- *   page-slide-right 后退：当前页向右滑出
- *   page-fade        同级切换（底部 tabbar 三页互切）：交叉淡入 + 轻微上浮
- *   ''               不做动画（其余同级切换）
+ *   page-slide-left      前进：新页从右侧滑入
+ *   page-slide-right     后退：当前页向右滑出
+ *   page-slide-tab-left  同级 tab 往右切（首页→购物车→我的）：新页从右侧滑入
+ *   page-slide-tab-right 同级 tab 往左切（我的→购物车→首页）：新页从左侧滑入
+ *   ''                   不做动画（其余同级切换）
  * 具体样式见 App.vue 的全局 <style>。
  */
-export type PageTransition = '' | 'page-slide-left' | 'page-slide-right' | 'page-fade'
+export type PageTransition =
+  | ''
+  | 'page-slide-left'
+  | 'page-slide-right'
+  | 'page-slide-tab-left'
+  | 'page-slide-tab-right'
 
 export const pageTransition = ref<PageTransition>('')
 
 /**
- * 底部 tabbar 的三个平级页面。
- * 它们之间互切时：走 page-fade 过渡，并且各自记住滚动位置（见下方 tabScrollPositions）。
+ * 底部 tabbar 的平级页面。**值就是它们的左右顺序**，用来决定滑动方向：
+ * 切到序号更大的 tab → 新页从右侧滑入；更小则从左侧滑入。
+ * 同时这组页面之间互切会各自记住滚动位置（见下方 tabScrollPositions）。
  */
-const TAB_ROUTE_NAMES = new Set(['home', 'cart', 'member'])
+const TAB_ORDER = new Map([
+  ['home', 0],
+  ['cart', 1],
+  ['member', 2],
+])
 
 /** 路由层级：数字越大表示页面越深，用于判断本次导航是「前进」还是「后退」。
  * 未声明的路由按 1 处理（与首页同级）。
@@ -57,10 +68,12 @@ function resolvePageTransition(
   const fromDepth = depthOf(from)
   if (toDepth > fromDepth) return 'page-slide-left'
   if (toDepth < fromDepth) return 'page-slide-right'
-  // 深度相同：只有底部 tabbar 三页之间互切做淡入，其余同级切换保持无动画
-  const toName = nameOf(to)
-  const fromName = nameOf(from)
-  return TAB_ROUTE_NAMES.has(toName) && TAB_ROUTE_NAMES.has(fromName) ? 'page-fade' : ''
+  // 深度相同：只有底部 tabbar 三页之间互切做滑动，方向按左右顺序定；
+  // 其余同级切换保持无动画
+  const toTab = TAB_ORDER.get(nameOf(to))
+  const fromTab = TAB_ORDER.get(nameOf(from))
+  if (toTab === undefined || fromTab === undefined) return ''
+  return toTab > fromTab ? 'page-slide-tab-left' : 'page-slide-tab-right'
 }
 
 const routes: RouteRecordRaw[] = [
@@ -156,10 +169,10 @@ router.beforeEach(async (to, from) => {
   const toName = nameOf(to)
 
   // 离开 tab 页时记住它的滚动位置，切回来时还原
-  if (TAB_ROUTE_NAMES.has(fromName)) {
+  if (TAB_ORDER.has(fromName)) {
     tabScrollPositions.set(fromName, scrollY)
   }
-  pendingScrollTop = TAB_ROUTE_NAMES.has(toName) ? tabScrollPositions.get(toName) ?? 0 : 0
+  pendingScrollTop = TAB_ORDER.has(toName) ? tabScrollPositions.get(toName) ?? 0 : 0
 
   document.documentElement.style.setProperty('--page-scroll-y', `${scrollY}px`)
   pageTransition.value = resolvePageTransition(to, from)

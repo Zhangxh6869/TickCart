@@ -90,6 +90,16 @@ function go(name: string) {
   padding-bottom: 50px;
 }
 
+/* 收掉页面横向滑动时的溢出：新页从 left: 100% 滑入，不夹住的话文档 scrollWidth
+   会被撑到两倍宽，还能横向拖动。
+   必须是 clip 而不是 hidden —— 实测 hidden 挡不住：程序化 scrollTo(100) 仍能滚过去
+   （scrollX 变 100），scrollWidth 也照样是 780。
+   clip 不创建滚动容器，overflow-y 因此保持 visible，
+   首页 .home__sticky 的吸顶不受影响（实测吸顶 top 仍为 0，分类栏自身的横向滚动也照常）。 */
+.layout__content {
+  overflow-x: clip;
+}
+
 /* ── 选中指示条 ──────────────────────────────────────────────────────
    宽度固定 24px，用 margin-left: -12px 把「中心点」对回所在格子的中线。
    位移用 left 过渡（不用 transform：tabbar 祖先链上没有 sticky / fixed 后代，
