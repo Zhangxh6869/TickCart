@@ -20,6 +20,9 @@ dist/
 application-local.yml
 application-prod.yml
 
+# ---- AI 助手工作区（本地记忆、验证脚本与截图，不入库） ----
+.workbuddy-ai/
+
 # ---- 运行时与系统 ----
 *.log
 logs/
