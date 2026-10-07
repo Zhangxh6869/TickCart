@@ -11,21 +11,41 @@ import { useUserStore } from '@/stores/user'
  * 页面切换动画名，由 App.vue 的 <Transition :name> 消费：
  *   page-slide-left  前进：新页从右侧滑入
  *   page-slide-right 后退：当前页向右滑出
- *   ''               不做动画（同级切换，如底部 tabbar）
+ *   page-fade        同级切换（底部 tabbar 三页互切）：交叉淡入 + 轻微上浮
+ *   ''               不做动画（其余同级切换）
  * 具体样式见 App.vue 的全局 <style>。
  */
-export type PageTransition = '' | 'page-slide-left' | 'page-slide-right'
+export type PageTransition = '' | 'page-slide-left' | 'page-slide-right' | 'page-fade'
 
 export const pageTransition = ref<PageTransition>('')
 
 /**
- * 路由层级：数字越大表示页面越深，用于判断本次导航是「前进」还是「后退」。
+ * 底部 tabbar 的三个平级页面。
+ * 它们之间互切时：走 page-fade 过渡，并且各自记住滚动位置（见下方 tabScrollPositions）。
+ */
+const TAB_ROUTE_NAMES = new Set(['home', 'cart', 'member'])
+
+/** 路由层级：数字越大表示页面越深，用于判断本次导航是「前进」还是「后退」。
  * 未声明的路由按 1 处理（与首页同级）。
  */
 function depthOf(route: RouteLocationNormalized): number {
   const depth = route.meta.depth
   return typeof depth === 'number' ? depth : 1
 }
+
+/** 路由名转字符串，拿不到（如起始占位路由）时返回空串 */
+function nameOf(route: RouteLocationNormalized): string {
+  return typeof route.name === 'string' ? route.name : ''
+}
+
+/**
+ * 各 tab 页上次离开时的滚动位置，切回时恢复。
+ * 只用于 tab 之间互切；浏览器前进/后退仍以 vue-router 的 savedPosition 为准。
+ */
+const tabScrollPositions = new Map<string, number>()
+
+/** 本次导航进入页要恢复到的滚动位置，由 beforeEach 写入、scrollBehavior 消费 */
+let pendingScrollTop = 0
 
 function resolvePageTransition(
   to: RouteLocationNormalized,
@@ -37,7 +57,10 @@ function resolvePageTransition(
   const fromDepth = depthOf(from)
   if (toDepth > fromDepth) return 'page-slide-left'
   if (toDepth < fromDepth) return 'page-slide-right'
-  return ''
+  // 深度相同：只有底部 tabbar 三页之间互切做淡入，其余同级切换保持无动画
+  const toName = nameOf(to)
+  const fromName = nameOf(from)
+  return TAB_ROUTE_NAMES.has(toName) && TAB_ROUTE_NAMES.has(fromName) ? 'page-fade' : ''
 }
 
 const routes: RouteRecordRaw[] = [
@@ -119,15 +142,26 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  // 后退时恢复上一页（被 keep-alive 缓存的首页）的滚动位置，其余情况一律回到顶部
-  scrollBehavior: (_to, _from, savedPosition) => savedPosition ?? { top: 0 },
+  // 浏览器前进/后退优先用 vue-router 保存的位置（savedPosition），
+  // 其余情况用本次导航算好的 pendingScrollTop：tab 之间互切恢复各自的滚动位置，进新页则回到顶部
+  scrollBehavior: (_to, _from, savedPosition) => savedPosition ?? { top: pendingScrollTop },
 })
 
 // 全局前置守卫：登录态校验
 router.beforeEach(async (to, from) => {
   // 过渡动画期间两个页面都临时脱离文档流（position: fixed），
-  // 需要知道切换前的滚动位置才能把它们钉回原来的文档位置（见 App.vue 的过渡样式）
-  document.documentElement.style.setProperty('--page-scroll-y', `${window.scrollY}px`)
+  // 需要知道切换前后的滚动位置才能把它们各自钉回正确的内容位置（见 App.vue 的过渡样式）
+  const scrollY = window.scrollY
+  const fromName = nameOf(from)
+  const toName = nameOf(to)
+
+  // 离开 tab 页时记住它的滚动位置，切回来时还原
+  if (TAB_ROUTE_NAMES.has(fromName)) {
+    tabScrollPositions.set(fromName, scrollY)
+  }
+  pendingScrollTop = TAB_ROUTE_NAMES.has(toName) ? tabScrollPositions.get(toName) ?? 0 : 0
+
+  document.documentElement.style.setProperty('--page-scroll-y', `${scrollY}px`)
   pageTransition.value = resolvePageTransition(to, from)
 
   const userStore = useUserStore()

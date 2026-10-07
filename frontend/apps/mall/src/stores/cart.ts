@@ -29,12 +29,19 @@ export const useCartStore = defineStore('cart', () => {
   /** tabbar 角标文案，无商品时为空字符串（不显示角标） */
   const badge = computed(() => (summary.value.totalCount > 0 ? String(summary.value.totalCount) : ''))
 
-  async function load() {
-    loading.value = true
+  /**
+   * 拉取购物车列表。
+   *
+   * @param silent 静默刷新：不置 loading 态。用于被 KeepAlive 缓存的页面切回来时
+   *               在后台更新数据——已有内容不会被 loading 占位顶掉，也就不会闪一下。
+   *               失败时保留原数据，交由请求拦截器提示。
+   */
+  async function load(silent = false) {
+    if (!silent) loading.value = true
     try {
       summary.value = await cartApi.fetchCart()
     } finally {
-      loading.value = false
+      if (!silent) loading.value = false
     }
   }
 

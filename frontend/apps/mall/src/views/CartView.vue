@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
 import type { CartItem } from '@tickcart/shared-types'
@@ -19,8 +19,16 @@ const allChecked = computed(
 /** van-submit-bar 的价格单位是分，需四舍五入避免浮点误差 */
 const totalPriceInCents = computed(() => Math.round(cartStore.checkedAmount * 100))
 
-onMounted(() => {
-  cartStore.load()
+/**
+ * 本页被 KeepAlive 缓存（见 App.vue），onMounted 一辈子只跑一次，所以改用 onActivated：
+ *   首次激活 → 带 loading 正常加载；
+ *   之后切回 → 静默刷新，既能拿到别处加购/下单后的最新数据，又不会闪一下 loading。
+ * onActivated 在首次挂载后也会触发，因此不需要再写 onMounted。
+ */
+let activatedBefore = false
+onActivated(() => {
+  cartStore.load(activatedBefore)
+  activatedBefore = true
 })
 
 async function onToggleItem(item: CartItem, value: boolean) {
