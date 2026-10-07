@@ -279,14 +279,12 @@ onBeforeUnmount(() => {
           v-if="listFinished && products.length === 0"
           description="暂无商品"
         />
-        <!-- 加载动画：不用 Vant 默认的列表末尾占位（见样式里的原因，它基本落在屏幕外），
-             改成一个浮在 tabbar 上方的胶囊 -->
+        <!-- 触底加载动画：列表末尾留白里居中转的一个空心圆环。
+             放在文档流内而不是做浮层 —— 浮层会盖住商品、也和 tabbar 抢位置；
+             放这里才符合「拉到最下边，在留白区域转圈」的预期。 -->
         <template #loading>
           <div class="list-loading">
-            <div class="list-loading__pill">
-              <van-loading class="list-loading__spinner" size="20" />
-              <span class="list-loading__text">正在加载…</span>
-            </div>
+            <van-loading class="list-loading__spinner" size="20" />
           </div>
         </template>
       </van-list>
@@ -488,40 +486,21 @@ onBeforeUnmount(() => {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
-/* 加载动画：做成浮在底部 tabbar 上方的胶囊。
-   为什么不用「列表末尾的常规占位」——那是 Vant 的默认做法，但实测不可用：
-   van-list 在距底 300px 时就触发加载，此刻列表末尾还在视口下方，
-   占位块量出来 top=770 / bottom=872，而视口只有 844 高 —— 几乎整块在屏幕外，
-   再叠加固定 tabbar（占底部 50px），用户基本看不到，会以为「没有加载动画」。
-   改成 fixed 后，无论滚到哪个位置都稳定可见。
-   bottom: 62px = tabbar 高 50px + 12px 间隙，正好落在 tabbar 上方。
-   用 left/right + justify-content 居中，不用 transform —— 本项目对 transform 有历史包袱
-   （会让祖先成为 fixed 后代的包含块，并干扰吸顶），能避就避。 */
+/* 触底加载动画：列表末尾留白里居中的一个空心圆环（对齐参考图）。
+   它是**文档流内**的元素，不再像上一版那样做 fixed 浮层 ——
+   浮层会盖在商品上、还要和 tabbar 抢位置；放在列表末尾才能做到
+   「拉到最下边，在留白区域里转圈」。
+   上下各 16px 内边距 + 圆环本身 20px，合计 52px 的干净空白带。
+   align-items: center 是必须的：flex 默认 stretch 会把圆环的容器盒纵向拉高，
+   留白高度就不再由 padding 决定（实测被拉到 50px 高）。 */
 .list-loading {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 62px;
-  z-index: 3; /* 高于吸顶区（2）与 tabbar（1） */
-  display: flex;
-  justify-content: center;
-  /* 纯提示，不要拦截下方商品的点击 */
-  pointer-events: none;
-}
-.list-loading__pill {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
-  color: #646566;
-  font-size: 13px;
-  white-space: nowrap;
+  justify-content: center;
+  padding: 16px 0;
 }
-/* 转圈用品牌色，和搜索框、分类小横杆同一套视觉语言 */
+/* 圆环用 Vant 的浅灰（--van-gray-5），比正文浅一档，不抢视线 */
 .list-loading__spinner {
-  color: var(--color-brand);
+  color: #c8c9cc;
 }
 </style>
