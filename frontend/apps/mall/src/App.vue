@@ -164,6 +164,46 @@ body {
   left: 30%;
 }
 
+/* ── 登录页：全屏层，从底部滑入 / 向下滑出 ─────────────────────────────
+   进入（page-slide-up）：登录页 fixed 在视口下方（top: 100%），滑到 top: 0 盖住当前页。
+   退出（page-slide-down）：登录页从 top: 0 滑回 top: 100%，露出下面已经就位的页面。
+
+   旧页全程不动、只是被盖住（或露出来），所以**不给它任何位移**，
+   但 `transition` 必须声明 —— Vue 的 <Transition> 靠 computedStyle 的 transition-duration
+   判断何时移除离开元素，不声明会被当成「无过渡」立刻删掉，新页就没有东西可盖了。
+   （属性没真正变化时不会有 transitionend，Vue 内部有 timeout+1 的兜底，实测 300ms 后移除。）
+
+   为什么新页用 fixed 而不是「relative + top」：
+   relative 的 top: 100% 会把文档撑出额外一屏的纵向可滚动区域。横向那套有
+   .layout__content { overflow-x: clip } 收口，纵向没有对应手段（给祖先加 overflow-y: clip
+   有可能影响首页 .home__sticky 的吸顶），而 fixed 元素不参与文档滚动尺寸，
+   过渡那 300ms 里不会出现「能上下滚」的穿帮。 */
+.page-slide-up-enter-active,
+.page-slide-down-leave-active {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 10;
+  transition: top 300ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.page-slide-up-enter-from,
+.page-slide-down-leave-to {
+  top: 100%;
+}
+/* 旧页：钉回它原来的文档位置，并且**必须保持 fixed、不能留在文档流里**。
+   实测（逐帧量 documentElement.scrollHeight）：留在流里时 enter 比 leave 早结束约一帧，
+   会出现「新页已回到 static、旧页还在流里」的瞬间 —— 文档高度从 844 翻到 1688，
+   滚动条闪一下且过渡期间能上下滚。fixed 元素不参与文档滚动尺寸，任何重叠窗口都不会撑高文档。 */
+.page-slide-up-leave-active {
+  position: fixed;
+  top: calc(-1 * var(--page-scroll-y, 0px));
+  left: 0;
+  width: 100%;
+  z-index: 5;
+  transition: opacity 300ms linear;
+}
+
 /* 用户开启「减弱动态效果」时，过渡时长压到接近瞬时，只保留状态切换 */
 @media (prefers-reduced-motion: reduce) {
   .page-slide-left-enter-active,
@@ -172,7 +212,10 @@ body {
   .page-slide-tab-left-enter-active,
   .page-slide-tab-left-leave-active,
   .page-slide-tab-right-enter-active,
-  .page-slide-tab-right-leave-active {
+  .page-slide-tab-right-leave-active,
+  .page-slide-up-enter-active,
+  .page-slide-up-leave-active,
+  .page-slide-down-leave-active {
     transition-duration: 1ms;
   }
 }

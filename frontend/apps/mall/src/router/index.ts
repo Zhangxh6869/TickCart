@@ -13,6 +13,8 @@ import { useUserStore } from '@/stores/user'
  *   page-slide-right     后退：当前页向右滑出
  *   page-slide-tab-left  同级 tab 往右切（首页→购物车→我的）：新页从右侧滑入
  *   page-slide-tab-right 同级 tab 往左切（我的→购物车→首页）：新页从左侧滑入
+ *   page-slide-up        进入登录页：全屏层从视口下方滑上来盖住当前页
+ *   page-slide-down      离开登录页：全屏层向下滑走，露出下面已就位的页面
  *   ''                   不做动画（其余同级切换）
  * 具体样式见 App.vue 的全局 <style>。
  */
@@ -22,6 +24,8 @@ export type PageTransition =
   | 'page-slide-right'
   | 'page-slide-tab-left'
   | 'page-slide-tab-right'
+  | 'page-slide-up'
+  | 'page-slide-down'
 
 export const pageTransition = ref<PageTransition>('')
 
@@ -64,14 +68,23 @@ function resolvePageTransition(
 ): PageTransition {
   // 首次进入应用（from 是起始占位路由）不播放动画
   if (!from.name) return ''
+  const toName = nameOf(to)
+  const fromName = nameOf(from)
+
+  // 登录页是一个**全屏层**，跟其它页面之间没有「层级深浅」可言（购物车、商品详情、
+  // 「我的」页都能进），所以必须在 depth 判断之前拦掉，否则会出现
+  // 「从购物车进是右滑、从详情页进是硬切」的割裂感 —— 这正是本次要修的问题。
+  if (toName === 'login') return 'page-slide-up'
+  if (fromName === 'login') return 'page-slide-down'
+
   const toDepth = depthOf(to)
   const fromDepth = depthOf(from)
   if (toDepth > fromDepth) return 'page-slide-left'
   if (toDepth < fromDepth) return 'page-slide-right'
   // 深度相同：只有底部 tabbar 三页之间互切做滑动，方向按左右顺序定；
   // 其余同级切换保持无动画
-  const toTab = TAB_ORDER.get(nameOf(to))
-  const fromTab = TAB_ORDER.get(nameOf(from))
+  const toTab = TAB_ORDER.get(toName)
+  const fromTab = TAB_ORDER.get(fromName)
   if (toTab === undefined || fromTab === undefined) return ''
   return toTab > fromTab ? 'page-slide-tab-left' : 'page-slide-tab-right'
 }

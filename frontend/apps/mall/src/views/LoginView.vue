@@ -9,12 +9,13 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
-/**
- * 登录成功后的去处。
- * 由调用方显式指定时优先（如 MemberView 内嵌本组件时传 "/member"，登录后就地变成个人中心）；
- * 否则用路由 query.redirect（守卫重定向、详情页「需要登录」跳转都会带上）；最后回首页。
- */
-const props = defineProps<{ redirect?: string }>()
+const props = defineProps<{
+  /** 登录成功后的去处。内嵌在「我的」页时传 '/member'；不传则用路由 query.redirect，最后回首页 */
+  redirect?: string
+  /** 内嵌模式：由「我的」页渲染。去掉独立页的 nav bar（那是页面级标题，内嵌时重复），
+   *  改用与个人中心同源的渐变头部，让用户知道「还在我的页里，只是还没登录」 */
+  embedded?: boolean
+}>()
 
 const mode = ref<'login' | 'register'>('login')
 const method = ref<'password' | 'sms'>('password')
@@ -27,6 +28,12 @@ const form = reactive({
   code: '',
   nickname: '',
 })
+
+/** 独立全屏层的返回：能回退就回退，直接打开 /login 时退回首页（与商品详情页同一套做法） */
+function goBack() {
+  if (window.history.state?.back) router.back()
+  else router.replace({ name: 'home' })
+}
 
 async function sendCode() {
   if (!/^1[3-9]\d{9}$/.test(form.phone)) {
@@ -66,12 +73,21 @@ async function submit() {
 </script>
 
 <template>
-  <div class="login">
-    <van-nav-bar :title="mode === 'login' ? '登录' : '注册'" />
+  <div class="login" :class="{ 'login--embedded': props.embedded }">
+    <!-- 独立全屏层：左返回 + **唯一**标题。
+         原先 nav bar 写「登录」、下面又有一行「登录 / 注册」切换，两处说同一件事；
+         现在标题跟着 mode 走，注册入口挪到表单下方的文字链（见 .login__links）。 -->
+    <van-nav-bar
+      v-if="!props.embedded"
+      :title="mode === 'login' ? '登录' : '注册'"
+      left-arrow
+      @click-left="goBack"
+    />
 
-    <div class="login__switch">
-      <span :class="{ active: mode === 'login' }" @click="mode = 'login'">登录</span>
-      <span :class="{ active: mode === 'register' }" @click="mode = 'register'">注册</span>
+    <!-- 内嵌在「我的」页里：用与 .member__header 同源的渐变头部，保住「这是我的页」的归属感 -->
+    <div v-else class="login__hero">
+      <div class="login__hero-title">{{ mode === 'login' ? '登录' : '注册' }}</div>
+      <div class="login__hero-sub">登录后查看你的订单与收货地址</div>
     </div>
 
     <van-form @submit="submit">
@@ -106,37 +122,72 @@ async function submit() {
       </div>
     </van-form>
 
-    <div v-if="mode === 'login'" class="login__method" @click="method = method === 'password' ? 'sms' : 'password'">
-      切换为{{ method === 'password' ? '手机验证码' : '账密' }}登录
+    <div class="login__links">
+      <button
+        v-if="mode === 'login'"
+        class="login__link"
+        type="button"
+        @click="method = method === 'password' ? 'sms' : 'password'"
+      >
+        切换为{{ method === 'password' ? '手机验证码' : '账密' }}登录
+      </button>
+      <button
+        class="login__link"
+        type="button"
+        @click="mode = mode === 'login' ? 'register' : 'login'"
+      >
+        {{ mode === 'login' ? '还没有账号？立即注册' : '已有账号？去登录' }}
+      </button>
     </div>
   </div>
 </template>
 
 <style scoped>
-.login__switch {
-  display: flex;
-  justify-content: center;
-  gap: 32px;
-  padding: 20px 0;
-  font-size: 16px;
+/* 独立全屏层：必须是「不透明 + 至少一屏高」—— 从底部滑上来时要盖住下面那一页，
+   半透明或不够高都会透出背后的内容（这是上滑过渡能成立的前提）。 */
+.login {
+  min-height: 100vh;
+  background: #fff;
 }
-.login__switch span {
-  color: #969799;
-  padding-bottom: 6px;
+/* 内嵌在「我的」tab 里，不是独立层：高度交给父页面，背景跟着页面走 */
+.login--embedded {
+  min-height: 0;
+  background: transparent;
 }
-.login__switch span.active {
-  color: #323233;
+
+/* 内嵌时替代 nav bar 的渐变头部。与 MemberView 的 .member__header 同源，
+   改色值要两处一起改。 */
+.login__hero {
+  padding: 24px 20px;
+  background: linear-gradient(135deg, #ee0a24, #ff6034);
+  color: #fff;
+}
+.login__hero-title {
+  font-size: 18px;
   font-weight: 600;
-  border-bottom: 2px solid #ee0a24;
 }
+.login__hero-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
 .login__submit {
   margin: 20px 16px;
 }
-.login__method {
-  text-align: center;
-  color: #1989fa;
+.login__links {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.login__link {
+  padding: 0;
+  border: none;
+  background: none;
   font-size: 14px;
-  margin-top: 12px;
+  color: #1989fa;
   cursor: pointer;
 }
 </style>

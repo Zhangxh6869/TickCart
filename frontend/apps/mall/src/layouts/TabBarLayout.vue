@@ -34,8 +34,15 @@ const activeIndex = computed(() => {
  */
 const indicatorLeft = computed(() => `calc(${activeIndex.value} * 100% / 3 + 100% / 6)`)
 
-/** 商品详情页自带底部操作栏（收藏 / 加购 / 立即购买），隐藏 tabbar 让位 */
-const showTabbar = computed(() => route.name !== 'product-detail')
+/**
+ * 自带全屏层级的页面隐藏 tabbar：
+ *   product-detail —— 页面自带底部操作栏（收藏 / 加购 / 立即购买），tabbar 让位
+ *   login          —— 独立全屏层，从底部滑入覆盖整个视口；留着 tabbar 会出现
+ *                     「三项全灰、指示条却停在首页下面」的坏选中态，且与登录页无关
+ * 顺带 .layout--tabbar 的 50px 底部内边距也会一起去掉，登录页正好占满一屏。
+ */
+const FULLSCREEN_ROUTES = ['product-detail', 'login']
+const showTabbar = computed(() => !FULLSCREEN_ROUTES.includes(route.name as string))
 
 /** 只有购物车带角标，其余为空字符串（Vant 收到空串不渲染角标） */
 function badgeOf(name: string): string {
