@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import type { Category, ProductListItem } from '@tickcart/shared-types'
@@ -48,12 +48,41 @@ function scrollActiveToCenter(token: number) {
   bar.scrollTo({ left, behavior: 'smooth' })
 }
 
+/**
+ * 同步「选中项是否已被横向滚到钉住项（「全部」）下面」。
+ *
+ * 选中项的放大是 transform: scale，绕名称盒中心缩放会让名称左右各向外溢出约 8px。
+ * 因此选中项默认抬到钉住项之上（见样式里 .cat-bar__item.is-active 的 z-index 注释），
+ * 否则紧挨「全部」的分类（如「手机数码」）放大后左半边会被「全部」的不透明背景切掉。
+ * 但同一个抬升会让「手动横滑时滑到『全部』下面的选中项」浮在「全部」之上、露出半截字，
+ * 所以这里按布局位置判断：选中项的可视左边缘一旦越过钉住项右边缘，就给它降层，
+ * 恢复「被『全部』盖住」的常规行为。
+ * 判据用 offsetLeft / offsetWidth（布局值，不含 transform），不会被放大产生的溢出干扰。
+ */
+function syncActiveUnderPinned() {
+  const bar = catBarRef.value
+  if (!bar) return
+  const active = bar.querySelector<HTMLElement>('.cat-bar__item.is-active')
+  const pinned = bar.querySelector<HTMLElement>('.cat-bar__item--pinned')
+  // 「全部」自身被选中时不需要降层（钉住项本来就是被遮的基准）
+  const under =
+    !!active &&
+    !!pinned &&
+    active !== pinned &&
+    active.offsetLeft - pinned.offsetLeft - bar.scrollLeft < pinned.offsetWidth
+  bar.classList.toggle('is-active-under-pinned', under)
+}
+
 /** 选中项字号有 0.15s 过渡，宽度在过渡中还会变，所以等过渡结束再校正一次。 */
 async function centerActiveCategory() {
   const token = ++centerSeq
   await nextTick()
+  syncActiveUnderPinned()
   scrollActiveToCenter(token)
-  window.setTimeout(() => scrollActiveToCenter(token), 200)
+  window.setTimeout(() => {
+    scrollActiveToCenter(token)
+    syncActiveUnderPinned()
+  }, 200)
 }
 
 /** 按当前选中的分类拉取首页商品（固定 8 条，按销量倒序）。 */
@@ -97,12 +126,21 @@ function goList() {
 }
 
 onMounted(async () => {
+  // 横滑过程中随时校正选中项的层叠状态（passive：监听不参与滚动性能路径）
+  catBarRef.value?.addEventListener('scroll', syncActiveUnderPinned, { passive: true })
   try {
     categories.value = await fetchCategories()
   } catch {
     showToast('分类加载失败')
   }
   await loadProducts()
+})
+
+// 从商品详情等页面返回时，浏览器会恢复分类栏的横向滚动位置但不触发 scroll 事件，这里补一次
+onActivated(syncActiveUnderPinned)
+
+onBeforeUnmount(() => {
+  catBarRef.value?.removeEventListener('scroll', syncActiveUnderPinned)
 })
 </script>
 
@@ -274,6 +312,10 @@ onMounted(async () => {
   /* 项间距 */
   margin-right: 20px;
   cursor: pointer;
+  /* 层叠基准：未选中项固定在 0，低于钉住项（1），滑动时照旧被「全部」盖住。
+     选中项会抬到 2，详见 .cat-bar__item.is-active */
+  position: relative;
+  z-index: 0;
 }
 .cat-bar__item:last-child {
   margin-right: 0;
@@ -289,6 +331,23 @@ onMounted(async () => {
   /* 实底，与 App.vue 的页面底色同源：盖住滑到它后面的分类名 */
   background: var(--van-background);
   z-index: 1;
+}
+/* 选中项必须压在钉住项（z-index: 1）之上。
+   放大是绕名称盒中心缩放，名称左右各向外溢出 (scale-1)/2 × 名称宽 ≈ 8px（4 字）：
+   选中紧挨「全部」的分类（如「手机数码」）时，左侧那 8px 会落进「全部」的不透明背景里，
+   层叠顺序若低于它，就会被切掉半边字。抬到 2 即可整字完整显示。
+   注意这里不能用「降钉住项 z-index」的写法：那会让滑动时的分类名盖在「全部」上。
+   2 个 class 的选择器（0,2,0）优先级高于 .cat-bar__item--pinned（0,1,0），
+   所以「全部」自己被选中时同样是 2，行为不变。 */
+.cat-bar__item.is-active {
+  z-index: 2;
+}
+/* 选中项被横滑到钉住项下面时（由 syncActiveUnderPinned 打上这个标记）：
+   降回与普通项同层，重新被「全部」的实底背景盖住 —— 否则上面那条抬升会让它浮在
+   「全部」之上，在左侧 12px 留白里露出半截字。
+   4 个 class 的选择器（0,4,0）优先级高于 .cat-bar__item.is-active（0,2,0）。 */
+.cat-bar.is-active-under-pinned .cat-bar__item.is-active {
+  z-index: 0;
 }
 .cat-bar__name {
   font-size: 14px;
