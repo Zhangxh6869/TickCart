@@ -3,6 +3,7 @@ import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useCartStore } from '@/stores/cart'
+import TabBarIcon from '@/components/TabBarIcon.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -38,10 +39,21 @@ function go(name: string) {
       <slot />
     </div>
 
+    <!-- 图标走 #icon 插槽自绘 SVG（见 TabBarIcon），不用 Vant 的 icon 字体：
+         设计给的图标字体里没有，且需要随选中态变色（currentColor） -->
     <van-tabbar v-if="showTabbar" :model-value="active" @change="go">
-      <van-tabbar-item name="home" icon="home-o">首页</van-tabbar-item>
-      <van-tabbar-item name="cart" icon="cart-o" :badge="cartStore.badge">购物车</van-tabbar-item>
-      <van-tabbar-item name="member" icon="user-o">我的</van-tabbar-item>
+      <van-tabbar-item name="home">
+        <template #icon><TabBarIcon name="home" /></template>
+        首页
+      </van-tabbar-item>
+      <van-tabbar-item name="cart" :badge="cartStore.badge">
+        <template #icon><TabBarIcon name="cart" /></template>
+        购物车
+      </van-tabbar-item>
+      <van-tabbar-item name="member">
+        <template #icon><TabBarIcon name="member" /></template>
+        我的
+      </van-tabbar-item>
     </van-tabbar>
   </div>
 </template>
