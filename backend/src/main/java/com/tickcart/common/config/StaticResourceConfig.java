@@ -7,34 +7,50 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import java.nio.file.Path;
+
 /**
- * 上传图片的静态资源映射：把 {@code tickcart.upload.url-prefix} 暴露为落盘目录的只读访问入口。
+ * 静态资源映射，把磁盘目录暴露为只读 HTTP 访问入口：
  *
- * <p>映射前缀必须与 {@link FileStorageService#store} 拼出的 URL 一致，两者改动需同步。
- * 该路径在 {@code SecurityConfig} 中放行 GET（{@code <img src>} 不会带 Authorization 头）。</p>
+ * <ul>
+ *   <li>{@code tickcart.upload.url-prefix}/**（默认 {@code /api/files/**}）→ 后台上传目录</li>
+ *   <li>{@code /img/**} → 演示图片目录 {@code tickcart.static.imgs-dir}（仓库内 {@code imgs/}）</li>
+ * </ul>
+ *
+ * <p>两个前缀都必须与数据库里存的 URL 前缀一致（上传见
+ * {@link FileStorageService#store}），并在 {@code SecurityConfig} 中放行 GET
+ * —— {@code <img src>} 不会携带 Authorization 头。</p>
  */
 @Configuration
 public class StaticResourceConfig implements WebMvcConfigurer {
 
     private static final Logger log = LoggerFactory.getLogger(StaticResourceConfig.class);
 
-    private final UploadProperties properties;
+    private final UploadProperties uploadProperties;
+    private final StaticProperties staticProperties;
     private final FileStorageService fileStorageService;
 
-    public StaticResourceConfig(UploadProperties properties, FileStorageService fileStorageService) {
-        this.properties = properties;
+    public StaticResourceConfig(UploadProperties uploadProperties,
+                                StaticProperties staticProperties,
+                                FileStorageService fileStorageService) {
+        this.uploadProperties = uploadProperties;
+        this.staticProperties = staticProperties;
         this.fileStorageService = fileStorageService;
     }
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        String pattern = properties.getUrlPrefix() + "/**";
-        String location = fileStorageService.getRootDir().toUri().toString();
-        // Spring 要求 location 以 / 结尾，否则会被当成文件而非目录
+        register(registry, uploadProperties.getUrlPrefix() + "/**", fileStorageService.getRootDir());
+        register(registry, "/img/**", Path.of(staticProperties.getImgsDir()).toAbsolutePath().normalize());
+    }
+
+    /** 注册单个映射；location 必须以 {@code /} 结尾，否则 Spring 会当成文件而非目录。 */
+    private void register(ResourceHandlerRegistry registry, String pattern, Path dir) {
+        String location = dir.toUri().toString();
         if (!location.endsWith("/")) {
             location = location + "/";
         }
-        log.info("上传图片静态映射：{} -> {}", pattern, location);
+        log.info("静态资源映射：{} -> {}", pattern, location);
         registry.addResourceHandler(pattern).addResourceLocations(location);
     }
 }

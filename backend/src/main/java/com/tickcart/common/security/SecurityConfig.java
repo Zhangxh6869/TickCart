@@ -70,6 +70,9 @@ public class SecurityConfig {
                         // 上传图片的静态访问：<img src> 不会携带 Authorization 头，必须放行
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/files/**").permitAll()
+                        // 仓库内演示图片（imgs/）的静态访问，同样供 <img src> 直接使用
+                        .requestMatchers(org.springframework.http.HttpMethod.GET,
+                                "/img/**").permitAll()
                         // 支付渠道异步通知：由渠道服务端回调，无用户令牌（真实场景靠验签鉴权）
                         .requestMatchers("/api/payments/callback/**").permitAll()
                         // 后台管理接口需管理员

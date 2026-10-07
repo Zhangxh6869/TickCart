@@ -104,6 +104,10 @@ tickcart:
     url-prefix: /api/files
     # 单张图片大小上限（MB）
     max-size-mb: 5
+  # 静态资源（随仓库提交的演示素材）
+  static:
+    # 演示图片目录，以 /img/** 对外提供；默认 ../imgs 指仓库根目录 imgs/
+    imgs-dir: ${IMGS_DIR:../imgs}
 
 # -----------------------------------------------------------------------------
 # MyBatis-Plus 配置
