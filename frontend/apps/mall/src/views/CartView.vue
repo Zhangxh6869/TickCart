@@ -141,6 +141,24 @@ const skuGroups = computed(() => {
   return Array.from(groups, ([title, skus]) => ({ title, skus }))
 })
 
+/** 当前项在款式列表里对应的 SKU，用来取规格名与实时库存 */
+const selectedSkuOption = computed(
+  () => skuOptions.value.find((sku) => sku.id === skuPopupItem.value?.skuId) ?? null
+)
+
+/** 摘要行文案「已选 尺码 M」；规格名缺失时退化成「已选 M」 */
+const selectedSkuLabel = computed(() => {
+  const value = selectedSkuOption.value?.specValue ?? skuPopupItem.value?.specValue ?? ''
+  const name = selectedSkuOption.value?.specName?.trim()
+  return name ? `已选 ${name} ${value}` : `已选 ${value}`
+})
+
+/** 摘要行库存文案 */
+const selectedSkuStock = computed(() => {
+  const stock = selectedSkuOption.value?.stock ?? skuPopupItem.value?.stock ?? 0
+  return stock > 0 ? `库存 ${stock} 件` : '该款式已售罄'
+})
+
 /**
  * 打开款式面板。
  *
@@ -273,7 +291,7 @@ function goLogin() {
       <van-checkbox :model-value="allChecked" class="cart__all" @click="onToggleAll">全选</van-checkbox>
     </van-submit-bar>
 
-    <!-- 款式切换面板：底部弹出，按规格名分组网格展示全部款式，选中即切换 -->
+    <!-- 款式切换面板：底部弹出，头部是「已选」摘要，款式做成自适应宽度的胶囊标签，选中即切换 -->
     <van-popup v-model:show="skuPopupVisible" position="bottom" round>
       <div class="sku-picker">
         <div class="sku-picker__head">
@@ -283,24 +301,39 @@ function goLogin() {
           </button>
         </div>
 
+        <!-- 已选摘要：缩略图 + 当前款式与库存 + 单价 -->
+        <div v-if="skuPopupItem" class="sku-picker__summary">
+          <van-image
+            class="sku-picker__thumb"
+            width="52"
+            height="52"
+            fit="cover"
+            :src="skuPopupItem.productImage || ''"
+          />
+          <div class="sku-picker__summary-text">
+            <div class="sku-picker__summary-line">{{ selectedSkuLabel }}</div>
+            <div class="sku-picker__summary-stock">{{ selectedSkuStock }}</div>
+          </div>
+          <div class="sku-picker__summary-price">¥{{ formatPrice(skuPopupItem.price) }}</div>
+        </div>
+
         <van-loading v-if="skuLoading" class="sku-picker__loading" />
 
         <div v-else class="sku-picker__body">
           <div v-for="group in skuGroups" :key="group.title" class="sku-picker__group">
             <div class="sku-picker__group-title">{{ group.title }}</div>
-            <div class="sku-picker__grid">
+            <div class="sku-picker__tags">
               <button
                 v-for="sku in group.skus"
                 :key="sku.id"
-                class="sku-picker__item"
+                class="sku-picker__tag"
                 :class="{ 'is-active': sku.id === skuPopupItem?.skuId, 'is-disabled': sku.stock <= 0 }"
                 type="button"
                 :disabled="sku.stock <= 0"
                 @click="onSelectSku(sku)"
               >
-                <span class="sku-picker__item-name">{{ sku.specValue }}</span>
-                <span class="sku-picker__item-price">¥{{ formatPrice(sku.price) }}</span>
-                <span v-if="sku.stock <= 0" class="sku-picker__item-tip">缺货</span>
+                <span>{{ sku.specValue }}</span>
+                <van-icon v-if="sku.id === skuPopupItem?.skuId" name="success" size="12" />
               </button>
             </div>
           </div>
@@ -464,52 +497,69 @@ function goLogin() {
   font-size: 13px;
   color: #646566;
 }
-.sku-picker__grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-}
-.sku-picker__item {
-  position: relative;
+/* 已选摘要：缩略图 + 当前款式与库存 + 单价 */
+.sku-picker__summary {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 8px 10px;
-  border: 1px solid #ebedf0;
-  border-radius: 6px;
-  background: #fafafa;
-  text-align: left;
-  cursor: pointer;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #f7f8fa;
 }
-/* 当前款式高亮，与详情页的规格选中态同色 */
-.sku-picker__item.is-active {
-  border-color: #ee0a24;
-  background: #fff5f5;
+.sku-picker__thumb {
+  flex-shrink: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #ebedf0;
 }
-.sku-picker__item.is-disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.sku-picker__summary-text {
+  flex: 1;
+  min-width: 0;
 }
-.sku-picker__item-name {
+.sku-picker__summary-line {
   font-size: 13px;
   color: #323233;
 }
-.sku-picker__item-price {
-  font-size: 13px;
+.sku-picker__summary-stock {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #969799;
+}
+.sku-picker__summary-price {
+  font-size: 16px;
   font-weight: 600;
   color: #ee0a24;
 }
-.sku-picker__item-tip {
-  position: absolute;
-  top: -1px;
-  right: -1px;
-  padding: 0 4px;
-  border-radius: 0 6px 0 6px;
-  background: #c8c9cc;
-  color: #fff;
-  font-size: 10px;
-  line-height: 16px;
+/* 款式标签：宽度随文字自适应的胶囊，选中填浅蓝。
+   浅蓝底（rgb(184,212,232)）偏亮，文字必须用深色 —— 白字在它上面的对比度只有 1.4:1。 */
+.sku-picker__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sku-picker__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 15px;
+  border: 1px solid #ebedf0;
+  border-radius: 16px;
+  background: #fafafa;
+  font-size: 13px;
+  color: #323233;
+  cursor: pointer;
+}
+.sku-picker__tag.is-active {
+  border-color: rgb(184, 212, 232);
+  background: rgb(184, 212, 232);
+  color: #323233;
+}
+.sku-picker__tag.is-disabled {
+  border-color: #f2f3f5;
+  background: #f7f8fa;
+  color: #c8c9cc;
+  cursor: not-allowed;
 }
 .sku-picker__empty {
   padding: 24px 0;
