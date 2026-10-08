@@ -70,6 +70,33 @@ const categoryTabs = computed<{ id: number | null; name: string }[]>(() => [
   ...categories.value.map((cat) => ({ id: cat.id as number | null, name: cat.name })),
 ])
 
+/** 分类在分类栏里的下标（「全部」为 0），用于判定切换方向 */
+function catIndexOf(id: number | null): number {
+  return categoryTabs.value.findIndex((tab) => tab.id === id)
+}
+
+/** 商品面板的 key：一个分类一块面板，key 变化即触发左右滑动过渡 */
+const panelKey = computed(() => activeCategoryId.value ?? 'all')
+
+/**
+ * 商品区切换方向：`cat-slide-left` = 往右切（新面板从右侧划入），
+ * `cat-slide-right` = 往左切（新面板从左侧划入）。
+ * 命名与 App.vue 里 tab 页切换的 `page-slide-tab-*` 保持同一套语义。
+ */
+const catTransition = ref<'cat-slide-left' | 'cat-slide-right'>('cat-slide-left')
+
+/** 商品区元素，切换时用来量取并锁定高度 */
+const sectionRef = ref<HTMLElement | null>(null)
+
+/**
+ * 切换分类期间锁定的商品区最小高度（px，0 = 不锁定）。
+ *
+ * 新面板的第一页数据回来之前它是空的，`.section` 会塌到只剩内边距 ——
+ * 分类栏是吸顶的，用户常常已经滚到下方才点分类，此时文档高度骤降会把 scrollY 夹到 0，
+ * 页面「唰」地弹回顶部。锁定切换前的高度即可避免这次无谓的跳动。
+ */
+const sectionMinHeight = ref(0)
+
 // 请求序号：连点分类时丢弃过期响应，避免先发的慢请求覆盖后发的快请求
 let requestSeq = 0
 // 居中滚动序号：连点分类时丢弃过期的滚动，避免两次滚动互相打架
@@ -171,6 +198,13 @@ async function loadMore() {
     if (seq === requestSeq) {
       listLoading.value = false
       loadingFirstPage.value = false
+      // 第一页（新分类的首屏）已经渲染进 DOM，或本次加载失败 —— 两种情况都该
+      // 解除切换时锁定的最小高度，把版面交还给真实内容高度。
+      // 再查一次 seq：等待期间用户又切了分类的话，锁要留给最新那次请求去解。
+      if (isFirstPage) {
+        await nextTick()
+        if (seq === requestSeq) sectionMinHeight.value = 0
+      }
     }
   }
 }
@@ -200,11 +234,23 @@ function resetList() {
   loadMore()
 }
 
-/** 切换分类：原地重新随机并刷新商品、不跳页，并把选中的分类滚到屏幕中间。 */
+/** 切换分类：商品区按分类的左右顺序左右滑动、原地刷新商品，并把选中的分类滚到屏幕中间。 */
 function selectCategory(id: number | null) {
   if (activeCategoryId.value !== id) {
+    // 方向必须先定再改 activeCategoryId —— 改完就分不清「从哪个分类切过来」了。
+    // 新分类排在当前分类右边 → 新面板从右侧划入（点左边的分类则反之）。
+    catTransition.value =
+      catIndexOf(id) > catIndexOf(activeCategoryId.value) ? 'cat-slide-left' : 'cat-slide-right'
+    // 量高度也必须在清空列表之前：之后 .section 就只剩内边距了
+    sectionMinHeight.value = sectionRef.value?.offsetHeight ?? 0
     activeCategoryId.value = id
     resetList()
+    // 换了分类就是换了一批商品，视口必须回到顶部。
+    // 否则用户停在上一批商品的滚动位置上，而新列表（只有一页）比旧列表短，
+    // scrollY 会被夹到「刚好触底」，van-list 顺势再加载一页 ——
+    // 实测就是「切一次分类变成 20 个商品」。
+    // 用瞬时滚动：分类栏是吸顶的，回到顶部时它在视觉上原地不动，不会和商品区的滑动打架。
+    if (window.scrollY > 0) window.scrollTo(0, 0)
   }
   centerActiveCategory()
 }
@@ -284,38 +330,53 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="section">
-      <!-- 商品列表：触底自动加载下一页交给 van-list 托管。
-           它的挂载检查（immediate-check 默认开启）会在列表为空时自动 emit 一次 load，
-           所以首屏 10 个商品不用在 onMounted 里手动拉 —— 见 script 里的说明。
-           finished / error 的提示文案也由组件负责，我们只在 @load 里取数据。 -->
-      <van-list
-        v-model:loading="listLoading"
-        v-model:error="listError"
-        :finished="listFinished"
-        finished-text="没有更多了"
-        error-text="加载失败，点击重试"
-        @load="loadMore"
-      >
-        <div class="product-grid">
-          <ProductCard v-for="p in products" :key="p.id" :product="p" />
+    <div
+      ref="sectionRef"
+      class="section"
+      :style="{ minHeight: sectionMinHeight ? `${sectionMinHeight}px` : '' }"
+    >
+      <!-- 分类切换：整块商品区左右滑动。用 key 换面板，旧面板绝对定位滑出、
+           新面板留在文档流里滑入 —— 新面板留在流里，.section 的高度才始终有人撑着，
+           滚动位置不会因为文档骤然变矮被夹掉。方向由 selectCategory 里的下标比较决定。
+           面板包一层 div 是必须的：<Transition> 要求子节点单一，而 van-list 的
+           finished / error 文案和 #loading 插槽都挂在它内部。 -->
+      <Transition :name="catTransition">
+        <div :key="panelKey" class="cat-panel">
+          <!-- 商品列表：触底自动加载下一页交给 van-list 托管。
+               它的挂载检查（immediate-check 默认开启）会在列表为空时自动 emit 一次 load，
+               所以首屏 10 个商品不用在 onMounted 里手动拉 —— 见 script 里的说明。
+               finished / error 的提示文案也由组件负责，我们只在 @load 里取数据。
+               切换分类会重建这个 van-list，但 loading 在 resetList 里已先置 true，
+               重建时的挂载检查会被它挡住，不会白打一次接口。 -->
+          <van-list
+            v-model:loading="listLoading"
+            v-model:error="listError"
+            :finished="listFinished"
+            finished-text="没有更多了"
+            error-text="加载失败，点击重试"
+            @load="loadMore"
+          >
+            <div class="product-grid">
+              <ProductCard v-for="p in products" :key="p.id" :product="p" />
+            </div>
+            <!-- 空态只在「确实没有数据」时出现：加载中列表本来就空，不能误判成暂无商品 -->
+            <van-empty
+              v-if="listFinished && products.length === 0"
+              description="暂无商品"
+            />
+            <!-- 触底加载动画：列表末尾留白里居中转的一个空心圆环。
+                 放在文档流内而不是做浮层 —— 浮层会盖住商品、也和 tabbar 抢位置；
+                 放这里才符合「拉到最下边，在留白区域转圈」的预期。
+                 第一页（首次进入 / 切换分类）不渲染它：那时列表里还没有商品，
+                 要的是「直接展示」，不是先看一圈动画。 -->
+            <template #loading>
+              <div v-if="!loadingFirstPage" class="list-loading">
+                <van-loading class="list-loading__spinner" size="20" />
+              </div>
+            </template>
+          </van-list>
         </div>
-        <!-- 空态只在「确实没有数据」时出现：加载中列表本来就空，不能误判成暂无商品 -->
-        <van-empty
-          v-if="listFinished && products.length === 0"
-          description="暂无商品"
-        />
-        <!-- 触底加载动画：列表末尾留白里居中转的一个空心圆环。
-             放在文档流内而不是做浮层 —— 浮层会盖住商品、也和 tabbar 抢位置；
-             放这里才符合「拉到最下边，在留白区域转圈」的预期。
-             第一页（首次进入 / 切换分类）不渲染它：那时列表里还没有商品，
-             要的是「直接展示」，不是先看一圈动画。 -->
-        <template #loading>
-          <div v-if="!loadingFirstPage" class="list-loading">
-            <van-loading class="list-loading__spinner" size="20" />
-          </div>
-        </template>
-      </van-list>
+      </Transition>
     </div>
   </div>
 </template>
@@ -392,11 +453,77 @@ onBeforeUnmount(() => {
   font-size: 14px;
   cursor: pointer;
 }
+/* 商品区所在的白底卡片。
+   position: relative 是旧面板（绝对定位滑出）的包含块；
+   overflow: clip 一举两得 —— 收口新面板从 left: ±100% 滑入时的横向溢出
+   （不夹住会把文档 scrollWidth 撑到两倍宽、还能横向拖动），
+   同时裁掉旧面板滑出期间溢出卡片的那部分（它绝对定位后不再撑高 .section）。
+   必须是 clip 不是 hidden：hidden 会创建滚动容器，程序化 scrollTo 仍能滚过去。
+   两个方向都用 clip 是安全的：.section 内没有 sticky / fixed 后代，
+   首页吸顶区是它的兄弟节点，不在这个裁剪范围内。 */
 .section {
+  position: relative;
   background: #fff;
   margin: 12px;
   border-radius: 8px;
+  overflow: clip;
+}
+
+/* 分类面板：内边距放在这里而不是 .section 上。
+   旧面板绝对定位时，包含块是 .section 的 padding box；.section 自己没有 padding，
+   所以旧面板 left: 0 / width: 100% 的内容位置和新面板逐像素一致，滑动时不会横向错位。 */
+.cat-panel {
   padding: 12px;
+}
+
+/* ── 分类切换：商品区左右滑动 ────────────────────────────────────────
+   与 App.vue 的 tab 页切换同一套写法：位移一律用 left，绝不用 transform
+   （transform 会把页面内 position: fixed 的后代改挂到该元素上，
+   购物车的 van-submit-bar 正是这种元素，实测会飞出屏幕）。
+
+   新面板留在文档流里（relative），旧面板绝对定位滑出后由 <Transition> 移除。
+   新面板留在流里是有意的：.section 的高度始终由它撑着，滚动位置不会被夹掉。
+   横向溢出由 .section 的 overflow: clip 收口，这里不用再管。 */
+.cat-slide-left-enter-active,
+.cat-slide-right-enter-active {
+  position: relative;
+  left: 0;
+  z-index: 1;
+  transition: left 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+/* 往右切（点了右边的分类）：新面板从右侧划入 */
+.cat-slide-left-enter-from {
+  left: 100%;
+}
+/* 往左切（点了左边的分类）：新面板从左侧划入 */
+.cat-slide-right-enter-from {
+  left: -100%;
+}
+.cat-slide-left-leave-active,
+.cat-slide-right-leave-active {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 0;
+  transition: left 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+/* 旧面板被新面板「推开」的方向与新面板进入方向一致，只是位移小一些（露出被覆盖的过程） */
+.cat-slide-left-leave-to {
+  left: -30%;
+}
+.cat-slide-right-leave-to {
+  left: 30%;
+}
+
+/* 用户开启「减弱动态效果」时，过渡压到接近瞬时，只保留状态切换 */
+@media (prefers-reduced-motion: reduce) {
+  .cat-slide-left-enter-active,
+  .cat-slide-right-enter-active,
+  .cat-slide-left-leave-active,
+  .cat-slide-right-leave-active {
+    transition-duration: 1ms;
+  }
 }
 /* 分类栏：紧贴搜索栏下方，单行横向排列，超出部分横向滚动（隐藏滚动条） */
 .cat-bar {
