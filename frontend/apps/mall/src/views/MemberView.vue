@@ -82,8 +82,18 @@ async function onLogout() {
   align-items: center;
   gap: 14px;
   padding: 24px 20px;
-  background: linear-gradient(135deg, #ee0a24, #ff6034);
-  color: #fff;
+  /* 头部底色：同族蓝色由深到浅的三段渐变（左深右浅），
+     取自首页搜索框那支品牌色 rgb(107,163,200) 逐级提亮。 */
+  background: linear-gradient(
+    to right,
+    rgb(107, 163, 200) 0%,
+    rgb(184, 212, 232) 50%,
+    rgb(232, 240, 248) 100%
+  );
+  /* 文字用正文黑而不是白色：渐变右半段很浅（rgb(232,240,248)），
+     实测白字在昵称处的对比度只有 2.09:1、最右侧的箭头几乎看不见；
+     换成 #323233 后同位置是 6.13:1。 */
+  color: #323233;
 }
 .member__header--tappable {
   cursor: pointer;
