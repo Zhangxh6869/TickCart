@@ -2,6 +2,7 @@
 import { computed, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
+import type { SwipeCellInstance } from 'vant'
 import type { CartItem } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import { useCartStore } from '@/stores/cart'
@@ -68,16 +69,34 @@ async function onQuantityChange(item: CartItem, quantity: number | string) {
   }
 }
 
+/**
+ * 每个购物车条目对应一个 SwipeCell 实例，用于在删除被取消/失败时收起滑出的删除按钮。
+ * 列表项被移除后 Vue 会把 ref 回调置空，这里同步清理，避免 Map 持有已销毁实例。
+ */
+const swipeCells = new Map<number, SwipeCellInstance>()
+
+function setSwipeRef(id: number, el: unknown) {
+  if (el) swipeCells.set(id, el as SwipeCellInstance)
+  else swipeCells.delete(id)
+}
+
+/** position 仅用于 close 事件的载荷，传 'right' 表示收起右侧（删除）展开态 */
+function closeSwipe(id: number) {
+  swipeCells.get(id)?.close('right')
+}
+
 async function onRemove(item: CartItem) {
   try {
     await showConfirmDialog({ title: '移除商品', message: `确认将「${item.productName}」移出购物车？` })
   } catch {
-    return // 用户取消
+    closeSwipe(item.id) // 用户取消，收起滑出的删除按钮，避免停在展开态
+    return
   }
   try {
     await cartStore.remove(item.id)
   } catch {
-    // 错误提示由请求拦截器统一处理
+    // 错误提示由请求拦截器统一处理；同样收起展开态
+    closeSwipe(item.id)
   }
 }
 
@@ -112,44 +131,49 @@ function goLogin() {
       <van-button round type="primary" class="cart__empty-btn" @click="goHome">去逛逛</van-button>
     </van-empty>
 
+    <!-- 删除入口改为左滑露出：卡片本身不再放删除图标（SwipeCell 的删除按钮只在左滑后可见） -->
     <div v-else class="cart__list">
-      <div
+      <van-swipe-cell
         v-for="item in items"
         :key="item.id"
-        class="cart-item"
-        :class="{ 'cart-item--invalid': !item.valid }"
+        :ref="(el: unknown) => setSwipeRef(item.id, el)"
+        class="cart-item-cell"
       >
-        <van-checkbox
-          class="cart-item__check"
-          :model-value="item.checked === 1"
-          :disabled="!item.valid"
-          @update:model-value="(value: boolean) => onToggleItem(item, value)"
-        />
+        <div class="cart-item" :class="{ 'cart-item--invalid': !item.valid }">
+          <van-checkbox
+            class="cart-item__check"
+            :model-value="item.checked === 1"
+            :disabled="!item.valid"
+            @update:model-value="(value: boolean) => onToggleItem(item, value)"
+          />
 
-        <van-image class="cart-item__image" width="76" height="76" fit="cover" :src="item.productImage || ''" />
+          <van-image class="cart-item__image" width="76" height="76" fit="cover" :src="item.productImage || ''" />
 
-        <div class="cart-item__body">
-          <div class="cart-item__name">{{ item.productName }}</div>
-          <div v-if="item.specValue" class="cart-item__spec">{{ item.specValue }}</div>
-          <div v-if="!item.valid" class="cart-item__reason">{{ item.invalidReason }}</div>
+          <div class="cart-item__body">
+            <div class="cart-item__name">{{ item.productName }}</div>
+            <div v-if="item.specValue" class="cart-item__spec">{{ item.specValue }}</div>
+            <div v-if="!item.valid" class="cart-item__reason">{{ item.invalidReason }}</div>
 
-          <div class="cart-item__foot">
-            <span class="cart-item__price">¥{{ formatPrice(item.price) }}</span>
-            <van-stepper
-              v-if="item.valid"
-              :model-value="item.quantity"
-              :min="1"
-              :max="item.stock"
-              integer
-              button-size="24"
-              @change="(value: number | string) => onQuantityChange(item, value)"
-            />
-            <span v-else class="cart-item__quantity">×{{ item.quantity }}</span>
+            <div class="cart-item__foot">
+              <span class="cart-item__price">¥{{ formatPrice(item.price) }}</span>
+              <van-stepper
+                v-if="item.valid"
+                :model-value="item.quantity"
+                :min="1"
+                :max="item.stock"
+                integer
+                button-size="24"
+                @change="(value: number | string) => onQuantityChange(item, value)"
+              />
+              <span v-else class="cart-item__quantity">×{{ item.quantity }}</span>
+            </div>
           </div>
         </div>
 
-        <van-icon name="delete-o" class="cart-item__delete" @click="onRemove(item)" />
-      </div>
+        <template #right>
+          <van-button square type="danger" text="删除" class="cart-item__delete" @click="onRemove(item)" />
+        </template>
+      </van-swipe-cell>
     </div>
 
     <van-submit-bar
@@ -187,12 +211,17 @@ function goLogin() {
 .cart__list {
   padding: 10px 12px 0;
 }
+/* 间距挂在外层 SwipeCell 上，不挂卡片：
+   SwipeCell 是 overflow:hidden 的 BFC，卡片自带的 margin-bottom 会被算进它的高度，
+   于是 height:100% 的删除按钮会比卡片高出 10px。放外层后按钮高度正好等于卡片高度。 */
+.cart-item-cell {
+  margin-bottom: 10px;
+}
 .cart-item {
   display: flex;
   align-items: flex-start;
   gap: 10px;
   padding: 12px;
-  margin-bottom: 10px;
   border-radius: 10px;
   background: #fff;
 }
@@ -250,10 +279,9 @@ function goLogin() {
   font-size: 13px;
   color: #969799;
 }
+/* 左滑露出的删除按钮：高度撑满整行，与卡片等高 */
 .cart-item__delete {
-  padding: 4px;
-  font-size: 18px;
-  color: #c8c9cc;
+  height: 100%;
 }
 .cart__bar {
   bottom: 50px;
