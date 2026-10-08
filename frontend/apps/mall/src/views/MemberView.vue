@@ -78,6 +78,17 @@ async function onLogout() {
 </template>
 
 <style scoped>
+/* 页面根：必须「不透明 + 至少一屏高」。
+   tab 互切时旧页是 fixed 留在视口里让位的（见 App.vue 的 .page-slide-tab-*），
+   本页原先既没有背景色、高度又只有内容那么高（实测 364px / 视口 844px），
+   于是切进「我的」的那 300ms 里，首页/购物的商品会从菜单下面透出来。
+   高度按 tabbar 的 50px 占位算（.layout--tabbar 的 padding-bottom，box-sizing: border-box
+   下 .layout 的内容盒正好是 100vh - 50px），正好一屏、不产生多余滚动条。 */
+.member {
+  min-height: calc(100vh - 50px);
+  background: var(--van-background, #fff);
+}
+
 .member__header {
   display: flex;
   align-items: center;
