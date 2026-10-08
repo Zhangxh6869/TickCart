@@ -30,6 +30,32 @@ export type PageTransition =
 export const pageTransition = ref<PageTransition>('')
 
 /**
+ * 本次导航的「过渡族 + 方向」，会写进 `<html data-page-dir>`，供 App.vue 的过渡样式做门禁。
+ *
+ * 为什么不能只靠过渡类名（这是踩过的坑，别再简化掉）：
+ *   `<Transition :name>` 把名字烘进类名里（`page-slide-tab-left-enter-from` …），
+ *   而 `<KeepAlive>` 复用被缓存的页面时，页面根节点上的 transition hooks 是
+ *   **上一次过渡残留的**（Vue 的 `getInnerChild` 在 KeepAlive 已挂载后返回的是缓存的
+ *   subTree，新 vnode 上的 hooks 落不到它身上，KeepAlive 内部那段
+ *   `if (vnode.transition) setTransitionHooks(...)` 因此被跳过）。
+ *   于是页面拿到的类名可能整族整方向都不对。实测：
+ *     首页 → 购物车 → 首页 → 我的   进入的 .member 拿到 `page-slide-tab-right-enter-*`，方向反了
+ *     我的 → 登录 → 回我的         进入的 .member 拿到 `page-slide-up-enter-*`，整族都不对
+ *   类名里唯一可靠的信息是「enter / leave」—— 渲染器一定会给进入的元素挂 enter hooks、
+ *   给离开的元素挂 leave hooks。所以**族与方向一律以 router 写下的本次导航意图为准**，
+ *   App.vue 里每条过渡规则都带 `:root[data-page-dir=…]` 前缀。
+ */
+const PAGE_DIR: Record<PageTransition, string> = {
+  '': '',
+  'page-slide-left': 'forward',
+  'page-slide-right': 'back',
+  'page-slide-tab-left': 'tab-left',
+  'page-slide-tab-right': 'tab-right',
+  'page-slide-up': 'up',
+  'page-slide-down': 'down',
+}
+
+/**
  * 底部 tabbar 的平级页面。**值就是它们的左右顺序**，用来决定滑动方向：
  * 切到序号更大的 tab → 新页从右侧滑入；更小则从左侧滑入。
  * 同时这组页面之间互切会各自记住滚动位置（见下方 tabScrollPositions）。
@@ -205,6 +231,8 @@ router.beforeEach(async (to, from) => {
 
   document.documentElement.style.setProperty('--page-scroll-y', `${scrollY}px`)
   pageTransition.value = resolvePageTransition(to, from)
+  // 过渡族 + 方向：CSS 只认这个属性，不认过渡类名（类名会被 KeepAlive 残留污染，见 PAGE_DIR 注释）
+  document.documentElement.dataset.pageDir = PAGE_DIR[pageTransition.value]
 
   const userStore = useUserStore()
 

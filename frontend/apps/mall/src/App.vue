@@ -60,48 +60,55 @@ body {
       （注：早先这里写的是「transform 会破坏首页吸顶」，实测该说法不成立——
       吸顶在 transform 下仍然正常，真正会坏的是 fixed 后代。）
       left / top 没有这些副作用，代价是每帧重排，页面上限一个屏幕，300ms 内可以接受。
-   3) 过渡结束类名被移除，页面自动回到正常文档流。 */
-.page-slide-left-enter-active,
-.page-slide-left-leave-active,
-.page-slide-right-leave-active {
+   3) 过渡结束类名被移除，页面自动回到正常文档流。
+   4) 【每条规则都带 `:root[data-page-dir=…]` 门禁 —— 别去掉】
+      过渡类名里的「名字」不可信：页面被 KeepAlive 复用（切走再切回）时，挂在缓存 vnode 上的
+      transition hooks 是上一次过渡残留的，页面拿到的可能是**上一族、甚至反方向**的类名
+      （实测：首页→购物车→首页→我的，进入的 .member 拿到 page-slide-tab-right-enter-*；
+      从登录页回来时拿到 page-slide-up-enter-*）。类名只可靠地表达「enter / leave」，
+      族与方向一律以 router 写在 `<html data-page-dir>` 上的本次导航意图为准（见 router/index.ts）。
+      data-page-dir 的取值：forward / back / tab-left / tab-right / up / down / ''（空 = 不动画）。 */
+:root[data-page-dir='forward'] .page-slide-left-enter-active,
+:root[data-page-dir='forward'] .page-slide-left-leave-active,
+:root[data-page-dir='back'] .page-slide-right-leave-active {
   position: fixed;
   left: 0;
   width: 100%;
 }
 /* 离开的页面：钉回切换前的文档位置 */
-.page-slide-left-leave-active,
-.page-slide-right-leave-active {
+:root[data-page-dir='forward'] .page-slide-left-leave-active,
+:root[data-page-dir='back'] .page-slide-right-leave-active {
   top: calc(-1 * var(--page-scroll-y, 0px));
 }
 
 /* 前进：新页从右侧滑入 */
-.page-slide-left-enter-active {
+:root[data-page-dir='forward'] .page-slide-left-enter-active {
   top: 0;
   z-index: 10;
   transition: left 300ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 /* 前进：旧页在下层轻微左移，且更早退场（250ms < 300ms）——
    必须在新页滑到位之前离开文档流，否则两页会同时占位把页面撑成两屏 */
-.page-slide-left-leave-active {
+:root[data-page-dir='forward'] .page-slide-left-leave-active {
   z-index: 5;
   transition: left 250ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* 后退：当前页向右滑出；被缓存的上一页不参与动画，
    直接以 vue-router 恢复的滚动位置就位 */
-.page-slide-right-leave-active {
+:root[data-page-dir='back'] .page-slide-right-leave-active {
   z-index: 10;
   transition: left 280ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* 起止位置：必须排在上面基础 left: 0 之后，靠声明顺序覆盖 */
-.page-slide-left-enter-from {
+:root[data-page-dir='forward'] .page-slide-left-enter-from {
   left: 100%;
 }
-.page-slide-left-leave-to {
+:root[data-page-dir='forward'] .page-slide-left-leave-to {
   left: -25%;
 }
-.page-slide-right-leave-to {
+:root[data-page-dir='back'] .page-slide-right-leave-to {
   left: 100%;
 }
 
@@ -127,12 +134,21 @@ body {
    TabBarLayout 给 .layout__content 加 overflow-x: clip 收口（必须是 clip 不是 hidden）。
    这里不用再管。
 
-   旧页是 fixed，fixed 元素不参与文档的滚动溢出，所以它横移不会撑宽文档。 */
+   旧页是 fixed，fixed 元素不参与文档的滚动溢出，所以它横移不会撑宽文档。
+
+   【方向由 data-page-dir 决定，不看类名】
+   同一个方向的两组类名（tab-left / tab-right）在这里被**别名到同一套规则**上：
+   `-active` 本来就完全一样，只有 `-enter-from` / `-leave-to` 的位移符号不同，
+   所以按 data-page-dir 分成两支写，谁被挂上都不会跑偏。
+   不这么做的话，被 KeepAlive 复用的页面拿到残留类名时会「往右切却从左边划入」。 */
 
 /* 起止位置基线：left 必须显式写 0（relative 元素的 left 初始值是 auto，不可插值，
-   从 100% 过渡到 auto 不会产生动画）。下面 -enter-from / -leave-to 靠声明顺序覆盖它。 */
-.page-slide-tab-left-leave-active,
-.page-slide-tab-right-leave-active {
+   从 100% 过渡到 auto 不会产生动画）。下面 -enter-from / -leave-to 靠声明顺序覆盖它。
+   方向门禁成对写：tab-left 和 tab-right 两个方向都要认这两组类名。 */
+:root[data-page-dir='tab-left'] .page-slide-tab-left-leave-active,
+:root[data-page-dir='tab-left'] .page-slide-tab-right-leave-active,
+:root[data-page-dir='tab-right'] .page-slide-tab-left-leave-active,
+:root[data-page-dir='tab-right'] .page-slide-tab-right-leave-active {
   position: fixed;
   top: calc(-1 * var(--page-scroll-y, 0px));
   left: 0;
@@ -140,8 +156,10 @@ body {
   z-index: 0;
   transition: left 300ms cubic-bezier(0.32, 0.72, 0, 1);
 }
-.page-slide-tab-left-enter-active,
-.page-slide-tab-right-enter-active {
+:root[data-page-dir='tab-left'] .page-slide-tab-left-enter-active,
+:root[data-page-dir='tab-left'] .page-slide-tab-right-enter-active,
+:root[data-page-dir='tab-right'] .page-slide-tab-left-enter-active,
+:root[data-page-dir='tab-right'] .page-slide-tab-right-enter-active {
   position: relative;
   left: 0;
   z-index: 1;
@@ -149,18 +167,22 @@ body {
 }
 
 /* 往右切（首页→购物车→我的）：新页从右边进，旧页向左让位 */
-.page-slide-tab-left-enter-from {
+:root[data-page-dir='tab-left'] .page-slide-tab-left-enter-from,
+:root[data-page-dir='tab-left'] .page-slide-tab-right-enter-from {
   left: 100%;
 }
-.page-slide-tab-left-leave-to {
+:root[data-page-dir='tab-left'] .page-slide-tab-left-leave-to,
+:root[data-page-dir='tab-left'] .page-slide-tab-right-leave-to {
   left: -30%;
 }
 
 /* 往左切（我的→购物车→首页）：新页从左边进，旧页向右让位 */
-.page-slide-tab-right-enter-from {
+:root[data-page-dir='tab-right'] .page-slide-tab-left-enter-from,
+:root[data-page-dir='tab-right'] .page-slide-tab-right-enter-from {
   left: -100%;
 }
-.page-slide-tab-right-leave-to {
+:root[data-page-dir='tab-right'] .page-slide-tab-left-leave-to,
+:root[data-page-dir='tab-right'] .page-slide-tab-right-leave-to {
   left: 30%;
 }
 
@@ -190,9 +212,11 @@ body {
      我的   → 登录 → 回我的     进入的 .member 拿到 page-slide-up-enter-*    ✗ 上一次过渡的残留
    不绑定时，后者会被 fixed + top: 100% 拉出文档流，和正在下移的登录页叠在一起
    （.member 自身没有背景色，过渡期间会直接透出登录页）。
-   绑定后：只有登录页会上滑 / 下滑，其它页面不管被挂上什么类名都留在文档流里当 static。 */
-.login.page-slide-up-enter-active,
-.login.page-slide-down-leave-active {
+   绑定后：只有登录页会上滑 / 下滑，其它页面不管被挂上什么类名都留在文档流里当 static。
+   再加上 data-page-dir 门禁：`up` / `down` 之外的导航里，这两组规则一律不生效，
+   被 KeepAlive 残留污染的元素也不会被 fixed 拉出文档流。 */
+:root[data-page-dir='up'] .login.page-slide-up-enter-active,
+:root[data-page-dir='down'] .login.page-slide-down-leave-active {
   position: fixed;
   top: 0;
   left: 0;
@@ -200,15 +224,15 @@ body {
   z-index: 10;
   transition: top 300ms cubic-bezier(0.32, 0.72, 0, 1);
 }
-.login.page-slide-up-enter-from,
-.login.page-slide-down-leave-to {
+:root[data-page-dir='up'] .login.page-slide-up-enter-from,
+:root[data-page-dir='down'] .login.page-slide-down-leave-to {
   top: 100%;
 }
 /* 旧页：钉回它原来的文档位置，并且**必须保持 fixed、不能留在文档流里**。
    实测（逐帧量 documentElement.scrollHeight）：留在流里时 enter 比 leave 早结束约一帧，
    会出现「新页已回到 static、旧页还在流里」的瞬间 —— 文档高度从 844 翻到 1688，
    滚动条闪一下且过渡期间能上下滚。fixed 元素不参与文档滚动尺寸，任何重叠窗口都不会撑高文档。 */
-.page-slide-up-leave-active {
+:root[data-page-dir='up'] .page-slide-up-leave-active {
   position: fixed;
   top: calc(-1 * var(--page-scroll-y, 0px));
   left: 0;
@@ -217,18 +241,22 @@ body {
   transition: opacity 300ms linear;
 }
 
-/* 用户开启「减弱动态效果」时，过渡时长压到接近瞬时，只保留状态切换 */
+/* 用户开启「减弱动态效果」时，过渡时长压到接近瞬时，只保留状态切换。
+   门禁写法必须与上面的规则**同权重或更高**（`:root[data-page-dir]` + `:is(...)` = 0,3,0，
+   与 `:root[data-page-dir='x'] .cls` 相同），否则会被上面那条 transition 覆盖掉。 */
 @media (prefers-reduced-motion: reduce) {
-  .page-slide-left-enter-active,
-  .page-slide-left-leave-active,
-  .page-slide-right-leave-active,
-  .page-slide-tab-left-enter-active,
-  .page-slide-tab-left-leave-active,
-  .page-slide-tab-right-enter-active,
-  .page-slide-tab-right-leave-active,
-  .page-slide-up-enter-active,
-  .page-slide-up-leave-active,
-  .page-slide-down-leave-active {
+  :root[data-page-dir] :is(
+      .page-slide-left-enter-active,
+      .page-slide-left-leave-active,
+      .page-slide-right-leave-active,
+      .page-slide-tab-left-enter-active,
+      .page-slide-tab-left-leave-active,
+      .page-slide-tab-right-enter-active,
+      .page-slide-tab-right-leave-active,
+      .page-slide-up-enter-active,
+      .page-slide-up-leave-active,
+      .page-slide-down-leave-active
+    ) {
     transition-duration: 1ms;
   }
 }
