@@ -205,6 +205,13 @@ export interface OrderSummary {
   items: OrderItem[]
 }
 
+/** 后台订单列表项：比前台多带买家信息（后台需知道「是谁下的单」）。 */
+export interface AdminOrderSummary extends OrderSummary {
+  userId: number
+  receiver: string
+  receiverPhone: string
+}
+
 /** 订单详情。 */
 export interface OrderDetail {
   orderNo: string

@@ -2,6 +2,8 @@ package com.tickcart.trade.service;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -12,6 +14,7 @@ import com.tickcart.common.exception.BizException;
 import com.tickcart.common.mq.OrderMessageProducer;
 import com.tickcart.member.entity.UserAddress;
 import com.tickcart.member.service.AddressService;
+import com.tickcart.trade.dto.AdminOrderQuery;
 import com.tickcart.trade.dto.OrderCreateRequest;
 import com.tickcart.trade.dto.OrderQuery;
 import com.tickcart.trade.entity.Order;
@@ -19,6 +22,7 @@ import com.tickcart.trade.entity.OrderItem;
 import com.tickcart.trade.enums.OrderStatus;
 import com.tickcart.trade.mapper.OrderItemMapper;
 import com.tickcart.trade.mapper.OrderMapper;
+import com.tickcart.trade.vo.AdminOrderListItemVO;
 import com.tickcart.trade.vo.OrderDetailVO;
 import com.tickcart.trade.vo.OrderVO;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -33,6 +37,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -126,6 +131,9 @@ class OrderServiceTest {
         o.setStatus(status.getCode());
         o.setTotalAmount(new BigDecimal("198.00"));
         o.setPayAmount(new BigDecimal("198.00"));
+        o.setReceiver("张三");
+        o.setReceiverPhone("13800138000");
+        o.setReceiverAddr("广东省深圳市南山区科技园路 1 号");
         return o;
     }
 
@@ -458,5 +466,135 @@ class OrderServiceTest {
         assertThat(result.getTotal()).isEqualTo(1);
         assertThat(result.getRecords()).hasSize(1);
         assertThat(result.getRecords().get(0).getStatusLabel()).isEqualTo("待发货");
+    }
+
+    // ---------------- 后台：发货 ----------------
+
+    @Test
+    @DisplayName("发货：待发货订单置为待收货并写入发货时间")
+    void shipAdvancesStatus() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO20", UID, OrderStatus.PENDING_SHIPMENT));
+        when(orderMapper.update(ArgumentMatchers.<Order>isNull(), any())).thenReturn(1);
+
+        orderService.ship("NO20");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaUpdateWrapper<Order>> captor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(orderMapper).update(ArgumentMatchers.<Order>isNull(), captor.capture());
+        assertThat(captor.getValue().getParamNameValuePairs().values())
+                .contains(OrderStatus.PENDING_RECEIPT.getCode())
+                .anyMatch(value -> value instanceof LocalDateTime);
+    }
+
+    @Test
+    @DisplayName("未付款订单不能发货")
+    void shipRejectedWhenNotPaid() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO21", UID, OrderStatus.PENDING_PAYMENT));
+
+        assertThatThrownBy(() -> orderService.ship("NO21"))
+                .isInstanceOf(BizException.class)
+                .hasMessage("订单当前为「待付款」，无法发货");
+        verify(orderMapper, never()).update(any(), any());
+    }
+
+    @Test
+    @DisplayName("已取消订单不能发货")
+    void shipRejectedForCancelledOrder() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO22", UID, OrderStatus.CANCELLED));
+
+        assertThatThrownBy(() -> orderService.ship("NO22"))
+                .isInstanceOf(BizException.class)
+                .hasMessage("订单当前为「已取消」，无法发货");
+        verify(orderMapper, never()).update(any(), any());
+    }
+
+    @Test
+    @DisplayName("并发下状态被抢先变更时发货失败")
+    void shipRejectedWhenConcurrentUpdateLoses() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO23", UID, OrderStatus.PENDING_SHIPMENT));
+        when(orderMapper.update(ArgumentMatchers.<Order>isNull(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> orderService.ship("NO23"))
+                .isInstanceOf(BizException.class)
+                .hasMessage("订单状态已变更，请刷新后重试");
+    }
+
+    // ---------------- 后台：查询 ----------------
+
+    @Test
+    @DisplayName("后台详情不校验归属，可查看他人订单")
+    void adminDetailSkipsOwnershipCheck() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO24", 999L, OrderStatus.PENDING_SHIPMENT));
+        when(orderItemMapper.selectList(any())).thenReturn(List.of());
+
+        OrderDetailVO detail = orderService.adminDetail("NO24");
+
+        assertThat(detail.getOrderNo()).isEqualTo("NO24");
+        assertThat(detail.getStatusLabel()).isEqualTo("待发货");
+        assertThat(detail.getReceiverPhone()).isEqualTo("13800138000");
+    }
+
+    @Test
+    @DisplayName("后台列表带出买家信息与商品件数")
+    void adminPageMapsBuyerInfo() {
+        when(orderMapper.selectPage(ArgumentMatchers.<IPage<Order>>any(), any())).thenAnswer(inv -> {
+            IPage<Order> p = inv.getArgument(0);
+            p.setRecords(List.of(order("NO25", UID, OrderStatus.PENDING_SHIPMENT)));
+            p.setTotal(1);
+            return p;
+        });
+        OrderItem item = new OrderItem();
+        item.setQuantity(3);
+        when(orderItemMapper.selectList(any())).thenReturn(List.of(item));
+
+        var result = orderService.adminPage(new AdminOrderQuery());
+
+        assertThat(result.getTotal()).isEqualTo(1);
+        AdminOrderListItemVO vo = result.getRecords().get(0);
+        assertThat(vo.getOrderNo()).isEqualTo("NO25");
+        assertThat(vo.getUserId()).isEqualTo(UID);
+        assertThat(vo.getReceiver()).isEqualTo("张三");
+        assertThat(vo.getReceiverPhone()).isEqualTo("13800138000");
+        assertThat(vo.getTotalQuantity()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("后台列表关键字去空格后按 LIKE 查询")
+    void adminPagePassesTrimmedKeyword() {
+        when(orderMapper.selectPage(ArgumentMatchers.<IPage<Order>>any(), any()))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        AdminOrderQuery query = new AdminOrderQuery();
+        query.setKeyword("  NO25  ");
+        orderService.adminPage(query);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaQueryWrapper<Order>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(orderMapper).selectPage(ArgumentMatchers.<IPage<Order>>any(), captor.capture());
+        LambdaQueryWrapper<Order> wrapper = captor.getValue();
+        // like 的参数值是惰性写入的：先取 SQL 片段把占位符实体化，再断言参数
+        assertThat(wrapper.getSqlSegment()).contains("order_no", "receiver_phone");
+        assertThat(wrapper.getParamNameValuePairs().values()).contains("%NO25%");
+    }
+
+    @Test
+    @DisplayName("后台列表关键字为空白时不加模糊条件")
+    void adminPageSkipsBlankKeyword() {
+        when(orderMapper.selectPage(ArgumentMatchers.<IPage<Order>>any(), any()))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        AdminOrderQuery query = new AdminOrderQuery();
+        query.setKeyword("   ");
+        orderService.adminPage(query);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaQueryWrapper<Order>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(orderMapper).selectPage(ArgumentMatchers.<IPage<Order>>any(), captor.capture());
+        // 空白关键字不产生任何 like 条件
+        assertThat(captor.getValue().getSqlSegment()).doesNotContain("order_no");
+        assertThat(captor.getValue().getParamNameValuePairs()).isEmpty();
     }
 }

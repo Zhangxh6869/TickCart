@@ -11,6 +11,7 @@ import com.tickcart.common.exception.BizException;
 import com.tickcart.common.mq.OrderMessageProducer;
 import com.tickcart.member.entity.UserAddress;
 import com.tickcart.member.service.AddressService;
+import com.tickcart.trade.dto.AdminOrderQuery;
 import com.tickcart.trade.dto.OrderCreateRequest;
 import com.tickcart.trade.dto.OrderQuery;
 import com.tickcart.trade.entity.Order;
@@ -18,6 +19,7 @@ import com.tickcart.trade.entity.OrderItem;
 import com.tickcart.trade.enums.OrderStatus;
 import com.tickcart.trade.mapper.OrderItemMapper;
 import com.tickcart.trade.mapper.OrderMapper;
+import com.tickcart.trade.vo.AdminOrderListItemVO;
 import com.tickcart.trade.vo.OrderDetailVO;
 import com.tickcart.trade.vo.OrderItemVO;
 import com.tickcart.trade.vo.OrderListItemVO;
@@ -26,6 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -155,9 +158,46 @@ public class OrderService {
         return new PageResult<>(records, page.getTotal(), page.getCurrent(), page.getSize(), page.getPages());
     }
 
+    /**
+     * 后台订单分页列表：不限用户，可按状态与关键字筛选。
+     *
+     * <p>关键字对「订单号 / 收货人 / 收货人手机号」三者做 OR 模糊匹配，
+     * 便于客服按任一信息定位订单。</p>
+     */
+    public PageResult<AdminOrderListItemVO> adminPage(AdminOrderQuery query) {
+        String keyword = query.getKeyword() == null ? null : query.getKeyword().trim();
+        boolean hasKeyword = StringUtils.hasText(keyword);
+
+        Page<Order> page = new Page<>(query.getPage(), query.getSize());
+        orderMapper.selectPage(page, new LambdaQueryWrapper<Order>()
+                .eq(query.getStatus() != null, Order::getStatus, query.getStatus())
+                .and(hasKeyword, w -> w
+                        .like(Order::getOrderNo, keyword)
+                        .or().like(Order::getReceiver, keyword)
+                        .or().like(Order::getReceiverPhone, keyword))
+                .orderByDesc(Order::getId));
+
+        List<AdminOrderListItemVO> records = new ArrayList<>(page.getRecords().size());
+        for (Order order : page.getRecords()) {
+            records.add(toAdminListItemVO(order));
+        }
+        return new PageResult<>(records, page.getTotal(), page.getCurrent(), page.getSize(), page.getPages());
+    }
+
     /** 订单详情（含收货快照与明细）。 */
     public OrderDetailVO detail(Long userId, String orderNo) {
-        Order order = getOwned(userId, orderNo);
+        return buildDetail(getOwned(userId, orderNo));
+    }
+
+    /**
+     * 后台订单详情：不做归属校验，管理员可查看任意用户的订单。
+     */
+    public OrderDetailVO adminDetail(String orderNo) {
+        return buildDetail(loadByOrderNo(orderNo));
+    }
+
+    /** 组装订单详情 VO（前台与后台共用，避免两处字段拼装重复）。 */
+    private OrderDetailVO buildDetail(Order order) {
         OrderDetailVO vo = new OrderDetailVO();
         vo.setOrderNo(order.getOrderNo());
         vo.setStatus(order.getStatus());
@@ -173,7 +213,7 @@ public class OrderService {
         vo.setShipTime(order.getShipTime());
         vo.setFinishTime(order.getFinishTime());
         vo.setCancelTime(order.getCancelTime());
-        vo.setItems(loadItems(orderNo));
+        vo.setItems(loadItems(order.getOrderNo()));
         return vo;
     }
 
@@ -199,6 +239,30 @@ public class OrderService {
         order.setStatus(OrderStatus.COMPLETED.getCode());
         order.setFinishTime(LocalDateTime.now());
         orderMapper.updateById(order);
+    }
+
+    /**
+     * 发货：待发货 → 待收货，并记录发货时间。
+     *
+     * <p>由后台管理员触发。落库用「带状态条件的 UPDATE」，与其它状态流转并发时
+     * 只有一个能成功，避免重复发货或把已取消订单推成待收货。</p>
+     *
+     * @throws BizException 订单不存在、当前状态不允许发货、并发下状态已被他人变更
+     */
+    @Transactional
+    public void ship(String orderNo) {
+        Order order = loadByOrderNo(orderNo);
+        OrderStatus status = OrderStatus.of(order.getStatus());
+        status.assertTransitionTo(OrderStatus.PENDING_RECEIPT, "发货");
+
+        int affected = orderMapper.update(null, new LambdaUpdateWrapper<Order>()
+                .eq(Order::getOrderNo, orderNo)
+                .eq(Order::getStatus, OrderStatus.PENDING_SHIPMENT.getCode())
+                .set(Order::getStatus, OrderStatus.PENDING_RECEIPT.getCode())
+                .set(Order::getShipTime, LocalDateTime.now()));
+        if (affected == 0) {
+            throw BizException.conflict("订单状态已变更，请刷新后重试");
+        }
     }
 
     /**
@@ -337,6 +401,24 @@ public class OrderService {
     private OrderListItemVO toListItemVO(Order order) {
         OrderListItemVO vo = new OrderListItemVO();
         vo.setOrderNo(order.getOrderNo());
+        vo.setStatus(order.getStatus());
+        vo.setStatusLabel(OrderStatus.of(order.getStatus()).getLabel());
+        vo.setTotalAmount(order.getTotalAmount());
+        vo.setPayAmount(order.getPayAmount());
+        vo.setCreatedAt(order.getCreatedAt());
+
+        List<OrderItemVO> items = loadItems(order.getOrderNo());
+        vo.setItems(items);
+        vo.setTotalQuantity(items.stream().mapToInt(OrderItemVO::getQuantity).sum());
+        return vo;
+    }
+
+    private AdminOrderListItemVO toAdminListItemVO(Order order) {
+        AdminOrderListItemVO vo = new AdminOrderListItemVO();
+        vo.setOrderNo(order.getOrderNo());
+        vo.setUserId(order.getUserId());
+        vo.setReceiver(order.getReceiver());
+        vo.setReceiverPhone(order.getReceiverPhone());
         vo.setStatus(order.getStatus());
         vo.setStatusLabel(OrderStatus.of(order.getStatus()).getLabel());
         vo.setTotalAmount(order.getTotalAmount());
