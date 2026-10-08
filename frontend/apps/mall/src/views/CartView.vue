@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onActivated } from 'vue'
+import { computed, onActivated, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
 import type { SwipeCellInstance } from 'vant'
-import type { CartItem } from '@tickcart/shared-types'
+import type { CartItem, ProductSku } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
+import { fetchProductDetail } from '@/api/product'
 import { useCartStore } from '@/stores/cart'
 import { useUserStore } from '@/stores/user'
 
@@ -112,6 +113,80 @@ function goHome() {
   router.push({ name: 'home' })
 }
 
+/** 点卡片进商品详情页（勾选框/步进器/款式行都 stop 了冒泡，不会误触发） */
+function goDetail(item: CartItem) {
+  router.push({ name: 'product-detail', params: { id: item.productId } })
+}
+
+/* ── 款式切换面板 ── */
+
+/** 面板当前对应的购物车项 */
+const skuPopupItem = ref<CartItem | null>(null)
+const skuPopupVisible = ref(false)
+/** 该商品的全部款式，打开面板时按需拉取 */
+const skuOptions = ref<ProductSku[]>([])
+const skuLoading = ref(false)
+/** 提交中：防止连点造成并发切换 */
+const skuSubmitting = ref(false)
+
+/** 按规格名分组展示（如「口味」「颜色分类」）；规格名为空时归入「款式」组 */
+const skuGroups = computed(() => {
+  const groups = new Map<string, ProductSku[]>()
+  for (const sku of skuOptions.value) {
+    const title = sku.specName?.trim() || '款式'
+    const list = groups.get(title)
+    if (list) list.push(sku)
+    else groups.set(title, [sku])
+  }
+  return Array.from(groups, ([title, skus]) => ({ title, skus }))
+})
+
+/**
+ * 打开款式面板。
+ *
+ * <p>购物车列表只带当前项自己的 specValue，没有该商品的全部款式，
+ * 所以这里按需拉一次商品详情（含 SKU 列表）。请求期间用户可能已经点了别的商品，
+ * 用 item 引用比对丢弃过期结果，避免把 A 的款式渲染到 B 的面板上。</p>
+ */
+async function openSkuPopup(item: CartItem) {
+  skuPopupItem.value = item
+  skuOptions.value = []
+  skuPopupVisible.value = true
+  skuLoading.value = true
+  try {
+    const detail = await fetchProductDetail(item.productId)
+    if (skuPopupItem.value !== item) return
+    skuOptions.value = detail.skus ?? []
+  } catch {
+    // 商品已下架/被删除时拿不到款式，直接收起面板（错误文案由请求拦截器提示）
+    if (skuPopupItem.value === item) skuPopupVisible.value = false
+  } finally {
+    if (skuPopupItem.value === item) skuLoading.value = false
+  }
+}
+
+/** 选中款式：点即生效，无需确认 */
+async function onSelectSku(sku: ProductSku) {
+  const item = skuPopupItem.value
+  if (!item || skuSubmitting.value) return
+  // 相同款式：保持原样，仅收起面板
+  if (sku.id === item.skuId) {
+    skuPopupVisible.value = false
+    return
+  }
+  if (sku.stock <= 0) return
+  skuSubmitting.value = true
+  try {
+    await cartStore.changeSku(item.id, sku.id)
+    skuPopupVisible.value = false
+    showToast('已切换款式')
+  } catch {
+    // 库存不足等错误由请求拦截器提示，保持原规格不变
+  } finally {
+    skuSubmitting.value = false
+  }
+}
+
 /** 未登录时的入口：跳登录页，登录成功后由 redirect 带回购物车 */
 function goLogin() {
   router.push({ name: 'login', query: { redirect: '/cart' } })
@@ -139,11 +214,12 @@ function goLogin() {
         :ref="(el: unknown) => setSwipeRef(item.id, el)"
         class="cart-item-cell"
       >
-        <div class="cart-item" :class="{ 'cart-item--invalid': !item.valid }">
+        <div class="cart-item" :class="{ 'cart-item--invalid': !item.valid }" @click="goDetail(item)">
           <van-checkbox
             class="cart-item__check"
             :model-value="item.checked === 1"
             :disabled="!item.valid"
+            @click.stop
             @update:model-value="(value: boolean) => onToggleItem(item, value)"
           />
 
@@ -151,7 +227,16 @@ function goLogin() {
 
           <div class="cart-item__body">
             <div class="cart-item__name">{{ item.productName }}</div>
-            <div v-if="item.specValue" class="cart-item__spec">{{ item.specValue }}</div>
+            <!-- 款式行：点击弹出全部款式面板，选中即切换（stop 冒泡，避免连带跳到详情页） -->
+            <button
+              v-if="item.specValue"
+              class="cart-item__spec"
+              type="button"
+              @click.stop="openSkuPopup(item)"
+            >
+              <span class="cart-item__spec-text">{{ item.specValue }}</span>
+              <van-icon name="arrow" size="12" />
+            </button>
             <div v-if="!item.valid" class="cart-item__reason">{{ item.invalidReason }}</div>
 
             <div class="cart-item__foot">
@@ -163,6 +248,7 @@ function goLogin() {
                 :max="item.stock"
                 integer
                 button-size="24"
+                @click.stop
                 @change="(value: number | string) => onQuantityChange(item, value)"
               />
               <span v-else class="cart-item__quantity">×{{ item.quantity }}</span>
@@ -186,6 +272,42 @@ function goLogin() {
     >
       <van-checkbox :model-value="allChecked" class="cart__all" @click="onToggleAll">全选</van-checkbox>
     </van-submit-bar>
+
+    <!-- 款式切换面板：底部弹出，按规格名分组网格展示全部款式，选中即切换 -->
+    <van-popup v-model:show="skuPopupVisible" position="bottom" round>
+      <div class="sku-picker">
+        <div class="sku-picker__head">
+          <span class="sku-picker__title">选择款式</span>
+          <button class="sku-picker__close" type="button" aria-label="关闭" @click="skuPopupVisible = false">
+            <van-icon name="cross" size="18" />
+          </button>
+        </div>
+
+        <van-loading v-if="skuLoading" class="sku-picker__loading" />
+
+        <div v-else class="sku-picker__body">
+          <div v-for="group in skuGroups" :key="group.title" class="sku-picker__group">
+            <div class="sku-picker__group-title">{{ group.title }}</div>
+            <div class="sku-picker__grid">
+              <button
+                v-for="sku in group.skus"
+                :key="sku.id"
+                class="sku-picker__item"
+                :class="{ 'is-active': sku.id === skuPopupItem?.skuId, 'is-disabled': sku.stock <= 0 }"
+                type="button"
+                :disabled="sku.stock <= 0"
+                @click="onSelectSku(sku)"
+              >
+                <span class="sku-picker__item-name">{{ sku.specValue }}</span>
+                <span class="sku-picker__item-price">¥{{ formatPrice(sku.price) }}</span>
+                <span v-if="sku.stock <= 0" class="sku-picker__item-tip">缺货</span>
+              </button>
+            </div>
+          </div>
+          <div v-if="!skuGroups.length" class="sku-picker__empty">该商品暂无可选款式</div>
+        </div>
+      </div>
+    </van-popup>
   </div>
 </template>
 
@@ -224,6 +346,7 @@ function goLogin() {
   padding: 12px;
   border-radius: 10px;
   background: #fff;
+  cursor: pointer;
 }
 .cart-item--invalid {
   opacity: 0.6;
@@ -250,14 +373,25 @@ function goLogin() {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* 款式行：可点按钮（点击弹款式面板），右侧箭头提示可切换 */
 .cart-item__spec {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
   margin-top: 4px;
   padding: 1px 6px;
+  border: none;
   border-radius: 4px;
   font-size: 12px;
   color: #969799;
   background: #f7f8fa;
+  cursor: pointer;
+}
+.cart-item__spec-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .cart-item__reason {
   margin-top: 4px;
@@ -288,5 +422,99 @@ function goLogin() {
 }
 .cart__all {
   margin-right: 12px;
+}
+
+/* ── 款式切换面板 ── */
+.sku-picker {
+  padding: 16px 16px 20px;
+}
+.sku-picker__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.sku-picker__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #323233;
+}
+.sku-picker__close {
+  padding: 4px;
+  border: none;
+  background: none;
+  color: #969799;
+  cursor: pointer;
+}
+.sku-picker__loading {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0;
+}
+/* 款式多时面板内部滚动，最多占视口一半，避免顶掉标题 */
+.sku-picker__body {
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.sku-picker__group + .sku-picker__group {
+  margin-top: 14px;
+}
+.sku-picker__group-title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #646566;
+}
+.sku-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.sku-picker__item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid #ebedf0;
+  border-radius: 6px;
+  background: #fafafa;
+  text-align: left;
+  cursor: pointer;
+}
+/* 当前款式高亮，与详情页的规格选中态同色 */
+.sku-picker__item.is-active {
+  border-color: #ee0a24;
+  background: #fff5f5;
+}
+.sku-picker__item.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.sku-picker__item-name {
+  font-size: 13px;
+  color: #323233;
+}
+.sku-picker__item-price {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ee0a24;
+}
+.sku-picker__item-tip {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  padding: 0 4px;
+  border-radius: 0 6px 0 6px;
+  background: #c8c9cc;
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+}
+.sku-picker__empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 13px;
+  color: #969799;
 }
 </style>

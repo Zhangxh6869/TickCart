@@ -166,6 +166,73 @@ public class CartService {
         cartItemMapper.updateById(item);
     }
 
+    /**
+     * 切换购物车项的规格（同商品换成另一个规格）。
+     *
+     * <p>规则：</p>
+     * <ul>
+     *   <li><b>幂等</b>：目标规格与当前一致时不做任何改动，避免无意义的写库</li>
+     *   <li><b>库存</b>：目标规格库存不足以覆盖当前数量时拒绝，保持原规格不变
+     *       （否则用户会在没察觉的情况下买到超出库存的数量）</li>
+     *   <li><b>合并</b>：目标规格在购物车里已有另一条时合并为一条（数量相加），
+     *       与加购的合并口径一致，避免出现两条同规格记录；合并后勾选状态取两条的并集，
+     *       防止刚切换的项掉出结算范围</li>
+     *   <li><b>归属</b>：校验 {@code user_id}，越权按不存在处理</li>
+     * </ul>
+     */
+    @Transactional
+    public void changeSku(Long userId, Long id, Long skuId) {
+        CartItem item = getOwned(userId, id);
+        if (skuId == null || skuId <= NO_SKU) {
+            throw BizException.badRequest("商品规格不存在");
+        }
+        // 相同款式：保持原样
+        if (skuId.equals(item.getSkuId())) {
+            return;
+        }
+
+        Product product = productMapper.selectById(item.getProductId());
+        if (product == null || !Integer.valueOf(1).equals(product.getStatus())) {
+            throw BizException.badRequest("商品不存在或已下架");
+        }
+
+        ProductSku sku = productSkuMapper.selectById(skuId);
+        if (sku == null || !product.getId().equals(sku.getProductId())) {
+            throw BizException.badRequest("商品规格不存在");
+        }
+        if (nullToZero(sku.getStock()) < item.getQuantity()) {
+            throw BizException.badRequest("库存不足");
+        }
+
+        // 唯一键 uk_user_product_sku 不含 deleted 列：目标规格若存在历史逻辑删除残留，
+        // 会占用唯一键组合，导致下面的 UPDATE 撞键失败。先物理清掉，与 add 同一处理。
+        cartItemMapper.purgeDeleted(userId, product.getId(), skuId);
+
+        // 同商品同规格已存在另一条时合并，避免出现两条重复记录
+        CartItem sameSkuItem = cartItemMapper.selectOne(new LambdaQueryWrapper<CartItem>()
+                .eq(CartItem::getUserId, userId)
+                .eq(CartItem::getProductId, product.getId())
+                .eq(CartItem::getSkuId, skuId)
+                .ne(CartItem::getId, item.getId()));
+        if (sameSkuItem == null) {
+            item.setSkuId(skuId);
+            cartItemMapper.updateById(item);
+            return;
+        }
+
+        int merged = sameSkuItem.getQuantity() + item.getQuantity();
+        if (merged > MAX_QUANTITY_PER_ITEM) {
+            throw BizException.badRequest("单次最多购买 " + MAX_QUANTITY_PER_ITEM + " 件");
+        }
+        sameSkuItem.setQuantity(merged);
+        // 勾选取并集：用户刚操作的那条若原本勾选，合并后不应掉出结算范围
+        if (Integer.valueOf(1).equals(item.getChecked())) {
+            sameSkuItem.setChecked(1);
+        }
+        cartItemMapper.updateById(sameSkuItem);
+        cartItemMapper.deleteById(item.getId());
+    }
+
     /** 勾选/取消勾选单项。 */
     @Transactional
     public void updateChecked(Long userId, Long id, int checked) {

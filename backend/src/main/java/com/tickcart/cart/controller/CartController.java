@@ -59,6 +59,14 @@ public class CartController {
         return R.ok();
     }
 
+    @Operation(summary = "切换购物车项规格",
+            description = "改成同商品的其他规格；目标规格已在购物车中时合并数量，库存不足则拒绝")
+    @PutMapping("/{id}/sku")
+    public R<Void> updateSku(@PathVariable Long id, @RequestParam Long skuId) {
+        cartService.changeSku(currentUserId(), id, skuId);
+        return R.ok();
+    }
+
     @Operation(summary = "勾选/取消勾选单项")
     @PutMapping("/{id}/checked")
     public R<Void> updateChecked(@PathVariable Long id, @RequestParam Integer checked) {

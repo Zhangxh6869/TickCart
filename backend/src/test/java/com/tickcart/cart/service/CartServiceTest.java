@@ -21,6 +21,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.io.Serializable;
 import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -238,6 +239,129 @@ class CartServiceTest {
         assertThatThrownBy(() -> cartService.updateQuantity(UID, 10L, 2))
                 .isInstanceOf(BizException.class)
                 .hasMessage("购物车项不存在");
+    }
+
+    // ---------------- 切换规格 ----------------
+
+    @Test
+    @DisplayName("切换规格只改 skuId，不新增也不删除条目")
+    void changeSkuUpdatesSkuId() {
+        when(cartItemMapper.selectById(10L)).thenReturn(item(10L, UID, 1L, 5L, 2, 1));
+        when(productMapper.selectById(1L)).thenReturn(product(1L, 1, 100));
+        when(productSkuMapper.selectById(6L)).thenReturn(sku(6L, 1L, "99.00", 10));
+        when(cartItemMapper.selectOne(any())).thenReturn(null);
+
+        cartService.changeSku(UID, 10L, 6L);
+
+        verify(cartItemMapper).updateById(ArgumentMatchers.<CartItem>argThat(c ->
+                c.getId().equals(10L) && c.getSkuId().equals(6L) && c.getQuantity() == 2));
+        // 唯一键不含 deleted 列：改 skuId 前必须先清掉目标规格的逻辑删除残留，否则撞唯一键
+        verify(cartItemMapper).purgeDeleted(UID, 1L, 6L);
+        verify(cartItemMapper, never()).deleteById(ArgumentMatchers.<Serializable>any());
+        verify(cartItemMapper, never()).insert(any(CartItem.class));
+    }
+
+    @Test
+    @DisplayName("切换到当前已选规格时不做任何改动")
+    void changeSkuSameSkuIsNoop() {
+        when(cartItemMapper.selectById(10L)).thenReturn(item(10L, UID, 1L, 5L, 2, 1));
+
+        cartService.changeSku(UID, 10L, 5L);
+
+        verify(cartItemMapper, never()).updateById(any(CartItem.class));
+        verify(cartItemMapper, never()).deleteById(ArgumentMatchers.<Serializable>any());
+        verify(cartItemMapper, never()).purgeDeleted(any(), any(), any());
+        // 幂等分支在商品/SKU 查询之前就返回了
+        verify(productMapper, never()).selectById(any());
+    }
+
+    @Test
+    @DisplayName("目标规格库存不足当前数量时拒绝，保持原规格")
+    void changeSkuRejectsWhenTargetStockInsufficient() {
+        when(cartItemMapper.selectById(10L)).thenReturn(item(10L, UID, 1L, 5L, 3, 1));
+        when(productMapper.selectById(1L)).thenReturn(product(1L, 1, 100));
+        when(productSkuMapper.selectById(6L)).thenReturn(sku(6L, 1L, "99.00", 2));
+
+        assertThatThrownBy(() -> cartService.changeSku(UID, 10L, 6L))
+                .isInstanceOf(BizException.class)
+                .hasMessage("库存不足");
+
+        verify(cartItemMapper, never()).updateById(any(CartItem.class));
+    }
+
+    @Test
+    @DisplayName("目标规格已在购物车中时合并数量并删除原条目")
+    void changeSkuMergesIntoExistingItem() {
+        when(cartItemMapper.selectById(10L)).thenReturn(item(10L, UID, 1L, 5L, 2, 1));
+        when(productMapper.selectById(1L)).thenReturn(product(1L, 1, 100));
+        when(productSkuMapper.selectById(6L)).thenReturn(sku(6L, 1L, "99.00", 10));
+        when(cartItemMapper.selectOne(any())).thenReturn(item(11L, UID, 1L, 6L, 3, 0));
+
+        cartService.changeSku(UID, 10L, 6L);
+
+        // 数量相加；原条目勾选，合并后取并集，避免切换后掉出结算范围
+        verify(cartItemMapper).updateById(ArgumentMatchers.<CartItem>argThat(c ->
+                c.getId().equals(11L) && c.getQuantity() == 5 && c.getChecked() == 1));
+        verify(cartItemMapper).deleteById(10L);
+    }
+
+    @Test
+    @DisplayName("合并后超过单件上限时拒绝")
+    void changeSkuMergeBeyondMaxQuantity() {
+        when(cartItemMapper.selectById(10L)).thenReturn(item(10L, UID, 1L, 5L, 98, 1));
+        when(productMapper.selectById(1L)).thenReturn(product(1L, 1, 100));
+        when(productSkuMapper.selectById(6L)).thenReturn(sku(6L, 1L, "99.00", 200));
+        when(cartItemMapper.selectOne(any())).thenReturn(item(11L, UID, 1L, 6L, 5, 1));
+
+        assertThatThrownBy(() -> cartService.changeSku(UID, 10L, 6L))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("单次最多购买");
+    }
+
+    @Test
+    @DisplayName("目标规格不属于该商品时拒绝")
+    void changeSkuRejectsSkuOfAnotherProduct() {
+        when(cartItemMapper.selectById(10L)).thenReturn(item(10L, UID, 1L, 5L, 1, 1));
+        when(productMapper.selectById(1L)).thenReturn(product(1L, 1, 100));
+        when(productSkuMapper.selectById(6L)).thenReturn(sku(6L, 2L, "99.00", 10));
+
+        assertThatThrownBy(() -> cartService.changeSku(UID, 10L, 6L))
+                .isInstanceOf(BizException.class)
+                .hasMessage("商品规格不存在");
+    }
+
+    @Test
+    @DisplayName("商品已下架时拒绝切换规格")
+    void changeSkuRejectsOfflineProduct() {
+        when(cartItemMapper.selectById(10L)).thenReturn(item(10L, UID, 1L, 5L, 1, 1));
+        when(productMapper.selectById(1L)).thenReturn(product(1L, 0, 100));
+
+        assertThatThrownBy(() -> cartService.changeSku(UID, 10L, 6L))
+                .isInstanceOf(BizException.class)
+                .hasMessage("商品不存在或已下架");
+    }
+
+    @Test
+    @DisplayName("切换规格时越权按不存在处理")
+    void changeSkuForeignItemRejected() {
+        when(cartItemMapper.selectById(10L)).thenReturn(item(10L, 999L, 1L, 5L, 1, 1));
+
+        assertThatThrownBy(() -> cartService.changeSku(UID, 10L, 6L))
+                .isInstanceOf(BizException.class)
+                .hasMessage("购物车项不存在");
+    }
+
+    @Test
+    @DisplayName("目标规格为空或 0 时拒绝")
+    void changeSkuRejectsBlankSkuId() {
+        when(cartItemMapper.selectById(10L)).thenReturn(item(10L, UID, 1L, 5L, 1, 1));
+
+        assertThatThrownBy(() -> cartService.changeSku(UID, 10L, 0L))
+                .isInstanceOf(BizException.class)
+                .hasMessage("商品规格不存在");
+        assertThatThrownBy(() -> cartService.changeSku(UID, 10L, null))
+                .isInstanceOf(BizException.class)
+                .hasMessage("商品规格不存在");
     }
 
     // ---------------- 列表与合计 ----------------

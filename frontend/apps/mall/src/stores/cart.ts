@@ -70,6 +70,15 @@ export const useCartStore = defineStore('cart', () => {
     await load()
   }
 
+  /**
+   * 切换某项的规格。后端可能把当前项合并进同规格的另一条（数量相加），
+   * 因此必须整表重新拉取，不能只在本地改 skuId。
+   */
+  async function changeSku(id: number, skuId: number) {
+    await cartApi.updateCartSku(id, skuId)
+    await load()
+  }
+
   async function checkAll(checked: boolean) {
     await cartApi.checkAllCart(checked ? 1 : 0)
     await load()
@@ -98,6 +107,7 @@ export const useCartStore = defineStore('cart', () => {
     add,
     updateQuantity,
     toggleChecked,
+    changeSku,
     checkAll,
     remove,
     reset,

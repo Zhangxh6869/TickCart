@@ -26,6 +26,15 @@ export function updateCartChecked(id: number, checked: number): Promise<void> {
   return request.put(`/cart/${id}/checked`, null, { params: { checked } })
 }
 
+/**
+ * 切换购物车项的规格（同商品换成另一个规格）。
+ *
+ * <p>后端语义：目标规格已在购物车中时合并为一条（数量相加）；目标规格库存不足时拒绝。</p>
+ */
+export function updateCartSku(id: number, skuId: number): Promise<void> {
+  return request.put(`/cart/${id}/sku`, null, { params: { skuId } })
+}
+
 /** 全选/取消全选。 */
 export function checkAllCart(checked: number): Promise<void> {
   return request.put('/cart/checked', null, { params: { checked } })
