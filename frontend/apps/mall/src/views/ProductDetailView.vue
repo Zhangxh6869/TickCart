@@ -5,6 +5,7 @@ import { showToast } from 'vant'
 import type { ProductDetail, ProductSku } from '@tickcart/shared-types'
 import { formatCount, formatPrice } from '@tickcart/shared-utils'
 import { fetchProductDetail } from '@/api/product'
+import { addFavorite, fetchFavoriteStatus, removeFavorite } from '@/api/favorite'
 import { useCartStore } from '@/stores/cart'
 import { useUserStore } from '@/stores/user'
 
@@ -26,6 +27,8 @@ const titleExpanded = ref(false)
 const titleOverflow = ref(false)
 /** 规格选择弹层 */
 const skuPopupVisible = ref(false)
+/** 是否已收藏；未登录时恒为 false */
+const favorited = ref(false)
 
 const titleRef = ref<HTMLElement | null>(null)
 const galleryRef = ref<HTMLElement | null>(null)
@@ -65,6 +68,20 @@ async function load() {
   }
   await nextTick()
   measureTitle()
+  await loadFavoriteStatus()
+}
+
+/**
+ * 回显收藏状态。未登录不发请求；请求失败也不阻塞页面，按钮保持未收藏态。
+ * 从登录页 redirect 回来会重新挂载本组件，因此登录后状态能自动补上。
+ */
+async function loadFavoriteStatus() {
+  if (!userStore.isLoggedIn) return
+  try {
+    favorited.value = await fetchFavoriteStatus(Number(route.params.id))
+  } catch {
+    // 忽略：收藏状态只是回显，失败不影响浏览与下单
+  }
 }
 
 /** 折叠两行时 scrollHeight 大于可视高度，说明标题被截断，才需要「更多」 */
@@ -102,8 +119,23 @@ function onCart() {
   router.push({ name: 'cart' })
 }
 
-function onFavorite() {
-  showToast('收藏功能将在阶段2开通')
+/** 收藏 / 取消收藏：未登录先带 redirect 去登录 */
+async function onFavorite() {
+  if (!requireLogin()) return
+  const productId = Number(route.params.id)
+  try {
+    if (favorited.value) {
+      await removeFavorite(productId)
+      favorited.value = false
+      showToast('已取消收藏')
+    } else {
+      await addFavorite(productId)
+      favorited.value = true
+      showToast('已收藏')
+    }
+  } catch {
+    // 错误提示由请求拦截器统一处理
+  }
 }
 
 /** 需要登录的操作统一走这里：未登录时带 redirect 跳登录页 */
@@ -253,8 +285,13 @@ async function onBuyNow() {
 
       <!-- 底部操作栏：sticky 而非 fixed，这样能跟着页面一起滑入滑出 -->
       <div class="action-bar">
-        <button class="action-bar__icon" type="button" @click="onFavorite">
-          <van-icon name="star-o" size="20" />
+        <button
+          class="action-bar__icon"
+          type="button"
+          :class="{ 'is-favorited': favorited }"
+          @click="onFavorite"
+        >
+          <van-icon :name="favorited ? 'star' : 'star-o'" size="20" />
           <span>收藏</span>
         </button>
         <button
@@ -580,6 +617,10 @@ async function onBuyNow() {
   font-size: 11px;
   color: #646566;
   cursor: pointer;
+}
+/* 已收藏：实心星 + 与 tabbar 选中态同源的强调色 */
+.action-bar__icon.is-favorited {
+  color: var(--van-tabbar-item-active-color, rgb(59, 130, 246));
 }
 .action-bar__btn {
   flex: 1;

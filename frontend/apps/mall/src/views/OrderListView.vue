@@ -15,6 +15,7 @@ const tabs: { label: string; status: number | null }[] = [
   { label: '待发货', status: 1 },
   { label: '待收货', status: 2 },
   { label: '已完成', status: 3 },
+  { label: '已取消', status: 4 },
 ]
 
 const activeTab = ref(0)

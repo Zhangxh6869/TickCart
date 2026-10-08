@@ -122,6 +122,11 @@ async function onSubmit() {
       </div>
 
       <div class="card">
+        <!-- 配送方式：当前只有一种（快递配送、免运费），按展示型处理，不落库、不加订单字段 -->
+        <div class="summary">
+          <span>配送方式</span>
+          <span>快递配送 · 免运费</span>
+        </div>
         <div class="summary">
           <span>商品件数</span>
           <span>{{ totalQuantity }} 件</span>

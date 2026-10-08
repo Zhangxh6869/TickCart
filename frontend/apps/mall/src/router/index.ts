@@ -138,6 +138,18 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '收货地址', requiresAuth: true, depth: 2 },
   },
   {
+    path: '/favorites',
+    name: 'favorites',
+    component: () => import('@/views/FavoriteListView.vue'),
+    meta: { title: '我的收藏', requiresAuth: true, depth: 2 },
+  },
+  {
+    path: '/profile',
+    name: 'profile',
+    component: () => import('@/views/ProfileView.vue'),
+    meta: { title: '个人信息', requiresAuth: true, depth: 2 },
+  },
+  {
     path: '/checkout',
     name: 'checkout',
     component: () => import('@/views/CheckoutView.vue'),
