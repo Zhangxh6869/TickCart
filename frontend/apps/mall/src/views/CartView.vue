@@ -105,7 +105,7 @@ function goLogin() {
 
     <!-- 未登录：不跳转登录页，就地提示并给一个去登录的入口 -->
     <van-empty v-if="!userStore.isLoggedIn" description="请先登录后查看购物车">
-      <van-button round type="primary" class="cart__empty-btn" @click="goLogin">去登录</van-button>
+      <van-button round type="primary" class="cart__empty-btn cart__empty-btn--accent" @click="goLogin">去登录</van-button>
     </van-empty>
 
     <van-empty v-else-if="!cartStore.loading && items.length === 0" description="购物车还是空的">
@@ -173,6 +173,16 @@ function goLogin() {
 }
 .cart__empty-btn {
   width: 120px;
+}
+/* 未登录空态的主按钮（「去登录」）：底色与底部 tabbar 的选中色**同源** ——
+   取 App.vue 在 :root 覆盖过的 Vant 选中色变量，改那一个变量时两处一起变，
+   不用在这里再抄一份色值。
+   覆盖的是 Vant primary 按钮自己的两个变量（默认取 --van-primary-color = #1989fa，
+   和 tabbar 的选中色并不是同一个值）；文字色保持 Vant 默认的白，不用动。
+   只加在未登录按钮上：「去逛逛」是已登录空态的按钮，不在此次改动范围内。 */
+.cart__empty-btn--accent {
+  --van-button-primary-background: var(--van-tabbar-item-active-color, rgb(59, 130, 246));
+  --van-button-primary-border-color: var(--van-tabbar-item-active-color, rgb(59, 130, 246));
 }
 .cart__list {
   padding: 10px 12px 0;
