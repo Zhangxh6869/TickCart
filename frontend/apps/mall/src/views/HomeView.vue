@@ -322,7 +322,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .home {
-  /* 品牌色，用于搜索框描边、搜索按钮底色与分类栏选中小横杆 */
+  /* 品牌色，用于搜索框描边、搜索按钮底色。
+     分类栏选中小横杆**不再**用它（见 .cat-bar__bar），改与底部 tabbar 的选中指示条同源 */
   --color-brand: rgb(107, 163, 200);
   /* 搜索图标与「搜索商品」占位文字共用的颜色 */
   --color-search-icon: #515151;
@@ -492,12 +493,16 @@ onBeforeUnmount(() => {
   color: #323233;
   transform: translateY(-1.72px) scale(1.2857);
 }
-/* 小横杆：仅选中项显示，未选中时保留占位（避免切换时整行高度跳动） */
+/* 小横杆：仅选中项显示，未选中时保留占位（避免切换时整行高度跳动）。
+   颜色与底部 tabbar 的选中指示条（TabBarLayout 的 .tabbar__indicator）**同源**：
+   取 App.vue 在 :root 覆盖的 Vant 选中色变量，改那一个变量时两处的条会一起变，
+   不用在这里再抄一份色值。fallback 与指示条保持一致，防止变量缺失时两处又分叉。
+   注意别用 --color-brand：那个还管着搜索框描边与搜索按钮，是另一个色值。 */
 .cat-bar__bar {
   width: 18px;
   height: 3px;
   border-radius: 2px;
-  background: var(--color-brand);
+  background: var(--van-tabbar-item-active-color, rgb(59, 130, 246));
   opacity: 0;
   transform: scaleX(0.2);
   transition: opacity 0.15s ease-out, transform 0.15s ease-out;
