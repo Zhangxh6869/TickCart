@@ -146,5 +146,13 @@ async function onLogout() {
 }
 .member__logout {
   margin: 24px 16px;
+  /* 「退出登录」按钮底色：与购物车底部「结算」按钮**同色** ——
+     就是品牌浅蓝 rgb(107,163,200)，与首页搜索框描边/搜索按钮、本页头部渐变的中点同源。
+     按钮仍保持 type="danger"（语义不变，只改配色），所以覆盖的是 Vant danger 的两个变量
+     （Vant 4.10 里 .van-button--danger 取 --van-button-danger-background / -border-color，
+     默认落到 --van-danger-color = #ee0a24 红）。文字色不用动，danger 默认就是白。
+     注意：这不是 tabbar 的选中色 rgb(59,130,246)，两者不是同一个蓝，别混。 */
+  --van-button-danger-background: rgb(107, 163, 200);
+  --van-button-danger-border-color: rgb(107, 163, 200);
 }
 </style>
