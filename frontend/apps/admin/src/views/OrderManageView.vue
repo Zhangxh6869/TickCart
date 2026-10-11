@@ -63,6 +63,14 @@ function itemSummary(row: AdminOrderSummary): string {
   return row.items.length > 1 ? `${first} 等 ${row.items.length} 种` : first
 }
 
+/** 支付渠道文案：0模拟 1微信 2支付宝；未发起过支付时为 - */
+function channelLabel(channel: number | null | undefined): string {
+  if (channel === 1) return '微信支付'
+  if (channel === 2) return '支付宝'
+  if (channel === 0) return '模拟'
+  return '-'
+}
+
 // ---------------- 详情弹窗 ----------------
 const detailVisible = ref(false)
 const detailLoading = ref(false)
@@ -146,6 +154,15 @@ async function onShipFromDetail() {
           <template #default="{ row }">
             <el-tag :type="statusTag(row.status)">{{ row.statusLabel }}</el-tag>
           </template>
+        </el-table-column>
+        <el-table-column label="支付流水号" width="200" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.payNo">{{ row.payNo }}</span>
+            <span v-else class="sub">未发起支付</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="支付渠道" width="100">
+          <template #default="{ row }">{{ channelLabel(row.channel) }}</template>
         </el-table-column>
         <el-table-column label="下单时间" width="150">
           <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
