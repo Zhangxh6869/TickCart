@@ -196,6 +196,25 @@ body {
   left: 30%;
 }
 
+/* ── 全屏层页面根的常驻层叠位置（★ 别删） ─────────────────────────────
+   ★ 为什么不能只靠过渡类名给 z-index（实测踩过，表现为「页面滑到位后突然闪一下旧页」）：
+   enter 结束（`-enter-active` 类被移除）后，页面根会立刻回到
+   `position: static` + `z-index: auto`，而**旧页的 leave 还没结束** ——
+   它只声明了 `transition`（属性不变化、没有 transitionend），靠 Vue 内部的 timeout 兜底移除，
+   实测比 enter 晚约 30~50ms（声明 450ms 的那次实际 498ms 才从 DOM 移除）。
+   那 1~2 帧里旧页仍是 `fixed` + `z-index: 5`，按层叠规则「正 z-index 的定位元素」
+   高于「普通块级元素」，于是整屏被旧页盖住闪一下。
+   实测数据（确认订单 → 收货地址）：
+     t=766  address fix t0 z10   | checkout fix t0 z5     ← 新页在上，正常
+     t=798  address sta t0 zauto | checkout fix t0 z5     ← 新页退化成普通块级元素，被旧页反盖
+     t=814  address sta t0 zauto | checkout -             ← 旧页才被移除
+   常驻 relative + z-index 后，过渡结束后新页依然压在旧页之上。 */
+.login,
+.address {
+  position: relative;
+  z-index: 10;
+}
+
 /* ── 登录页：全屏层，从底部滑入 / 向下滑出 ─────────────────────────────
    进入（page-slide-up）：登录页 fixed 在视口下方（top: 100%），滑到 top: 0 盖住当前页。
    退出（page-slide-down）：登录页从 top: 0 滑回 top: 100%，露出下面已经就位的页面。
