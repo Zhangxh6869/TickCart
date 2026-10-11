@@ -8,6 +8,7 @@ import { fetchProductDetail } from '@/api/product'
 import { addFavorite, fetchFavoriteStatus, removeFavorite } from '@/api/favorite'
 import { useCartStore } from '@/stores/cart'
 import { useUserStore } from '@/stores/user'
+import { buildBuyNowQuery } from '@/utils/checkout-route'
 
 const route = useRoute()
 const router = useRouter()
@@ -175,18 +176,27 @@ async function onAddToCart() {
   }
 }
 
-async function onBuyNow() {
+/**
+ * 立即购买：直接进确认订单页，**不加入购物车**。
+ *
+ * <p>商品与规格通过路由 query 传给结算页，由结算页自己重新拉一次详情来展示 ——
+ * 不把本页的数据带过去，价格与库存才会以服务端最新值结算。</p>
+ */
+function onBuyNow() {
   if (!canBuy.value) {
     showToast('该规格已售罄')
     return
   }
-  if (!requireLogin()) return
-  try {
-    await cartStore.add(detail.value!.id, 1, selectedSku.value?.id ?? 0)
-    router.push({ name: 'cart' })
-  } catch {
-    // 库存不足等错误提示由请求拦截器统一处理
+  const target = {
+    name: 'checkout' as const,
+    query: buildBuyNowQuery(detail.value!.id, selectedSku.value?.id ?? 0),
   }
+  if (!userStore.isLoggedIn) {
+    // 登录后直接回到确认订单页，不用让用户再点一次「立即购买」
+    router.push({ name: 'login', query: { redirect: router.resolve(target).fullPath } })
+    return
+  }
+  router.push(target)
 }
 </script>
 

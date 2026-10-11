@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { computed, onActivated, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import type { UserAddress } from '@tickcart/shared-types'
+import type { CheckoutItem, UserAddress } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import { fetchAddresses } from '@/api/address'
-import { createOrder } from '@/api/order'
+import { createBuyNowOrder, createOrder } from '@/api/order'
+import { fetchProductDetail } from '@/api/product'
 import { useCartStore } from '@/stores/cart'
+import { parseBuyNowSelection } from '@/utils/checkout-route'
 
+const route = useRoute()
 const router = useRouter()
 const cartStore = useCartStore()
 
@@ -19,11 +22,26 @@ const addressPopupVisible = ref(false)
 /** 点「管理收货地址」后，等弹层关闭动画结束再跳转（原因见 goAddressManage） */
 const pendingAddressNav = ref(false)
 
+/** 立即购买来源的待结算商品；购物车结算时恒为 null */
+const buyNowItem = ref<CheckoutItem | null>(null)
+
+/** 本次进入是否为「立即购买」（商品详情页直达，不经过购物车） */
+const buyNowSelection = computed(() => parseBuyNowSelection(route.query))
+
 const selectedAddress = computed(
   () => addresses.value.find((item) => item.id === selectedAddressId.value) ?? null
 )
-const items = computed(() => cartStore.checkedItems)
-const totalAmount = computed(() => cartStore.checkedAmount)
+
+/**
+ * 待结算商品。
+ * 两种来源（购物车已勾选项 / 立即购买的单件商品）在这里归一成同一结构，
+ * 下面的渲染与金额计算只认它，不再各算一套。
+ */
+const items = computed<CheckoutItem[]>(() => {
+  if (buyNowSelection.value) return buyNowItem.value ? [buyNowItem.value] : []
+  return cartStore.checkedItems
+})
+const totalAmount = computed(() => items.value.reduce((sum, item) => sum + item.subtotal, 0))
 const totalQuantity = computed(() => items.value.reduce((sum, item) => sum + item.quantity, 0))
 
 /**
@@ -49,14 +67,57 @@ onActivated(() => {
  * @param keepSelection 是否保留当前已选地址（被缓存后重新进入时为 true）
  */
 async function prepare(keepSelection = false) {
-  await cartStore.load()
-  // 没有可结算的商品时退回购物车，避免停留在空结算页
-  if (cartStore.checkedItems.length === 0) {
-    showToast('请先选择要结算的商品')
-    router.replace({ name: 'cart' })
-    return
+  const buyNow = buyNowSelection.value
+  if (buyNow) {
+    // 商品已失效时 loadBuyNowItem 内部已提示并跳走，这里直接结束
+    if (!(await loadBuyNowItem(buyNow.productId, buyNow.skuId, buyNow.quantity))) return
+  } else {
+    buyNowItem.value = null
+    await cartStore.load()
+    // 没有可结算的商品时退回购物车，避免停留在空结算页
+    if (cartStore.checkedItems.length === 0) {
+      showToast('请先选择要结算的商品')
+      router.replace({ name: 'cart' })
+      return
+    }
   }
   await loadAddresses(keepSelection ? selectedAddressId.value : null)
+}
+
+/**
+ * 拉取立即购买的商品，组装成结算项。
+ *
+ * <p>这里重新请求一次详情，而不是把商品详情页的数据带过来：价格与库存以服务端最新为准，
+ * 避免用户在详情页停留很久之后按过期价格下单。</p>
+ *
+ * @returns 组装成功返回 true；商品/规格已失效时提示并跳走，返回 false
+ */
+async function loadBuyNowItem(productId: number, skuId: number, quantity: number): Promise<boolean> {
+  try {
+    const detail = await fetchProductDetail(productId)
+    const sku = skuId > 0 ? detail.skus.find((item) => item.id === skuId) : undefined
+    if (skuId > 0 && !sku) {
+      showToast('商品规格已失效，请重新选择')
+      router.replace({ name: 'product-detail', params: { id: productId } })
+      return false
+    }
+    const price = sku?.price ?? detail.price
+    buyNowItem.value = {
+      productId: detail.id,
+      skuId: sku?.id ?? 0,
+      productName: detail.name,
+      productImage: sku?.skuImage || detail.mainImage || '',
+      specValue: sku?.specValue ?? null,
+      price,
+      quantity,
+      subtotal: price * quantity,
+    }
+    return true
+  } catch {
+    // 错误提示由请求拦截器统一处理；商品已下架等情况不该把用户留在结算页
+    router.replace({ name: 'home' })
+    return false
+  }
 }
 
 /**
@@ -117,20 +178,32 @@ async function onSubmit() {
     showToast('请先选择收货地址')
     return
   }
+  const buyNow = buyNowSelection.value
   submitting.value = true
   try {
-    const result = await createOrder({
-      addressId: selectedAddress.value.id,
-      remark: remark.value.trim() || undefined,
-    })
+    const addressId = selectedAddress.value.id
+    const trimmedRemark = remark.value.trim() || undefined
+    // 立即购买把商品随请求带上；购物车结算仍由服务端读购物车已勾选项
+    const result =
+      buyNow && buyNowItem.value
+        ? await createBuyNowOrder({
+            addressId,
+            productId: buyNowItem.value.productId,
+            skuId: buyNowItem.value.skuId,
+            quantity: buyNowItem.value.quantity,
+            remark: trimmedRemark,
+          })
+        : await createOrder({ addressId, remark: trimmedRemark })
     showToast('下单成功')
-    await cartStore.refreshCount()
+    // 立即购买不经过购物车，购物车角标本来就没变，不需要刷新
+    if (!buyNow) await cartStore.refreshCount()
     // 本页被 KeepAlive 缓存，不清空的话下次进结算页还会带着上一单的备注
     remark.value = ''
     router.replace({ name: 'order-detail', params: { orderNo: result.orderNo } })
   } catch {
-    // 库存不足等错误已由拦截器提示，刷新购物车以反映最新库存
-    await cartStore.load()
+    // 库存不足等错误已由拦截器提示；重新拉一次以反映最新库存
+    if (buyNow) await prepare(true)
+    else await cartStore.load()
   } finally {
     submitting.value = false
   }
@@ -155,7 +228,7 @@ async function onSubmit() {
       </div>
 
       <div class="card card--goods">
-        <div v-for="item in items" :key="item.id" class="goods">
+        <div v-for="item in items" :key="`${item.productId}-${item.skuId}`" class="goods">
           <van-image class="goods__image" width="70" height="70" fit="cover" :src="item.productImage || ''" />
           <div class="goods__body">
             <div class="goods__name">{{ item.productName }}</div>

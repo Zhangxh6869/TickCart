@@ -231,10 +231,40 @@ export interface OrderDetail {
   items: OrderItem[]
 }
 
-/** 创建订单请求。 */
+/** 创建订单请求（结算购物车中已勾选的商品）。 */
 export interface OrderCreateRequest {
   addressId: number
   remark?: string
+}
+
+/**
+ * 立即购买请求：商品详情页直达下单，不经过购物车。
+ * 商品与规格由客户端指定，服务端据此重新校验价格与库存。
+ */
+export interface OrderBuyNowRequest {
+  addressId: number
+  productId: number
+  /** 无规格商品传 0 或省略 */
+  skuId?: number
+  quantity: number
+  remark?: string
+}
+
+/**
+ * 确认订单页展示的待结算商品。
+ *
+ * 购物车结算与立即购买两种来源都归一成这个结构，页面渲染与金额计算只认它，
+ * 不再各自拼一遍。
+ */
+export interface CheckoutItem {
+  productId: number
+  skuId: number
+  productName: string
+  productImage?: string | null
+  specValue?: string | null
+  price: number
+  quantity: number
+  subtotal: number
 }
 
 /** 下单结果。 */

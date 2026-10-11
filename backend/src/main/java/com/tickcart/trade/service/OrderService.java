@@ -12,8 +12,12 @@ import com.tickcart.common.mq.OrderMessageProducer;
 import com.tickcart.member.entity.UserAddress;
 import com.tickcart.member.service.AddressService;
 import com.tickcart.product.entity.Product;
+import com.tickcart.product.entity.ProductSku;
 import com.tickcart.product.mapper.ProductMapper;
+import com.tickcart.product.mapper.ProductSkuMapper;
+import com.tickcart.product.service.ProductService;
 import com.tickcart.trade.dto.AdminOrderQuery;
+import com.tickcart.trade.dto.OrderBuyNowRequest;
 import com.tickcart.trade.dto.OrderCreateRequest;
 import com.tickcart.trade.dto.OrderQuery;
 import com.tickcart.trade.entity.Order;
@@ -70,6 +74,8 @@ public class OrderService {
     private final InventoryService inventoryService;
     private final OrderMessageProducer orderMessageProducer;
     private final ProductMapper productMapper;
+    private final ProductSkuMapper productSkuMapper;
+    private final ProductService productService;
 
     public OrderService(OrderMapper orderMapper,
                         OrderItemMapper orderItemMapper,
@@ -77,7 +83,9 @@ public class OrderService {
                         CartService cartService,
                         InventoryService inventoryService,
                         OrderMessageProducer orderMessageProducer,
-                        ProductMapper productMapper) {
+                        ProductMapper productMapper,
+                        ProductSkuMapper productSkuMapper,
+                        ProductService productService) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.addressService = addressService;
@@ -85,6 +93,8 @@ public class OrderService {
         this.inventoryService = inventoryService;
         this.orderMessageProducer = orderMessageProducer;
         this.productMapper = productMapper;
+        this.productSkuMapper = productSkuMapper;
+        this.productService = productService;
     }
 
     /**
@@ -123,28 +133,37 @@ public class OrderService {
                 .map(CartItemVO::getSubtotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        Order order = new Order();
-        order.setOrderNo(generateOrderNo());
-        order.setUserId(userId);
-        order.setChannel(CHANNEL_NORMAL);
-        order.setTotalAmount(total);
-        order.setPayAmount(total);
-        order.setStatus(OrderStatus.PENDING_PAYMENT.getCode());
-        // 收货信息写快照，用户之后改地址不影响本单
-        order.setReceiver(address.getReceiver());
-        order.setReceiverPhone(address.getPhone());
-        order.setReceiverAddr(address.fullAddress());
-        order.setRemark(req.getRemark());
-        orderMapper.insert(order);
-
-        for (CartItemVO item : checked) {
-            orderItemMapper.insert(buildOrderItem(order, item));
-        }
+        List<OrderItem> drafts = checked.stream().map(this::toOrderItemDraft).collect(Collectors.toList());
+        Order order = saveOrder(userId, address, req.getRemark(), total, drafts);
 
         cartService.deleteChecked(userId);
 
         // 投递超时延迟消息：消息在 MQ 里滞留 TTL 后转入死信队列，触发自动关单。
         // 投递失败只记日志（见 OrderMessageProducer），不影响本次下单结果。
+        orderMessageProducer.sendOrderTimeout(order.getOrderNo());
+
+        return toOrderVO(order);
+    }
+
+    /**
+     * 立即购买下单：按客户端指定的商品与规格直接生成订单，**不经过购物车**。
+     *
+     * <p>与 {@link #create} 的区别只在「明细从哪来」：这里不读也不清购物车，
+     * 商品、规格、数量都取自请求参数；落库与超时关单完全复用同一条链路。</p>
+     *
+     * @throws BizException 地址不属于当前用户、商品下架、规格不存在或不属于该商品、库存不足
+     */
+    @Transactional
+    public OrderVO createBuyNow(Long userId, OrderBuyNowRequest req) {
+        UserAddress address = addressService.getOwned(userId, req.getAddressId());
+
+        OrderItem draft = buildBuyNowItem(req);
+
+        // 与结算下单一致：先扣库存，库存不足直接抛异常回滚，不会留下脏订单
+        inventoryService.deduct(draft.getProductId(), draft.getSkuId(), draft.getQuantity());
+
+        Order order = saveOrder(userId, address, req.getRemark(), draft.getSubtotal(), List.of(draft));
+
         orderMessageProducer.sendOrderTimeout(order.getOrderNo());
 
         return toOrderVO(order);
@@ -384,10 +403,41 @@ public class OrderService {
         }
     }
 
-    private OrderItem buildOrderItem(Order order, CartItemVO cartItem) {
+    /**
+     * 落库订单主表与明细，并返回已带上 ID / 订单号的订单。
+     *
+     * <p>结算下单与立即购买共用：两者只有「明细从哪来」不同，
+     * 收货快照、金额、初始状态与明细关联的写法必须完全一致。</p>
+     *
+     * @param drafts 未关联订单的明细草稿，由本方法回填 {@code orderId} 与 {@code orderNo}
+     */
+    private Order saveOrder(Long userId, UserAddress address, String remark,
+                            BigDecimal total, List<OrderItem> drafts) {
+        Order order = new Order();
+        order.setOrderNo(generateOrderNo());
+        order.setUserId(userId);
+        order.setChannel(CHANNEL_NORMAL);
+        order.setTotalAmount(total);
+        order.setPayAmount(total);
+        order.setStatus(OrderStatus.PENDING_PAYMENT.getCode());
+        // 收货信息写快照，用户之后改地址不影响本单
+        order.setReceiver(address.getReceiver());
+        order.setReceiverPhone(address.getPhone());
+        order.setReceiverAddr(address.fullAddress());
+        order.setRemark(remark);
+        orderMapper.insert(order);
+
+        for (OrderItem draft : drafts) {
+            draft.setOrderId(order.getId());
+            draft.setOrderNo(order.getOrderNo());
+            orderItemMapper.insert(draft);
+        }
+        return order;
+    }
+
+    /** 购物车项 → 订单明细草稿（订单 ID / 订单号由 {@link #saveOrder} 回填）。 */
+    private OrderItem toOrderItemDraft(CartItemVO cartItem) {
         OrderItem item = new OrderItem();
-        item.setOrderId(order.getId());
-        item.setOrderNo(order.getOrderNo());
         item.setProductId(cartItem.getProductId());
         item.setSkuId(cartItem.getSkuId() == null ? NO_SKU : cartItem.getSkuId());
         item.setProductName(cartItem.getProductName());
@@ -397,6 +447,70 @@ public class OrderService {
         item.setQuantity(cartItem.getQuantity());
         item.setSubtotal(cartItem.getSubtotal());
         return item;
+    }
+
+    /**
+     * 立即购买：校验商品/规格并组装订单明细草稿（不落库、不扣库存）。
+     *
+     * <p>成交价与主图的口径必须与 {@code CartService#buildItemVo} 保持一致 ——
+     * 有规格就取规格自身的价格与图片，规格价为空时才回退商品价。
+     * 两处口径一旦分叉，会出现「结算页显示 A 价、立即购买扣 B 价」。</p>
+     *
+     * @throws BizException 商品不存在或已下架、规格不存在或不属于该商品、未选规格、数量非法、库存不足
+     */
+    private OrderItem buildBuyNowItem(OrderBuyNowRequest req) {
+        Product product = productMapper.selectById(req.getProductId());
+        if (product == null || !Integer.valueOf(1).equals(product.getStatus())) {
+            throw BizException.badRequest("商品不存在或已下架");
+        }
+
+        long skuId = req.getSkuId() == null ? NO_SKU : req.getSkuId();
+        ProductSku sku = null;
+        if (skuId > NO_SKU) {
+            sku = productSkuMapper.selectById(skuId);
+            if (sku == null || !product.getId().equals(sku.getProductId())) {
+                throw BizException.badRequest("商品规格不存在");
+            }
+        } else if (productService.hasRealSpec(product.getId())) {
+            // 配置了规格却不传 skuId 会退化成按商品级库存扣减，与 SKU 库存各算一套账
+            throw BizException.badRequest("请选择商品规格");
+        }
+
+        int quantity = req.getQuantity() == null ? 1 : req.getQuantity();
+        if (quantity <= 0) {
+            throw BizException.badRequest("购买数量必须大于 0");
+        }
+
+        int available = sku != null ? nullToZero(sku.getStock()) : nullToZero(product.getStock());
+        if (available < quantity) {
+            throw BizException.badRequest("库存不足");
+        }
+
+        BigDecimal price = product.getPrice();
+        String image = product.getMainImage();
+        String specValue = null;
+        if (sku != null) {
+            price = sku.getPrice();
+            specValue = sku.getSpecValue();
+            if (StringUtils.hasText(sku.getSkuImage())) {
+                image = sku.getSkuImage();
+            }
+        }
+
+        OrderItem item = new OrderItem();
+        item.setProductId(product.getId());
+        item.setSkuId(skuId);
+        item.setProductName(product.getName());
+        item.setProductImage(image);
+        item.setSpecValue(specValue);
+        item.setPrice(price);
+        item.setQuantity(quantity);
+        item.setSubtotal(price.multiply(BigDecimal.valueOf(quantity)));
+        return item;
+    }
+
+    private static int nullToZero(Integer value) {
+        return value == null ? 0 : value;
     }
 
     private List<OrderItem> loadRawItems(String orderNo) {

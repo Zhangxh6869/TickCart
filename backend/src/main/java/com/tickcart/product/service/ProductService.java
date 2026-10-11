@@ -273,6 +273,27 @@ public class ProductService {
     }
 
     // -------------------------------------------------------------------------
+    // 规格判断（加购 / 下单共用的口径）
+    // -------------------------------------------------------------------------
+
+    /**
+     * 商品是否配置了「真实规格」。
+     *
+     * <p>种子数据里部分无规格商品也带了一条 {@code spec_value} 为空的 SKU 占位记录，
+     * 这类记录不构成规格，不应强制用户选择。</p>
+     *
+     * <p>加购与下单都依赖这个判断：有真实规格的商品必须带 {@code skuId}，
+     * 否则会退化成按商品级库存扣减，与 SKU 库存各算一套账。</p>
+     */
+    public boolean hasRealSpec(Long productId) {
+        Long count = skuMapper.selectCount(new LambdaQueryWrapper<ProductSku>()
+                .eq(ProductSku::getProductId, productId)
+                .isNotNull(ProductSku::getSpecValue)
+                .ne(ProductSku::getSpecValue, ""));
+        return count != null && count > 0;
+    }
+
+    // -------------------------------------------------------------------------
     // 内部方法
     // -------------------------------------------------------------------------
 

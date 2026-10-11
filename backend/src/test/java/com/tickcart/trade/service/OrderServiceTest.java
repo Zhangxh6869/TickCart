@@ -15,8 +15,12 @@ import com.tickcart.common.mq.OrderMessageProducer;
 import com.tickcart.member.entity.UserAddress;
 import com.tickcart.member.service.AddressService;
 import com.tickcart.product.entity.Product;
+import com.tickcart.product.entity.ProductSku;
 import com.tickcart.product.mapper.ProductMapper;
+import com.tickcart.product.mapper.ProductSkuMapper;
+import com.tickcart.product.service.ProductService;
 import com.tickcart.trade.dto.AdminOrderQuery;
+import com.tickcart.trade.dto.OrderBuyNowRequest;
 import com.tickcart.trade.dto.OrderCreateRequest;
 import com.tickcart.trade.dto.OrderQuery;
 import com.tickcart.trade.entity.Order;
@@ -76,6 +80,10 @@ class OrderServiceTest {
     private OrderMessageProducer orderMessageProducer;
     @Mock
     private ProductMapper productMapper;
+    @Mock
+    private ProductSkuMapper productSkuMapper;
+    @Mock
+    private ProductService productService;
 
     @InjectMocks
     private OrderService orderService;
@@ -155,6 +163,38 @@ class OrderServiceTest {
     private OrderCreateRequest createReq(Long addressId) {
         OrderCreateRequest req = new OrderCreateRequest();
         req.setAddressId(addressId);
+        return req;
+    }
+
+    private Product product(Long id, int status, String price, int stock) {
+        Product p = new Product();
+        p.setId(id);
+        p.setName("商品" + id);
+        p.setMainImage("/img/" + id + ".png");
+        p.setPrice(new BigDecimal(price));
+        p.setStock(stock);
+        p.setStatus(status);
+        return p;
+    }
+
+    private ProductSku sku(Long id, Long productId, String price, int stock) {
+        ProductSku s = new ProductSku();
+        s.setId(id);
+        s.setProductId(productId);
+        s.setSpecName("颜色");
+        s.setSpecValue("黑色");
+        s.setSkuImage("/img/sku-" + id + ".png");
+        s.setPrice(new BigDecimal(price));
+        s.setStock(stock);
+        return s;
+    }
+
+    private OrderBuyNowRequest buyNowReq(Long addressId, Long productId, Long skuId, int quantity) {
+        OrderBuyNowRequest req = new OrderBuyNowRequest();
+        req.setAddressId(addressId);
+        req.setProductId(productId);
+        req.setSkuId(skuId);
+        req.setQuantity(quantity);
         return req;
     }
 
@@ -287,6 +327,132 @@ class OrderServiceTest {
         assertThatThrownBy(() -> orderService.create(UID, createReq(9L)))
                 .isInstanceOf(BizException.class)
                 .hasMessage("收货地址不存在");
+    }
+
+    // ---------------- 立即购买（不经过购物车） ----------------
+
+    @Test
+    @DisplayName("立即购买成功：扣库存、写订单与快照，且完全不触碰购物车")
+    void buyNowSuccess() {
+        when(addressService.getOwned(UID, 1L)).thenReturn(address());
+        when(productMapper.selectById(10L)).thenReturn(product(10L, 1, "99.00", 50));
+        when(productSkuMapper.selectById(5L)).thenReturn(sku(5L, 10L, "88.00", 20));
+        when(orderMapper.insert(any(Order.class))).thenAnswer(inv -> {
+            Order o = inv.getArgument(0);
+            o.setId(100L);
+            return 1;
+        });
+        when(orderItemMapper.insert(any(OrderItem.class))).thenReturn(1);
+
+        OrderVO result = orderService.createBuyNow(UID, buyNowReq(1L, 10L, 5L, 2));
+
+        assertThat(result.getOrderNo()).startsWith("NO");
+        assertThat(result.getPayAmount()).isEqualByComparingTo("176.00");
+        assertThat(result.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT.getCode());
+
+        verify(inventoryService).deduct(10L, 5L, 2);
+
+        ArgumentCaptor<OrderItem> captor = ArgumentCaptor.forClass(OrderItem.class);
+        verify(orderItemMapper).insert(captor.capture());
+        OrderItem item = captor.getValue();
+        assertThat(item.getOrderId()).isEqualTo(100L);
+        assertThat(item.getProductId()).isEqualTo(10L);
+        assertThat(item.getSkuId()).isEqualTo(5L);
+        assertThat(item.getProductName()).isEqualTo("商品10");
+        assertThat(item.getSpecValue()).isEqualTo("黑色");
+        // 主图与成交价都取规格自身的，口径必须与购物车结算一致
+        assertThat(item.getProductImage()).isEqualTo("/img/sku-5.png");
+        assertThat(item.getPrice()).isEqualByComparingTo("88.00");
+        assertThat(item.getSubtotal()).isEqualByComparingTo("176.00");
+
+        // 「不经过购物车」是本功能的核心语义：既不读购物车，也不清理已勾选项
+        verifyNoInteractions(cartService);
+        verify(orderMessageProducer).sendOrderTimeout(result.getOrderNo());
+    }
+
+    @Test
+    @DisplayName("立即购买无规格商品：按商品级价格与库存成交")
+    void buyNowWithoutSkuUsesProductPrice() {
+        when(addressService.getOwned(UID, 1L)).thenReturn(address());
+        when(productMapper.selectById(10L)).thenReturn(product(10L, 1, "99.00", 50));
+        when(productService.hasRealSpec(10L)).thenReturn(false);
+        when(orderMapper.insert(any(Order.class))).thenAnswer(inv -> {
+            Order o = inv.getArgument(0);
+            o.setId(100L);
+            return 1;
+        });
+        when(orderItemMapper.insert(any(OrderItem.class))).thenReturn(1);
+
+        OrderVO result = orderService.createBuyNow(UID, buyNowReq(1L, 10L, 0L, 1));
+
+        assertThat(result.getPayAmount()).isEqualByComparingTo("99.00");
+        verify(inventoryService).deduct(10L, 0L, 1);
+        verifyNoInteractions(cartService);
+    }
+
+    @Test
+    @DisplayName("立即购买：商品配置了规格却未选规格时拒绝")
+    void buyNowWithoutSkuWhenProductHasSpec() {
+        when(addressService.getOwned(UID, 1L)).thenReturn(address());
+        when(productMapper.selectById(10L)).thenReturn(product(10L, 1, "99.00", 50));
+        when(productService.hasRealSpec(10L)).thenReturn(true);
+
+        assertThatThrownBy(() -> orderService.createBuyNow(UID, buyNowReq(1L, 10L, 0L, 1)))
+                .isInstanceOf(BizException.class)
+                .hasMessage("请选择商品规格");
+        verify(orderMapper, never()).insert(any(Order.class));
+        verifyNoInteractions(inventoryService);
+    }
+
+    @Test
+    @DisplayName("立即购买：规格不属于该商品时拒绝")
+    void buyNowWithForeignSku() {
+        when(addressService.getOwned(UID, 1L)).thenReturn(address());
+        when(productMapper.selectById(10L)).thenReturn(product(10L, 1, "99.00", 50));
+        when(productSkuMapper.selectById(5L)).thenReturn(sku(5L, 11L, "88.00", 20));
+
+        assertThatThrownBy(() -> orderService.createBuyNow(UID, buyNowReq(1L, 10L, 5L, 1)))
+                .isInstanceOf(BizException.class)
+                .hasMessage("商品规格不存在");
+        verifyNoInteractions(inventoryService);
+    }
+
+    @Test
+    @DisplayName("立即购买：商品已下架时拒绝")
+    void buyNowRejectsOfflineProduct() {
+        when(addressService.getOwned(UID, 1L)).thenReturn(address());
+        when(productMapper.selectById(10L)).thenReturn(product(10L, 0, "99.00", 50));
+
+        assertThatThrownBy(() -> orderService.createBuyNow(UID, buyNowReq(1L, 10L, 5L, 1)))
+                .isInstanceOf(BizException.class)
+                .hasMessage("商品不存在或已下架");
+        verifyNoInteractions(inventoryService);
+    }
+
+    @Test
+    @DisplayName("立即购买：规格库存不足时不写入订单")
+    void buyNowFailsOnInsufficientSkuStock() {
+        when(addressService.getOwned(UID, 1L)).thenReturn(address());
+        when(productMapper.selectById(10L)).thenReturn(product(10L, 1, "99.00", 50));
+        when(productSkuMapper.selectById(5L)).thenReturn(sku(5L, 10L, "88.00", 1));
+
+        assertThatThrownBy(() -> orderService.createBuyNow(UID, buyNowReq(1L, 10L, 5L, 2)))
+                .isInstanceOf(BizException.class)
+                .hasMessage("库存不足");
+        verify(orderMapper, never()).insert(any(Order.class));
+        verifyNoInteractions(inventoryService);
+    }
+
+    @Test
+    @DisplayName("立即购买：地址不属于当前用户时无法下单")
+    void buyNowWithForeignAddress() {
+        when(addressService.getOwned(UID, 9L))
+                .thenThrow(BizException.notFound("收货地址不存在"));
+
+        assertThatThrownBy(() -> orderService.createBuyNow(UID, buyNowReq(9L, 10L, 5L, 1)))
+                .isInstanceOf(BizException.class)
+                .hasMessage("收货地址不存在");
+        verifyNoInteractions(inventoryService);
     }
 
     // ---------------- 取消与确认收货 ----------------

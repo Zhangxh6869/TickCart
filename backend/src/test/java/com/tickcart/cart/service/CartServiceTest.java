@@ -11,6 +11,7 @@ import com.tickcart.product.entity.Product;
 import com.tickcart.product.entity.ProductSku;
 import com.tickcart.product.mapper.ProductMapper;
 import com.tickcart.product.mapper.ProductSkuMapper;
+import com.tickcart.product.service.ProductService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -48,6 +49,8 @@ class CartServiceTest {
     private ProductMapper productMapper;
     @Mock
     private ProductSkuMapper productSkuMapper;
+    @Mock
+    private ProductService productService;
 
     @InjectMocks
     private CartService cartService;
@@ -200,7 +203,7 @@ class CartServiceTest {
     @DisplayName("商品配置了规格却未选规格时拒绝")
     void addWithoutSkuWhenProductHasSpec() {
         when(productMapper.selectById(1L)).thenReturn(product(1L, 1, 100));
-        when(productSkuMapper.selectCount(any())).thenReturn(3L);
+        when(productService.hasRealSpec(1L)).thenReturn(true);
 
         assertThatThrownBy(() -> cartService.add(UID, addReq(1L, 0L, 1)))
                 .isInstanceOf(BizException.class)

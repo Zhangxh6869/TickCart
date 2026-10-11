@@ -4,6 +4,7 @@ import com.tickcart.common.api.PageResult;
 import com.tickcart.common.api.R;
 import com.tickcart.common.exception.BizException;
 import com.tickcart.common.security.UserContext;
+import com.tickcart.trade.dto.OrderBuyNowRequest;
 import com.tickcart.trade.dto.OrderCreateRequest;
 import com.tickcart.trade.dto.OrderQuery;
 import com.tickcart.trade.service.OrderService;
@@ -39,6 +40,12 @@ public class OrderController {
     @PostMapping
     public R<OrderVO> create(@Valid @RequestBody OrderCreateRequest req) {
         return R.ok(orderService.create(currentUserId(), req));
+    }
+
+    @Operation(summary = "立即购买", description = "商品详情页直达下单，不经过购物车")
+    @PostMapping("/buy-now")
+    public R<OrderVO> buyNow(@Valid @RequestBody OrderBuyNowRequest req) {
+        return R.ok(orderService.createBuyNow(currentUserId(), req));
     }
 
     @Operation(summary = "订单列表", description = "可按状态筛选")

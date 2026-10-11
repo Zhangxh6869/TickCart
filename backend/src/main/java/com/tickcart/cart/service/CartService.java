@@ -12,6 +12,7 @@ import com.tickcart.product.entity.Product;
 import com.tickcart.product.entity.ProductSku;
 import com.tickcart.product.mapper.ProductMapper;
 import com.tickcart.product.mapper.ProductSkuMapper;
+import com.tickcart.product.service.ProductService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,13 +44,16 @@ public class CartService {
     private final CartItemMapper cartItemMapper;
     private final ProductMapper productMapper;
     private final ProductSkuMapper productSkuMapper;
+    private final ProductService productService;
 
     public CartService(CartItemMapper cartItemMapper,
                        ProductMapper productMapper,
-                       ProductSkuMapper productSkuMapper) {
+                       ProductSkuMapper productSkuMapper,
+                       ProductService productService) {
         this.cartItemMapper = cartItemMapper;
         this.productMapper = productMapper;
         this.productSkuMapper = productSkuMapper;
+        this.productService = productService;
     }
 
     /** 购物车列表 + 勾选合计。 */
@@ -101,7 +105,7 @@ public class CartService {
             if (sku == null || !product.getId().equals(sku.getProductId())) {
                 throw BizException.badRequest("商品规格不存在");
             }
-        } else if (hasRealSpec(product.getId())) {
+        } else if (productService.hasRealSpec(product.getId())) {
             // 商品配置了规格却不传 skuId 时，若放行会走商品级库存校验，
             // 导致 SKU 库存与商品库存各算一套，下单扣减错乱
             throw BizException.badRequest("请选择商品规格");
@@ -271,20 +275,6 @@ public class CartService {
             throw BizException.notFound("购物车项不存在");
         }
         return item;
-    }
-
-    /**
-     * 商品是否配置了「真实规格」。
-     *
-     * <p>种子数据里部分无规格商品也带了一条 {@code spec_value} 为空的 SKU 占位记录，
-     * 这类记录不构成规格，不应强制用户选择。</p>
-     */
-    private boolean hasRealSpec(Long productId) {
-        Long count = productSkuMapper.selectCount(new LambdaQueryWrapper<ProductSku>()
-                .eq(ProductSku::getProductId, productId)
-                .isNotNull(ProductSku::getSpecValue)
-                .ne(ProductSku::getSpecValue, ""));
-        return count != null && count > 0;
     }
 
     /** 查询当前可用库存（有 SKU 取 SKU 库存，否则取商品库存）。 */

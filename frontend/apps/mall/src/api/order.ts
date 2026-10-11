@@ -1,5 +1,6 @@
 import request from '@/utils/request'
 import type {
+  OrderBuyNowRequest,
   OrderCreateRequest,
   OrderCreateResult,
   OrderDetail,
@@ -11,6 +12,11 @@ import type {
 /** 创建订单（结算购物车中已勾选且有效的商品）。 */
 export function createOrder(payload: OrderCreateRequest): Promise<OrderCreateResult> {
   return request.post('/orders', payload)
+}
+
+/** 立即购买（商品详情页直达下单，不经过购物车）。 */
+export function createBuyNowOrder(payload: OrderBuyNowRequest): Promise<OrderCreateResult> {
+  return request.post('/orders/buy-now', payload)
 }
 
 /** 订单列表，可按状态筛选。 */

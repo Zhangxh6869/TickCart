@@ -1,5 +1,8 @@
 package com.tickcart.product.service;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.tickcart.common.exception.BizException;
 import com.tickcart.product.dto.ProductQuery;
 import com.tickcart.product.dto.ProductSaveRequest;
@@ -11,9 +14,12 @@ import com.tickcart.product.mapper.ProductImageMapper;
 import com.tickcart.product.mapper.ProductMapper;
 import com.tickcart.product.mapper.ProductSkuMapper;
 import com.tickcart.product.vo.ProductDetail;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -25,6 +31,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -45,6 +52,17 @@ class ProductServiceTest {
 
     @InjectMocks
     private ProductService productService;
+
+    /**
+     * 纯单元测试没有 Spring 容器，{@code LambdaQueryWrapper} 解析列名时会去查实体的
+     * TableInfo 缓存；只要断言里调用了 {@code getSqlSegment()} 把条件实体化，
+     * 就必须先手动初始化，否则报 "can not find lambda cache"。
+     */
+    @BeforeAll
+    static void initTableInfo() {
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""), ProductSku.class);
+    }
 
     private void categoryExists() {
         when(categoryMapper.selectById(any())).thenReturn(new Category());
@@ -329,5 +347,42 @@ class ProductServiceTest {
 
         assertThat(query.getPage()).isEqualTo(1);
         assertThat(query.getSize()).isEqualTo(100);
+    }
+
+    // ---------------- 规格判断（加购 / 下单共用） ----------------
+
+    @Test
+    @DisplayName("存在 spec_value 非空的 SKU 时视为配置了真实规格")
+    void hasRealSpecWhenSpecValuePresent() {
+        when(skuMapper.selectCount(any())).thenReturn(2L);
+
+        assertThat(productService.hasRealSpec(10L)).isTrue();
+    }
+
+    @Test
+    @DisplayName("只有 spec_value 为空的占位 SKU 时不算配置规格")
+    void hasRealSpecIgnoresPlaceholderSku() {
+        // 种子数据里无规格商品也带一条 spec_value 为空的占位 SKU，
+        // 查询条件把它排除掉，所以这里匹配不到任何行
+        when(skuMapper.selectCount(any())).thenReturn(0L);
+
+        assertThat(productService.hasRealSpec(10L)).isFalse();
+    }
+
+    @Test
+    @DisplayName("规格判断的查询条件排除空 spec_value")
+    void hasRealSpecQueryExcludesBlankSpecValue() {
+        when(skuMapper.selectCount(any())).thenReturn(1L);
+
+        productService.hasRealSpec(10L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaQueryWrapper<ProductSku>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(skuMapper).selectCount(captor.capture());
+        assertThat(captor.getValue().getSqlSegment())
+                .contains("spec_value")
+                .contains("IS NOT NULL")
+                .contains("<>");
     }
 }

@@ -111,6 +111,13 @@ function resolvePageTransition(
   if (toName === 'address' && fromName === 'checkout') return 'page-slide-up'
   if (toName === 'checkout' && fromName === 'address') return 'page-slide-down'
 
+  // 商品详情页「立即购买」直达确认订单：语义上是往前走（进入结算），
+  // 但 checkout 的 depth(2) 比 product-detail(3) 浅，按 depth 会被判成后退。
+  // 与地址页同理，用精确配对修正方向；返回详情页时对称地按后退处理。
+  // 另一个入口「购物车 → 确认订单」是 depth 1 → 2，本来就判为前进，不受影响。
+  if (toName === 'checkout' && fromName === 'product-detail') return 'page-slide-left'
+  if (toName === 'product-detail' && fromName === 'checkout') return 'page-slide-right'
+
   const toDepth = depthOf(to)
   const fromDepth = depthOf(from)
   if (toDepth > fromDepth) return 'page-slide-left'
