@@ -39,9 +39,14 @@ const indicatorLeft = computed(() => `calc(${activeIndex.value} * 100% / 3 + 100
  *   product-detail —— 页面自带底部操作栏（收藏 / 加购 / 立即购买），tabbar 让位
  *   login          —— 独立全屏层，从底部滑入覆盖整个视口；留着 tabbar 会出现
  *                     「三项全灰、指示条却停在首页下面」的坏选中态，且与登录页无关
+ *   address        —— 页面自带固定底部按钮条（新增收货地址）。它与 tabbar 都贴视口底，
+ *                     而 tabbar 带 z-index: 1、按钮条没写 z-index，实测按钮 44px 里
+ *                     只剩顶部 4px 能点到（点中间会命中 tabbar 的「购物车」直接跳走）。
+ *                     与其给按钮条加 z-index 硬压 tabbar（那会让 tabbar 彻底点不到），
+ *                     不如让 tabbar 在这个二级页整体让位，用户走左上角返回。
  * 顺带 .layout--tabbar 的 50px 底部内边距也会一起去掉，登录页正好占满一屏。
  */
-const FULLSCREEN_ROUTES = ['product-detail', 'login']
+const FULLSCREEN_ROUTES = ['product-detail', 'login', 'address']
 const showTabbar = computed(() => !FULLSCREEN_ROUTES.includes(route.name as string))
 
 /** 只有购物车带角标，其余为空字符串（Vant 收到空串不渲染角标） */
