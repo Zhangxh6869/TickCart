@@ -65,3 +65,63 @@
 | imgs/clothing/clothing-18.jpg | unsplash__1602810318383-e386cc2a3ccf__shirt.jpg（unsplash） |
 | imgs/clothing/clothing-19.jpg | unsplash__1523381210434-271e8be1f52b__clothes.jpg（unsplash） |
 | imgs/clothing/clothing-20.jpg | pexels__996329__clothes.jpg（pexels） |
+
+
+
+---
+
+## imgs/sku/ —— 「手机数码」SKU 图片
+
+由 `V11__seed_sku_images.sql` 写入 `product_sku.sku_image`，覆盖分类 1 的 20 个商品 / 39 个 SKU（共 38 个文件，其中 1 张被两个 SKU 复用）。
+
+来源两类，均为本机可直连、可自由使用的产品图：
+
+- **Apple 官网产品页 / Apple Store CDN** —— 覆盖 iPhone、Mac、iPad、Apple Watch、AirPods、HomePod、
+  Magic Mouse / Magic Keyboard 等机型。配色型 SKU 一律取**同色**的官方产品图；版本型 SKU
+  （内存 / 存储差异，肉眼无区别）取同型号另一张官方图，便于切换规格时看到变化。
+- **Unsplash** —— 微单相机（Apple 无对应产品线），沿用该商品主图同一来源，保持风格一致。
+
+> Apple 产品页取图用 `_large.jpg`（约 1000~2000px）；Apple Store CDN 统一加 `?wid=600&hei=600&fmt=jpeg&qlt=90`。
+
+| 本地文件 | 对应 SKU | 原始地址 |
+| --- | --- | --- |
+| `imgs/sku/p2-black.jpg` | iPhone18Pro 内存=16G+512G | `https://www.apple.com/v/iphone-18-pro/c/images/overview/product-viewer/color_black__dseo2tvypuc2_large.jpg` |
+| `imgs/sku/p1-white.jpg` | iPhone17 颜色=白色 | `https://www.apple.com/v/iphone-17/i/images/overview/product-viewer/colors_white__979ypubjzdum_large.jpg` |
+| `imgs/sku/p6-black.jpg` | iPhone Air | `https://www.apple.com/v/iphone-air/i/images/overview/product-viewer/color_static_black__bavqefsedg82_large.jpg` |
+| `imgs/sku/p1-black.jpg` | iPhone17 颜色=黑色 | `https://www.apple.com/v/iphone-17/i/images/overview/product-viewer/colors_black__fzuhc3kqvmq2_large.jpg` |
+| `imgs/sku/p2-silver.jpg` | iPhone18Pro 内存=16G+1T | `https://www.apple.com/v/iphone-18-pro/c/images/overview/product-viewer/color_silver__c0oudn0fzw4m_large.jpg` |
+| `imgs/sku/p101-b.jpg` | 101 曜夜黑 · 版本=16+512G | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/iphone-16-finish-select-202409-6-1inch-black?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p7-hero.jpg` | iPhone Duo | `https://www.apple.com/v/iphone-duo/d/images/overview/design/design_hero__gczn1e74mwa6_large.jpg` |
+| `imgs/sku/p102-a.jpg` | 102 星空灰 · 版本=8+128G | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/iphone-16-pro-finish-select-202409-6-3inch-naturaltitanium?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p1-natural-titanium.jpg` | iPhone17 颜色=原色钛 | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/iphone-16-pro-finish-select-202409-6-3inch-naturaltitanium?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p104-a.jpg` | 104 办公笔记本 · 版本=16G+512G | `https://www.apple.com/v/macbook-air/z/images/overview/design/color/design_top_silver__dcf8hwixw2uu_large.jpg` |
+| `imgs/sku/p104-b.jpg` | 104 办公笔记本 · 版本=32G+1T | `https://www.apple.com/v/macbook-air/z/images/overview/design/color/design_magsafe_silver__cs8q03j5sve6_large.jpg` |
+| `imgs/sku/p105-a.jpg` | 105 游戏笔记本 · 版本=32G+1T | `https://www.apple.com/v/macbook-pro/ax/images/overview/product-viewer/pv_colors_spaceblack__dwfpyrbaf4cy_large.jpg` |
+| `imgs/sku/p105-b.jpg` | 105 游戏笔记本 · 版本=32G+2T | `https://www.apple.com/v/macbook-air/z/images/overview/design/color/design_top_midnight__fvf2p6124tqq_large.jpg` |
+| `imgs/sku/p102-b.jpg` | 102 星空灰 · 版本=8+256G | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/iphone-16-pro-finish-select-202409-6-3inch-whitetitanium?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p106-a.jpg` | 106 一体机 · 版本=16G+512G | `https://www.apple.com/v/imac/w/images/overview/closer-look/colors_pf_blue__bshbmf5v5rki_large.jpg` |
+| `imgs/sku/p103-red.jpg` | 103 赤焰红 · 版本=12+256G / 103 赤焰红 · 版本=8+256G | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/iphone-14-finish-select-202209-6-1inch-product-red?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p106-b.jpg` | 106 一体机 · 版本=24G+1T | `https://www.apple.com/v/imac/w/images/overview/closer-look/colors_pf_purple__cyowkzb9ouaa_large.jpg` |
+| `imgs/sku/p108-b.jpg` | 108 平板 10.9 寸 · 版本=8+256G | `https://www.apple.com/v/ipad-air/ah/images/overview/closer-look/all-colors/slide_3A__e9d8j4i6akii_large.jpg` |
+| `imgs/sku/p107-a.jpg` | 107 平板 11 寸 · 版本=8+256G | `https://www.apple.com/v/ipad-air/ah/images/overview/closer-look/all-colors/slide_1A__u8zw91uc6iaq_large.jpg` |
+| `imgs/sku/p107-b.jpg` | 107 平板 11 寸 · 版本=12+512G | `https://www.apple.com/v/ipad-air/ah/images/overview/closer-look/all-colors/slide_2A__p74br7miwoiq_large.jpg` |
+| `imgs/sku/p108-a.jpg` | 108 平板 10.9 寸 · 版本=6+128G | `https://www.apple.com/v/ipad-air/ah/images/overview/closer-look/all-colors/slide_2B__dvqfqwnkj2c2_large.jpg` |
+| `imgs/sku/p101-a.jpg` | 101 曜夜黑 · 版本=12+256G | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/iphone-16-pro-finish-select-202409-6-3inch-blacktitanium?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p109-b.jpg` | 109 智能手表 表带=尼龙灰 | `https://www.apple.com/v/apple-watch-series-12/b/images/overview/product-viewer/product_finishes_aluminum_space_gray__d83ign704owi_large.jpg` |
+| `imgs/sku/p110-white.jpg` | 110 头戴耳机 颜色=月光白 | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/airpods-max-select-202409-starlight?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p112-white.jpg` | 112 蓝牙耳机 颜色=白色 | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/airpods-5-select-202609?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p111-black.jpg` | 111 降噪耳机 颜色=黑色 | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/MQLH3?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p109-a.jpg` | 109 智能手表 表带=硅胶黑 | `https://www.apple.com/v/apple-watch-series-12/b/images/overview/product-viewer/product_finishes_aluminum_black__ebajxwacb88y_large.jpg` |
+| `imgs/sku/p111-white.jpg` | 111 降噪耳机 颜色=白色 | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/airpods-pro-3-hero-select-202509?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p112-pink.jpg` | 112 蓝牙耳机 颜色=粉色 | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/MQLK3?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p113-black.jpg` | 113 蓝牙音箱 颜色=黑色 | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/homepod-mini-select-midnight-202407?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p113-blue.jpg` | 113 蓝牙音箱 颜色=蓝色 | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/homepod-mini-select-blue-202110?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p114-silver.jpg` | 114 键盘 颜色=银色 | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/MQ052?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p110-black.jpg` | 110 头戴耳机 颜色=曜石黑 | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/airpods-max-select-202409-midnight?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p115-white.jpg` | 115 鼠标 颜色=白色 | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/MXK53?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p115-black.jpg` | 115 鼠标 颜色=黑色 | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/HSLW2?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p114-gray.jpg` | 114 键盘 颜色=深空灰 | `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/MJM74?wid=600&hei=600&fmt=jpeg&qlt=90` |
+| `imgs/sku/p116-kit.jpg` | 116 相机 套装=含 15-45 镜头 | `https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=900&q=80&fm=jpg&fit=crop` |
+| `imgs/sku/p116-body.jpg` | 116 相机 套装=单机身 | `https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=900&q=80&fm=jpg&fit=crop` |
+
+> 仅为本地演示数据，请勿用于商业用途。产品外观与商标归各自权利人所有。
