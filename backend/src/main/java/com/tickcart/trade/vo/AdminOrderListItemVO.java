@@ -45,6 +45,12 @@ public class AdminOrderListItemVO {
     @Schema(description = "下单时间")
     private LocalDateTime createdAt;
 
+    @Schema(description = "最新一笔支付流水号；用户尚未发起过支付时为 null")
+    private String payNo;
+
+    @Schema(description = "支付渠道 0模拟 1微信 2支付宝；无支付流水时为 null")
+    private Integer channel;
+
     @Schema(description = "商品明细")
     private List<OrderItemVO> items;
 
@@ -126,6 +132,22 @@ public class AdminOrderListItemVO {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public String getPayNo() {
+        return payNo;
+    }
+
+    public void setPayNo(String payNo) {
+        this.payNo = payNo;
+    }
+
+    public Integer getChannel() {
+        return channel;
+    }
+
+    public void setChannel(Integer channel) {
+        this.channel = channel;
     }
 
     public List<OrderItemVO> getItems() {

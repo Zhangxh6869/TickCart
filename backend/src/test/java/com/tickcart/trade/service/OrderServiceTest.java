@@ -25,9 +25,11 @@ import com.tickcart.trade.dto.OrderCreateRequest;
 import com.tickcart.trade.dto.OrderQuery;
 import com.tickcart.trade.entity.Order;
 import com.tickcart.trade.entity.OrderItem;
+import com.tickcart.trade.entity.PaymentRecord;
 import com.tickcart.trade.enums.OrderStatus;
 import com.tickcart.trade.mapper.OrderItemMapper;
 import com.tickcart.trade.mapper.OrderMapper;
+import com.tickcart.trade.mapper.PaymentRecordMapper;
 import com.tickcart.trade.vo.AdminOrderListItemVO;
 import com.tickcart.trade.vo.OrderDetailVO;
 import com.tickcart.trade.vo.OrderVO;
@@ -84,6 +86,8 @@ class OrderServiceTest {
     private ProductSkuMapper productSkuMapper;
     @Mock
     private ProductService productService;
+    @Mock
+    private PaymentRecordMapper paymentRecordMapper;
 
     @InjectMocks
     private OrderService orderService;
@@ -98,6 +102,18 @@ class OrderServiceTest {
                 new MapperBuilderAssistant(new MybatisConfiguration(), ""), Order.class);
         TableInfoHelper.initTableInfo(
                 new MapperBuilderAssistant(new MybatisConfiguration(), ""), Product.class);
+    }
+
+    /** 构造一条支付流水，用于后台列表取「最新一条」的断言。 */
+    private PaymentRecord payment(Long id, String payNo, String orderNo) {
+        PaymentRecord p = new PaymentRecord();
+        p.setId(id);
+        p.setPayNo(payNo);
+        p.setOrderNo(orderNo);
+        p.setChannel(2);
+        p.setAmount(new BigDecimal("198.00"));
+        p.setStatus(PaymentRecord.STATUS_SUCCESS);
+        return p;
     }
 
     private UserAddress address() {
@@ -780,6 +796,47 @@ class OrderServiceTest {
         assertThat(vo.getReceiver()).isEqualTo("张三");
         assertThat(vo.getReceiverPhone()).isEqualTo("13800138000");
         assertThat(vo.getTotalQuantity()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("后台列表带出最新一笔支付流水号与渠道")
+    void adminPageMapsLatestPayment() {
+        when(orderMapper.selectPage(ArgumentMatchers.<IPage<Order>>any(), any())).thenAnswer(inv -> {
+            IPage<Order> p = inv.getArgument(0);
+            p.setRecords(List.of(order("NO26", UID, OrderStatus.PENDING_SHIPMENT)));
+            p.setTotal(1);
+            return p;
+        });
+        when(orderItemMapper.selectList(any())).thenReturn(List.of());
+        // 同一订单两条流水：应取 id 更大的那条（重试后新落的一条）
+        when(paymentRecordMapper.selectList(any())).thenReturn(List.of(
+                payment(1L, "PAY_OLD", "NO26"),
+                payment(2L, "PAY_NEW", "NO26")));
+
+        var result = orderService.adminPage(new AdminOrderQuery());
+
+        AdminOrderListItemVO vo = result.getRecords().get(0);
+        assertThat(vo.getPayNo()).isEqualTo("PAY_NEW");
+        assertThat(vo.getChannel()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("后台列表：未发起过支付时流水字段为空")
+    void adminPageWithoutPayment() {
+        when(orderMapper.selectPage(ArgumentMatchers.<IPage<Order>>any(), any())).thenAnswer(inv -> {
+            IPage<Order> p = inv.getArgument(0);
+            p.setRecords(List.of(order("NO27", UID, OrderStatus.PENDING_PAYMENT)));
+            p.setTotal(1);
+            return p;
+        });
+        when(orderItemMapper.selectList(any())).thenReturn(List.of());
+        when(paymentRecordMapper.selectList(any())).thenReturn(List.of());
+
+        var result = orderService.adminPage(new AdminOrderQuery());
+
+        AdminOrderListItemVO vo = result.getRecords().get(0);
+        assertThat(vo.getPayNo()).isNull();
+        assertThat(vo.getChannel()).isNull();
     }
 
     @Test

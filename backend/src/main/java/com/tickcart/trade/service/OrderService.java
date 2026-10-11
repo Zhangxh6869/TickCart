@@ -22,9 +22,11 @@ import com.tickcart.trade.dto.OrderCreateRequest;
 import com.tickcart.trade.dto.OrderQuery;
 import com.tickcart.trade.entity.Order;
 import com.tickcart.trade.entity.OrderItem;
+import com.tickcart.trade.entity.PaymentRecord;
 import com.tickcart.trade.enums.OrderStatus;
 import com.tickcart.trade.mapper.OrderItemMapper;
 import com.tickcart.trade.mapper.OrderMapper;
+import com.tickcart.trade.mapper.PaymentRecordMapper;
 import com.tickcart.trade.vo.AdminOrderListItemVO;
 import com.tickcart.trade.vo.OrderDetailVO;
 import com.tickcart.trade.vo.OrderItemVO;
@@ -76,6 +78,7 @@ public class OrderService {
     private final ProductMapper productMapper;
     private final ProductSkuMapper productSkuMapper;
     private final ProductService productService;
+    private final PaymentRecordMapper paymentRecordMapper;
 
     public OrderService(OrderMapper orderMapper,
                         OrderItemMapper orderItemMapper,
@@ -85,7 +88,8 @@ public class OrderService {
                         OrderMessageProducer orderMessageProducer,
                         ProductMapper productMapper,
                         ProductSkuMapper productSkuMapper,
-                        ProductService productService) {
+                        ProductService productService,
+                        PaymentRecordMapper paymentRecordMapper) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.addressService = addressService;
@@ -95,6 +99,7 @@ public class OrderService {
         this.productMapper = productMapper;
         this.productSkuMapper = productSkuMapper;
         this.productService = productService;
+        this.paymentRecordMapper = paymentRecordMapper;
     }
 
     /**
@@ -203,11 +208,37 @@ public class OrderService {
                         .or().like(Order::getReceiverPhone, keyword))
                 .orderByDesc(Order::getId));
 
+        Map<String, PaymentRecord> latestPayments = loadLatestPayments(page.getRecords());
         List<AdminOrderListItemVO> records = new ArrayList<>(page.getRecords().size());
         for (Order order : page.getRecords()) {
-            records.add(toAdminListItemVO(order));
+            records.add(toAdminListItemVO(order, latestPayments.get(order.getOrderNo())));
         }
         return new PageResult<>(records, page.getTotal(), page.getCurrent(), page.getSize(), page.getPages());
+    }
+
+    /**
+     * 批量取本页订单的最新一条支付流水（一次 IN 查询，避免逐单查询造成 N+1）。
+     *
+     * <p>同一订单可能有多条流水（支付失败/取消后重试都会新落一条），这里只保留 id 最大的那条 ——
+     * 对已支付订单而言成功那条必然是最新那条（订单已不是待付款，不会再发起新的支付），
+     * 因此「最新一条」对后台展示足够且不需要额外状态判断。</p>
+     */
+    private Map<String, PaymentRecord> loadLatestPayments(List<Order> orders) {
+        if (orders.isEmpty()) {
+            return Map.of();
+        }
+        List<String> orderNos = orders.stream().map(Order::getOrderNo).toList();
+        List<PaymentRecord> payments = paymentRecordMapper.selectList(
+                new LambdaQueryWrapper<PaymentRecord>().in(PaymentRecord::getOrderNo, orderNos));
+
+        Map<String, PaymentRecord> latest = new LinkedHashMap<>();
+        for (PaymentRecord payment : payments) {
+            PaymentRecord exist = latest.get(payment.getOrderNo());
+            if (exist == null || payment.getId() > exist.getId()) {
+                latest.put(payment.getOrderNo(), payment);
+            }
+        }
+        return latest;
     }
 
     /** 订单详情（含收货快照与明细）。 */
@@ -561,7 +592,13 @@ public class OrderService {
         return vo;
     }
 
-    private AdminOrderListItemVO toAdminListItemVO(Order order) {
+    /**
+     * 组装后台订单列表项。
+     *
+     * @param order   订单
+     * @param payment 该订单最新一条支付流水，可为 null（用户尚未发起过支付）
+     */
+    private AdminOrderListItemVO toAdminListItemVO(Order order, PaymentRecord payment) {
         AdminOrderListItemVO vo = new AdminOrderListItemVO();
         vo.setOrderNo(order.getOrderNo());
         vo.setUserId(order.getUserId());
@@ -572,6 +609,10 @@ public class OrderService {
         vo.setTotalAmount(order.getTotalAmount());
         vo.setPayAmount(order.getPayAmount());
         vo.setCreatedAt(order.getCreatedAt());
+        if (payment != null) {
+            vo.setPayNo(payment.getPayNo());
+            vo.setChannel(payment.getChannel());
+        }
 
         List<OrderItemVO> items = loadItems(order.getOrderNo());
         vo.setItems(items);
