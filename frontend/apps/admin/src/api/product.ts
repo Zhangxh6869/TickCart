@@ -19,7 +19,14 @@ export interface ProductPayload {
     price: number
     stock: number
   }>
-  images?: string[]
+  /**
+   * 图集 URL 列表，数组顺序即落库的 sort 顺序。
+   *
+   * <p>必填而非可选：后端 {@code ProductService.update} 对图集是全量替换语义
+   * （{@code req.getImages() != null} 就先删后插），漏传与传空数组都等于清空，
+   * 所以这里强制调用方显式给出，避免「忘记传」被静默当成「要清空」。</p>
+   */
+  images: string[]
 }
 
 export interface ProductQueryParams {

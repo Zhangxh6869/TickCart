@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type UploadFile } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, Close, Plus } from '@element-plus/icons-vue'
 import type { Category, ProductListItem } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import {
@@ -98,7 +98,7 @@ async function openEdit(row: ProductListItem) {
       price: s.price,
       stock: s.stock,
     })),
-    images: detail.images.map((i) => i.url),
+    images: (detail.images ?? []).map((i) => i.url),
   }
   dialogVisible.value = true
 }
@@ -111,19 +111,39 @@ function removeSku(index: number) {
   form.value.skus?.splice(index, 1)
 }
 
-// ---------------- 主图：本地选图 → 上传 → 回填 URL ----------------
+// ---------------- 图片：本地选图 → 上传 → 回填 URL ----------------
 const uploading = ref(false)
+
+/** 图集在传数量：多选时同时会有多张在传，用计数而非布尔表示「有上传进行中」。 */
+const galleryPending = ref(0)
+const galleryUploading = computed(() => galleryPending.value > 0)
+
+/**
+ * 图集上传队列。
+ *
+ * <p>必须串行：多选时若并发上传，各请求的返回顺序不可控，而数组顺序就是落库的
+ * {@code sort}（也是详情页图集的展示顺序），并发会让用户选的顺序被打乱。</p>
+ */
+let galleryQueue: Promise<void> = Promise.resolve()
+
+/** 校验本地图片，返回错误文案；通过则返回 null（主图与图集共用）。 */
+function validateImage(raw: File): string | null {
+  if (!raw.type.startsWith('image/')) {
+    return '请选择图片文件'
+  }
+  if (raw.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+    return `图片大小不能超过 ${MAX_IMAGE_SIZE_MB}MB`
+  }
+  return null
+}
 
 /** 选择本地图片后立即上传，成功后把后端返回的相对 URL 写入主图字段。 */
 async function onMainImageChange(uploadFile: UploadFile) {
   const raw = uploadFile.raw
   if (!raw) return
-  if (!raw.type.startsWith('image/')) {
-    ElMessage.warning('请选择图片文件')
-    return
-  }
-  if (raw.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
-    ElMessage.warning(`图片大小不能超过 ${MAX_IMAGE_SIZE_MB}MB`)
+  const error = validateImage(raw)
+  if (error) {
+    ElMessage.warning(error)
     return
   }
   uploading.value = true
@@ -137,6 +157,48 @@ async function onMainImageChange(uploadFile: UploadFile) {
 
 function clearMainImage() {
   form.value.mainImage = ''
+}
+
+/**
+ * 追加一张图集图片（入队，不等待）。
+ *
+ * <p>选图即上传，成功后按选择顺序追加到数组尾部；上传中的进度由缩略图出现与
+ * loading 表达，因此不再逐张弹「上传成功」提示，避免多选时刷屏。</p>
+ */
+function onGalleryChange(uploadFile: UploadFile) {
+  const raw = uploadFile.raw
+  if (!raw) return
+  const error = validateImage(raw)
+  if (error) {
+    ElMessage.warning(error)
+    return
+  }
+  galleryQueue = galleryQueue.then(() => appendGalleryImage(raw))
+}
+
+async function appendGalleryImage(raw: File) {
+  galleryPending.value += 1
+  try {
+    form.value.images.push(await uploadImage(raw))
+  } catch {
+    // 失败文案由请求拦截器统一提示；这里吞掉异常，否则队列会因 rejected 而卡死
+  } finally {
+    galleryPending.value -= 1
+  }
+}
+
+function removeGalleryImage(index: number) {
+  form.value.images.splice(index, 1)
+}
+
+/** 与前/后相邻的一张交换位置；越界不动。 */
+function moveGalleryImage(index: number, offset: number) {
+  const images = form.value.images
+  const target = index + offset
+  if (target < 0 || target >= images.length) return
+  const current = images[index]
+  images[index] = images[target]
+  images[target] = current
 }
 
 async function onSubmit() {
@@ -301,6 +363,65 @@ function categoryName(id: number): string {
             </div>
           </div>
         </el-form-item>
+        <el-form-item label="商品图集">
+          <div class="gallery-editor">
+            <div
+              v-for="(url, index) in form.images"
+              :key="url"
+              class="gallery-editor__item"
+            >
+              <div class="gallery-editor__thumb">
+                <el-image :src="url" fit="cover" class="gallery-editor__img" />
+                <el-button
+                  class="gallery-editor__remove"
+                  type="danger"
+                  size="small"
+                  circle
+                  :icon="Close"
+                  title="移除这张图"
+                  @click="removeGalleryImage(index)"
+                />
+              </div>
+              <div class="gallery-editor__actions">
+                <el-button
+                  link
+                  type="primary"
+                  :icon="ArrowLeft"
+                  title="前移"
+                  :disabled="index === 0"
+                  @click="moveGalleryImage(index, -1)"
+                />
+                <span class="gallery-editor__index">{{ index + 1 }}</span>
+                <el-button
+                  link
+                  type="primary"
+                  :icon="ArrowRight"
+                  title="后移"
+                  :disabled="index === form.images.length - 1"
+                  @click="moveGalleryImage(index, 1)"
+                />
+              </div>
+            </div>
+            <el-upload
+              class="gallery-editor__upload"
+              :show-file-list="false"
+              :auto-upload="false"
+              multiple
+              :accept="ACCEPT_IMAGE_TYPES"
+              :disabled="galleryUploading"
+              :on-change="onGalleryChange"
+            >
+              <div v-loading="galleryUploading" class="gallery-editor__add">
+                <el-icon class="image-picker__icon"><Plus /></el-icon>
+                <span class="image-picker__tip">添加图片</span>
+              </div>
+            </el-upload>
+          </div>
+          <div class="gallery-editor__hint">
+            按顺序展示，第一张为详情页图集首图；不添加时详情页退回主图。单张不超过
+            {{ MAX_IMAGE_SIZE_MB }}MB。
+          </div>
+        </el-form-item>
         <el-form-item label="展示价格">
           <el-input-number v-model="form.price" :min="0" :precision="2" :step="1" />
         </el-form-item>
@@ -404,5 +525,71 @@ function categoryName(id: number): string {
   max-width: 400px;
   word-break: break-all;
   color: #606266;
+}
+
+/* ---- 图集编辑器 ---- */
+.gallery-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+}
+.gallery-editor__item {
+  width: 88px;
+}
+.gallery-editor__thumb {
+  position: relative;
+  width: 88px;
+  height: 88px;
+}
+.gallery-editor__img {
+  width: 100%;
+  height: 100%;
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+}
+.gallery-editor__remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+}
+.gallery-editor__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 24px;
+}
+/* Element Plus 默认给相邻按钮加 12px 左间距，会挤坏 88px 的三栏布局 */
+.gallery-editor__actions :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+.gallery-editor__index {
+  font-size: 12px;
+  color: #909399;
+}
+.gallery-editor__add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 88px;
+  height: 88px;
+  color: #8c939d;
+  background: #fafafa;
+  border: 1px dashed #d9d9d9;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.gallery-editor__add:hover {
+  border-color: var(--el-color-primary);
+}
+.gallery-editor__hint {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: #909399;
 }
 </style>
