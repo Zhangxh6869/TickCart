@@ -65,7 +65,7 @@ const emptyForm = (): ProductPayload => ({
   price: 0,
   status: 0,
   isSeckill: 0,
-  skus: [{ specName: '', specValue: '', price: 0, stock: 0 }],
+  skus: [{ specName: '', specValue: '', skuImage: '', price: 0, stock: 0 }],
   images: [],
 })
 
@@ -104,7 +104,7 @@ async function openEdit(row: ProductListItem) {
 }
 
 function addSku() {
-  form.value.skus?.push({ specName: '', specValue: '', price: 0, stock: 0 })
+  form.value.skus?.push({ specName: '', specValue: '', skuImage: '', price: 0, stock: 0 })
 }
 
 function removeSku(index: number) {
@@ -199,6 +199,42 @@ function moveGalleryImage(index: number, offset: number) {
   const current = images[index]
   images[index] = images[target]
   images[target] = current
+}
+
+/** SKU 图片上传中状态，按行下标跟踪（一行只会有一张图在传）。 */
+const skuUploading = ref<Record<number, boolean>>({})
+
+/**
+ * 给某一行 SKU 上传图片。
+ *
+ * <p>先按对象引用抓住这一行的 sku 再 await：上传期间用户若删掉/移动了行，
+ * 结果仍写回原来那一行，不会因为下标漂移而串到别的规格上。</p>
+ */
+async function onSkuImageChange(index: number, uploadFile: UploadFile) {
+  const raw = uploadFile.raw
+  if (!raw) return
+  const error = validateImage(raw)
+  if (error) {
+    ElMessage.warning(error)
+    return
+  }
+  const sku = form.value.skus?.[index]
+  if (!sku) return
+  skuUploading.value = { ...skuUploading.value, [index]: true }
+  try {
+    sku.skuImage = await uploadImage(raw)
+  } finally {
+    const next = { ...skuUploading.value }
+    delete next[index]
+    skuUploading.value = next
+  }
+}
+
+function clearSkuImage(index: number) {
+  const sku = form.value.skus?.[index]
+  if (sku) {
+    sku.skuImage = ''
+  }
 }
 
 async function onSubmit() {
@@ -438,10 +474,50 @@ function categoryName(id: number): string {
         <el-form-item label="SKU">
           <div class="sku-editor">
             <div v-for="(sku, index) in form.skus" :key="index" class="sku-editor__row">
-              <el-input v-model="sku.specName" placeholder="规格名" style="width: 110px" />
-              <el-input v-model="sku.specValue" placeholder="规格值" style="width: 140px" />
-              <el-input-number v-model="sku.price" :min="0" :precision="2" placeholder="价格" />
-              <el-input-number v-model="sku.stock" :min="0" placeholder="库存" />
+              <div class="sku-editor__image-wrap">
+                <el-upload
+                  class="sku-editor__upload"
+                  :show-file-list="false"
+                  :auto-upload="false"
+                  :accept="ACCEPT_IMAGE_TYPES"
+                  :disabled="!!skuUploading[index]"
+                  :on-change="(file: UploadFile) => onSkuImageChange(index, file)"
+                >
+                  <div v-loading="!!skuUploading[index]" class="sku-editor__image">
+                    <img
+                      v-if="sku.skuImage"
+                      :src="sku.skuImage"
+                      alt=""
+                      class="sku-editor__image-img"
+                    />
+                    <el-icon v-else class="sku-editor__image-icon"><Plus /></el-icon>
+                  </div>
+                </el-upload>
+                <button
+                  v-if="sku.skuImage"
+                  class="sku-editor__image-clear"
+                  type="button"
+                  title="清除图片"
+                  @click="clearSkuImage(index)"
+                >
+                  <el-icon><Close /></el-icon>
+                </button>
+              </div>
+              <el-input v-model="sku.specName" placeholder="规格名" style="width: 100px" />
+              <el-input v-model="sku.specValue" placeholder="规格值" style="width: 130px" />
+              <el-input-number
+                v-model="sku.price"
+                :min="0"
+                :precision="2"
+                placeholder="价格"
+                style="width: 110px"
+              />
+              <el-input-number
+                v-model="sku.stock"
+                :min="0"
+                placeholder="库存"
+                style="width: 100px"
+              />
               <el-button link type="danger" @click="removeSku(index)">删除</el-button>
             </div>
             <el-button link type="primary" @click="addSku">+ 添加 SKU</el-button>
@@ -470,9 +546,65 @@ function categoryName(id: number): string {
 }
 .sku-editor__row {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 8px;
   align-items: center;
+}
+
+/* ---- SKU 图片选择器 ---- */
+.sku-editor__image-wrap {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 40px;
+}
+.sku-editor__image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  color: #8c939d;
+  background: #fafafa;
+  border: 1px dashed #d9d9d9;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.sku-editor__image:hover {
+  border-color: var(--el-color-primary);
+}
+.sku-editor__image-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sku-editor__image-icon {
+  font-size: 16px;
+}
+.sku-editor__image-clear {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  color: #fff;
+  background: var(--el-color-danger);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.sku-editor__image-clear :deep(svg) {
+  width: 10px;
+  height: 10px;
+}
+.sku-editor__image-clear:hover {
+  background: var(--el-color-danger-dark-2, #c45656);
 }
 
 /* ---- 主图选择器 ---- */
