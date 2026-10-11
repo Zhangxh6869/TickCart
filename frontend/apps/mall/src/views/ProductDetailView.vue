@@ -34,11 +34,21 @@ const titleRef = ref<HTMLElement | null>(null)
 const galleryRef = ref<HTMLElement | null>(null)
 const descRef = ref<HTMLElement | null>(null)
 
-/** 图集：以图集表为准，为空时退回主图，保证主图区始终有内容 */
+/**
+ * 主图区展示的图片列表。
+ *
+ * <p>以图集表为准，为空时退回主图，保证主图区始终有内容。</p>
+ *
+ * <p>选中规格后，该规格自己的图片（{@code skuImage}）插到最前面：同一件商品的不同规格
+ * 外观往往不同（颜色/容量），主图跟着规格走才符合预期；已经在图集里就不重复插，
+ * 只把页码切过去。规格没配图时列表保持不变，也就不会打断用户正在看的那一页。</p>
+ */
 const gallery = computed<string[]>(() => {
   const urls = (detail.value?.images ?? []).map((image) => image.url).filter(Boolean)
-  if (urls.length) return urls
-  return detail.value?.mainImage ? [detail.value.mainImage] : []
+  const base = urls.length ? urls : detail.value?.mainImage ? [detail.value.mainImage] : []
+  const skuImage = selectedSku.value?.skuImage
+  if (!skuImage) return base
+  return base.includes(skuImage) ? base : [skuImage, ...base]
 })
 
 const currentPrice = computed(() => selectedSku.value?.price ?? detail.value?.price ?? 0)
@@ -91,10 +101,16 @@ function measureTitle() {
   titleOverflow.value = el.scrollHeight > el.clientHeight + 1
 }
 
-/** 选中规格（无货不可选） */
+/** 选中规格（无货不可选）；选中后把主图区切到该规格自己的图 */
 function selectSku(sku: ProductSku) {
   if (sku.stock <= 0) return
   selectedSku.value = sku
+  if (!sku.skuImage) return
+  // gallery 是 computed：要等它按新的 selectedSku 重算完，才能拿到 SKU 图的新下标
+  nextTick(() => {
+    const index = gallery.value.indexOf(sku.skuImage as string)
+    if (index >= 0) activeImage.value = index
+  })
 }
 
 /** 顶部快捷行：滚动到对应区块 */
@@ -198,9 +214,9 @@ async function onBuyNow() {
       <div ref="galleryRef" class="gallery">
         <van-swipe
           v-if="gallery.length"
+          v-model:active="activeImage"
           class="gallery__swipe"
           :show-indicators="gallery.length > 1"
-          @change="activeImage = $event"
         >
           <van-swipe-item v-for="(url, index) in gallery" :key="index">
             <img :src="url" :alt="detail.name" />
@@ -330,6 +346,14 @@ async function onBuyNow() {
               type="button"
               @click="selectSku(sku)"
             >
+              <span class="sku-popup__thumb">
+                <img
+                  v-if="sku.skuImage || detail.mainImage"
+                  :src="(sku.skuImage || detail.mainImage) as string"
+                  alt=""
+                />
+                <van-icon v-else name="photo-o" size="18" />
+              </span>
               <span class="sku-popup__name">
                 {{ sku.specName ? `${sku.specName} ` : '' }}{{ sku.specValue }}
               </span>
@@ -691,6 +715,23 @@ async function onBuyNow() {
 .sku-popup__item.is-disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+.sku-popup__thumb {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  overflow: hidden;
+  color: #c8c9cc;
+  background: #f2f3f5;
+  border-radius: 4px;
+}
+.sku-popup__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .sku-popup__name {
   flex: 1;
