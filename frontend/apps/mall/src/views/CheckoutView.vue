@@ -8,7 +8,7 @@ import { fetchAddresses } from '@/api/address'
 import { createBuyNowOrder, createOrder } from '@/api/order'
 import { fetchProductDetail } from '@/api/product'
 import { useCartStore } from '@/stores/cart'
-import { parseBuyNowSelection } from '@/utils/checkout-route'
+import { buildOrderOriginQuery, parseBuyNowSelection } from '@/utils/checkout-route'
 
 const route = useRoute()
 const router = useRouter()
@@ -200,7 +200,12 @@ async function onSubmit() {
     if (!buyNow) await cartStore.refreshCount()
     // 本页被 KeepAlive 缓存，不清空的话下次进结算页还会带着上一单的备注
     remark.value = ''
-    router.replace({ name: 'order-detail', params: { orderNo: result.orderNo } })
+    router.replace({
+      name: 'order-detail',
+      params: { orderNo: result.orderNo },
+      // 带上来源：订单详情页的「返回」据此回首页（立即购买）或回购物车（购物车结算）
+      query: buildOrderOriginQuery(Boolean(buyNow)),
+    })
   } catch {
     // 库存不足等错误已由拦截器提示；重新拉一次以反映最新库存
     if (buyNow) await prepare(true)

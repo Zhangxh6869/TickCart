@@ -5,6 +5,7 @@ import { showConfirmDialog, showToast } from 'vant'
 import type { OrderDetail } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import { cancelOrder, confirmOrder, fetchOrderDetail } from '@/api/order'
+import { ORDER_ORIGIN_BUY_NOW, ORDER_ORIGIN_CART, parseOrderOrigin } from '@/utils/checkout-route'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,6 +34,9 @@ const statusTips: Record<number, string> = {
 const tip = computed(() => (order.value ? statusTips[order.value.status] ?? '' : ''))
 const canCancel = computed(() => order.value?.status === 0)
 const canConfirm = computed(() => order.value?.status === 2)
+
+/** 下单来源（结算页提交时写在 URL 上）；从订单列表等入口进来时为 null */
+const orderOrigin = computed(() => parseOrderOrigin(route.query))
 
 async function load() {
   loading.value = true
@@ -95,6 +99,25 @@ function onPay() {
   router.push({ name: 'pay', params: { orderNo } })
 }
 
+/**
+ * 返回键。
+ *
+ * <p>从结算页下单进来的，返回目标是**下单来源**而不是上一页 —— 下单流程已经结束，
+ * 退回商品详情或结算页都没有意义：立即购买来源回首页，购物车结算来源回购物车。
+ * 其它入口（订单列表等）没有来源标记，走正常历史回退。</p>
+ *
+ * <p>用 replace 不用 push：不该再退回一个刚下完单的详情页。</p>
+ */
+function onBack() {
+  if (orderOrigin.value === ORDER_ORIGIN_CART) {
+    router.replace({ name: 'cart' })
+  } else if (orderOrigin.value === ORDER_ORIGIN_BUY_NOW) {
+    router.replace({ name: 'home' })
+  } else {
+    router.back()
+  }
+}
+
 onMounted(load)
 onBeforeUnmount(() => {
   if (redirectTimer) {
@@ -106,7 +129,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="detail">
-    <van-nav-bar title="订单详情" left-arrow @click-left="router.back()" />
+    <van-nav-bar title="订单详情" left-arrow @click-left="onBack" />
 
     <template v-if="order">
       <div class="banner">
