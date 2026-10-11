@@ -155,4 +155,12 @@ async function onLogout() {
   --van-button-danger-background: rgb(107, 163, 200);
   --van-button-danger-border-color: rgb(107, 163, 200);
 }
+/* 文字也要与「结算」按钮一致：那一个（.van-submit-bar__button）带
+   `font-weight: var(--van-font-bold)`，量出来是 600；普通 van-button 默认只有 400。
+   其余文字属性（字体栈 / 字号 14px / 行高 16.8px / 颜色白 / 对齐居中）两边本来就相同，
+   实测逐项比对过，只有这一项有差，所以只补这一条。
+   用 Vant 自己的变量而不是写死 600 —— 以后改 --van-font-bold 两处会一起变。 */
+.member__logout :deep(.van-button) {
+  font-weight: var(--van-font-bold, 600);
+}
 </style>
