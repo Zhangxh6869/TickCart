@@ -388,6 +388,22 @@ onBeforeUnmount(() => {
   --color-brand: rgb(107, 163, 200);
   /* 搜索图标与「搜索商品」占位文字共用的颜色 */
   --color-search-icon: #515151;
+
+  /* ── 根节点必须「不透明 + 至少一屏高」（★ 别删，与 .cart / .member 同一条约定）──
+     tab 互切时**旧页是 fixed 留在视口里让位**的（见 App.vue 的 .page-slide-tab-*），
+     所以进入页必须自己把视口盖住，否则旧页会从它下面透出来。
+
+     首页原先漏了这两条：根节点既没有背景色，高度也随内容走。它只靠 .home__sticky 与
+     .section 各自涂白，而这两块之间隔着 12px（.section 的 margin-top），
+     .section 左右/下方也各留 12px 外边距 —— 这些「没被涂到」的缝里，旧页就露出来了。
+     实测（把 tab 过渡放慢到 4s 后截图）：由购物车 / 我的切回首页时，搜索栏与分类栏下方
+     那条 12px 横带里能看到购物车的内容（空态的蓝色按钮、浅灰底），就是这里漏出来的。
+
+     高度按 tabbar 占位算：.layout 是 min-height: 100vh + padding-bottom: 50px，
+     box-sizing: border-box 下内容盒正好 100vh - 50px，剩下的 50px 由不透明的 tabbar 补。
+     （写成 min-height: 100vh 会凭空多出 50px 滚动条，别照抄 .cart 的历史写法。） */
+  min-height: calc(100vh - 50px);
+  background: var(--van-background, #fff);
 }
 /* 吸顶区：搜索栏 + 分类栏作为整体钉在页面顶部，纵向滚动时保持不动。
    背景必须是不透明实底，否则下方商品会从吸顶区后面透出来；
