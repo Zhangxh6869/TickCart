@@ -210,6 +210,10 @@ export interface AdminOrderSummary extends OrderSummary {
   userId: number
   receiver: string
   receiverPhone: string
+  /** 最新一笔支付流水号；用户尚未发起过支付时为 null */
+  payNo?: string | null
+  /** 支付渠道 0模拟 1微信 2支付宝；无支付流水时为 null */
+  channel?: number | null
 }
 
 /** 订单详情。 */
@@ -297,7 +301,37 @@ export interface PaymentResult {
   orderNo: string
   amount: number
   channel: number
-  /** 0待支付 1成功 2失败 */
+  /** 0待支付 1成功 2失败 3已关闭；发起支付时恒为 0 */
   status: number
   payTime?: string | null
 }
+
+/** 支付流水状态码：0待支付 1成功 2失败 3已关闭 */
+export type PaymentStatusValue = 0 | 1 | 2 | 3
+
+/**
+ * 支付状态查询结果（收银台轮询用）。
+ *
+ * 同时带出订单状态与最新一笔流水状态，前端据此判断结果：
+ * orderStatus=1 即成功；orderStatus=0 且 payStatus=0 表示仍在支付中；
+ * payStatus=2/3 表示失败/取消，订单仍是待付款，可以重新发起支付。
+ */
+export interface PaymentStatusResult {
+  orderNo: string
+  orderStatus: OrderStatusValue
+  orderStatusLabel: string
+  /** 尚未发起过支付时为 null */
+  payNo?: string | null
+  payStatus?: PaymentStatusValue | null
+  payStatusLabel?: string | null
+  channel?: number | null
+  payTime?: string | null
+}
+
+/**
+ * 模拟渠道提交的支付结果。
+ *
+ * 真实渠道只回调「成功」，失败与取消由商户主动查单得到；模拟环境为了让前端
+ * 被迫处理「结果不确定」的分支，把三种结果都做成可主动触发的。
+ */
+export type MockChannelResult = 'success' | 'fail' | 'cancel'

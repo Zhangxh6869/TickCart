@@ -215,6 +215,14 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '收银台', requiresAuth: true, depth: 3 },
   },
   {
+    // 模拟第三方渠道收银台（微信 / 支付宝）。depth 比收银台深一层，
+    // 因此进入是前进、返回是后退，不需要额外配对规则。
+    path: '/pay-channel/:payNo',
+    name: 'pay-channel',
+    component: () => import('@/views/PayChannelView.vue'),
+    meta: { title: '支付', requiresAuth: true, depth: 4 },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('@/views/NotFoundView.vue'),
