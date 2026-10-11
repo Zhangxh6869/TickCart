@@ -13,8 +13,8 @@ import { useUserStore } from '@/stores/user'
  *   page-slide-right     后退：当前页向右滑出
  *   page-slide-tab-left  同级 tab 往右切（首页→购物车→我的）：新页从右侧滑入
  *   page-slide-tab-right 同级 tab 往左切（我的→购物车→首页）：新页从左侧滑入
- *   page-slide-up        进入登录页：全屏层从视口下方滑上来盖住当前页
- *   page-slide-down      离开登录页：全屏层向下滑走，露出下面已就位的页面
+ *   page-slide-up        进入全屏层（登录页、从确认订单进收货地址）：从视口下方滑上来盖住当前页
+ *   page-slide-down      离开全屏层（登录页、收货地址回确认订单）：向下滑走，露出下面已就位的页面
  *   ''                   不做动画（其余同级切换）
  * 具体样式见 App.vue 的全局 <style>。
  */
@@ -102,6 +102,14 @@ function resolvePageTransition(
   // 「从购物车进是右滑、从详情页进是硬切」的割裂感 —— 这正是本次要修的问题。
   if (toName === 'login') return 'page-slide-up'
   if (fromName === 'login') return 'page-slide-down'
+
+  // 收货地址页从「确认订单」进入时，同样按全屏层处理，复用上面那套 up / down 过渡。
+  // 原因：结算页里选地址本来就是一个从底部弹起的弹层，「管理收货地址」再让整页从底部
+  // 升起来，是同一个动作的延续，比左右硬切自然。
+  // **必须精确配对，不能按 depth 一刀切** —— 地址页还有「我的」→ 收货地址这个入口，
+  // 那里应该是普通的右滑前进（depth 1 → 2），不能被这条规则改掉。
+  if (toName === 'address' && fromName === 'checkout') return 'page-slide-up'
+  if (toName === 'checkout' && fromName === 'address') return 'page-slide-down'
 
   const toDepth = depthOf(to)
   const fromDepth = depthOf(from)

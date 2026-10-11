@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onActivated, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import type { UserAddress } from '@tickcart/shared-types'
@@ -24,7 +24,29 @@ const items = computed(() => cartStore.checkedItems)
 const totalAmount = computed(() => cartStore.checkedAmount)
 const totalQuantity = computed(() => items.value.reduce((sum, item) => sum + item.quantity, 0))
 
-onMounted(async () => {
+/**
+ * 本页被 KeepAlive 缓存（见 App.vue 的 CACHED_VIEWS），从收货地址页返回时**不会重新挂载**，
+ * 所以数据同步不能只写在 onMounted 里。
+ * 首次挂载走 onMounted；之后每次重新进入走 onActivated。
+ * firstActivated 用来跳过紧跟 onMounted 的那一次 activated（Vue 首次挂载会连着触发两个钩子），
+ * 不跳过会白白多请求一轮。
+ */
+let firstActivated = true
+onMounted(() => void prepare())
+onActivated(() => {
+  if (firstActivated) {
+    firstActivated = false
+    return
+  }
+  // 重新进入时保留用户已经选中的地址，别被「默认地址」覆盖回初始值
+  void prepare(true)
+})
+
+/**
+ * 同步结算页需要的全部数据。
+ * @param keepSelection 是否保留当前已选地址（被缓存后重新进入时为 true）
+ */
+async function prepare(keepSelection = false) {
   await cartStore.load()
   // 没有可结算的商品时退回购物车，避免停留在空结算页
   if (cartStore.checkedItems.length === 0) {
@@ -32,13 +54,20 @@ onMounted(async () => {
     router.replace({ name: 'cart' })
     return
   }
-  await loadAddresses()
-})
+  await loadAddresses(keepSelection ? selectedAddressId.value : null)
+}
 
-async function loadAddresses() {
+/**
+ * 拉取地址列表并决定选中项。
+ * @param preferId 希望保留的地址 ID（可能已在别处被删除）
+ */
+async function loadAddresses(preferId: number | null = null) {
   try {
     addresses.value = await fetchAddresses()
-    const preferred = addresses.value.find((item) => item.isDefault === 1) ?? addresses.value[0]
+    // 优先保留用户已选的地址；它已被删除时回落到默认地址，再否则取第一条
+    const kept = preferId === null ? undefined : addresses.value.find((item) => item.id === preferId)
+    const preferred =
+      kept ?? addresses.value.find((item) => item.isDefault === 1) ?? addresses.value[0]
     selectedAddressId.value = preferred ? preferred.id : null
   } catch {
     // 错误提示由请求拦截器统一处理
@@ -72,6 +101,8 @@ async function onSubmit() {
     })
     showToast('下单成功')
     await cartStore.refreshCount()
+    // 本页被 KeepAlive 缓存，不清空的话下次进结算页还会带着上一单的备注
+    remark.value = ''
     router.replace({ name: 'order-detail', params: { orderNo: result.orderNo } })
   } catch {
     // 库存不足等错误已由拦截器提示，刷新购物车以反映最新库存

@@ -7,8 +7,13 @@ import { pageTransition } from '@/router'
  * 需要缓存的页面，按组件名匹配（<script setup> 由文件名推断组件名）。
  * 底部 tabbar 的三个页面全部缓存：切走再切回不再重新请求、滚动位置也还在。
  * 购物车的数据新鲜度由页面自身的 onActivated 静默刷新兜底（见 CartView）。
+ *
+ * CheckoutView（确认订单）也在这里：它跟收货地址页之间是「底部上滑层」关系，
+ * 不缓存的话每次从地址页返回都要重新挂载并重拉购物车 + 地址列表，
+ * 上滑露出的那一瞬间下面还是空的，比硬切更明显。
+ * 缓存后返回时商品与地址立刻就在，再由它自己的 onActivated 静默刷新（见 CheckoutView）。
  */
-const CACHED_VIEWS = ['HomeView', 'CartView', 'MemberView']
+const CACHED_VIEWS = ['HomeView', 'CartView', 'MemberView', 'CheckoutView']
 </script>
 
 <template>
@@ -201,9 +206,10 @@ body {
    有可能影响首页 .home__sticky 的吸顶），而 fixed 元素不参与文档滚动尺寸，
    过渡那 300ms 里不会出现「能上下滚」的穿帮。
 
-   【⚠ 选择器必须绑定 .login】
-   这两组类名描述的是「登录页这一层的出现 / 消失」，只有登录页会用到
-   （router 里只有 to/from 是 login 时才返回 up/down）。但**必须把 .login 写进选择器**：
+   【⚠ 选择器必须绑定页面根类名 .login / .address】
+   这两组类名描述的是「全屏层的出现 / 消失」，只有登录页和收货地址页会用到
+   （router 里 to/from 是 login，或 checkout ↔ address 时才返回 up / down）。
+   但**必须把页面根类名写进选择器**：
    Vue 在 KeepAlive 复用被缓存的页面时，会把**上一次过渡残留的 hooks 一起复用**，
    别的页面因此也会被挂上 page-slide-up-enter-*。
    实测（拦截 pageTransition 写入 + MutationObserver 记录类名变更时刻，同一份数据里 pt 全程为
@@ -212,11 +218,12 @@ body {
      我的   → 登录 → 回我的     进入的 .member 拿到 page-slide-up-enter-*    ✗ 上一次过渡的残留
    不绑定时，后者会被 fixed + top: 100% 拉出文档流，和正在下移的登录页叠在一起
    （.member 自身没有背景色，过渡期间会直接透出登录页）。
-   绑定后：只有登录页会上滑 / 下滑，其它页面不管被挂上什么类名都留在文档流里当 static。
+   绑定后：只有登录页 / 收货地址页会上滑 / 下滑，其它页面不管被挂上什么类名都留在文档流里当 static。
    再加上 data-page-dir 门禁：`up` / `down` 之外的导航里，这两组规则一律不生效，
    被 KeepAlive 残留污染的元素也不会被 fixed 拉出文档流。 */
-:root[data-page-dir='up'] .login.page-slide-up-enter-active,
-:root[data-page-dir='down'] .login.page-slide-down-leave-active {
+/* 进入页：从视口下方滑到 top: 0。
+   进入页是刚挂载的新页面，滚动位置必然是 0，所以不需要 --page-scroll-y 偏移。 */
+:root[data-page-dir='up'] :is(.login, .address).page-slide-up-enter-active {
   position: fixed;
   top: 0;
   left: 0;
@@ -224,9 +231,34 @@ body {
   z-index: 10;
   transition: top 300ms cubic-bezier(0.32, 0.72, 0, 1);
 }
-:root[data-page-dir='up'] .login.page-slide-up-enter-from,
-:root[data-page-dir='down'] .login.page-slide-down-leave-to {
+/* 离开页：可能已经滚过一段（收货地址列表长的时候就会），
+   一脱离文档流它就会跳回视口顶部，所以起点要先按 --page-scroll-y 钉回原来的内容位置；
+   终点同理减去这段偏移，保证「向下移出」的距离正好是一个视口高。
+   （登录页内容永远一屏，--page-scroll-y 恒为 0，这两处 calc 退化成原来的 top: 0 / top: 100%） */
+:root[data-page-dir='down'] :is(.login, .address).page-slide-down-leave-active {
+  position: fixed;
+  top: calc(-1 * var(--page-scroll-y, 0px));
+  left: 0;
+  width: 100%;
+  z-index: 10;
+  transition: top 300ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+:root[data-page-dir='up'] :is(.login, .address).page-slide-up-enter-from {
   top: 100%;
+}
+:root[data-page-dir='down'] :is(.login, .address).page-slide-down-leave-to {
+  top: calc(100% - var(--page-scroll-y, 0px));
+}
+
+/* 收货地址页自带一条 position: fixed 的底部按钮条（「新增收货地址」）。
+   fixed 元素的包含块是**视口**，不会跟着祖先一起位移 —— 页面整体上滑 / 下滑时，
+   按钮条会死死钉在视口底部不动，看起来像被"甩"在原地。
+   （登录页没有任何 fixed 后代，所以这套 up / down 过渡在只服务登录页时从没暴露过这个问题。）
+   过渡期间把它改成 absolute：包含块变成同样在动的 .address，它就会跟着页面一起走，
+   过渡结束类名移除后自动变回 fixed。 */
+:root[data-page-dir='up'] .address.page-slide-up-enter-active .address__footer,
+:root[data-page-dir='down'] .address.page-slide-down-leave-active .address__footer {
+  position: absolute;
 }
 /* 旧页：钉回它原来的文档位置，并且**必须保持 fixed、不能留在文档流里**。
    实测（逐帧量 documentElement.scrollHeight）：留在流里时 enter 比 leave 早结束约一帧，
@@ -242,9 +274,15 @@ body {
 }
 
 /* 用户开启「减弱动态效果」时，过渡时长压到接近瞬时，只保留状态切换。
-   门禁写法必须与上面的规则**同权重或更高**（`:root[data-page-dir]` + `:is(...)` = 0,3,0，
-   与 `:root[data-page-dir='x'] .cls` 相同），否则会被上面那条 transition 覆盖掉。 */
+   权重必须 ≥ 上面的主规则，否则会被它们的 transition 简写覆盖掉。
+   注意两处主规则的权重并不一样（原注释以为都是 0,3,0，实际不是）：
+     `.page-slide-left-enter-active` 这类「单类」选择器 = 0,3,0，与下面 :is(...) 那条同权重，靠声明顺序胜出；
+     `:is(.login, .address).page-slide-up-enter-active` 这类「双类」= 0,4,0，**压不住**，
+     所以必须单独用同等权重再写一遍。顺带修掉了登录页减弱动效一直只生效一半的问题
+     （旧页淡出被压到 1ms，新页上滑仍是 300ms）。 */
 @media (prefers-reduced-motion: reduce) {
+  :root[data-page-dir] :is(.login, .address).page-slide-up-enter-active,
+  :root[data-page-dir] :is(.login, .address).page-slide-down-leave-active,
   :root[data-page-dir] :is(
       .page-slide-left-enter-active,
       .page-slide-left-leave-active,
