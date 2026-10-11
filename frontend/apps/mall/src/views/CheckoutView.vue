@@ -194,7 +194,8 @@ async function onSubmit() {
             remark: trimmedRemark,
           })
         : await createOrder({ addressId, remark: trimmedRemark })
-    showToast('下单成功')
+    // 下单成功只作轻提示：默认 2s 偏长，会把刚跳过去的订单详情挡在上面
+    showToast({ message: '下单成功', duration: 1200 })
     // 立即购买不经过购物车，购物车角标本来就没变，不需要刷新
     if (!buyNow) await cartStore.refreshCount()
     // 本页被 KeepAlive 缓存，不清空的话下次进结算页还会带着上一单的备注

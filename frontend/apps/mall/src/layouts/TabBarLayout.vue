@@ -49,6 +49,9 @@ const indicatorLeft = computed(() => `calc(${activeIndex.value} * 100% / 3 + 100
  *                     它们都自带 van-nav-bar 返回，属于从「我的」往下的独立层级，
  *                     继续挂着底部导航会让人以为还在 tab 主框架里，
  *                     误点 tabbar 就直接跳走、把当前浏览位置丢了。
+ *   order-detail   —— 订单详情。下单后由结算页直接进入，是这笔交易的终点页；
+ *                     页内自带底部操作条（取消订单 / 去支付 / 确认收货），
+ *                     与 tabbar 同贴视口底会互相压叠，且此时也不该让人误切 tab。
  *   pay-channel    —— 模拟第三方渠道收银台，语义上已经"跳出商城"，
  *                     留着商城底部导航会与渠道界面冲突；它自带固定底部按钮区。
  * 顺带 .layout--tabbar 的 50px 底部内边距也会一起去掉，登录页正好占满一屏。
@@ -60,6 +63,7 @@ const FULLSCREEN_ROUTES = [
   'orders',
   'favorites',
   'profile',
+  'order-detail',
   'pay-channel',
 ]
 const showTabbar = computed(() => !FULLSCREEN_ROUTES.includes(route.name as string))

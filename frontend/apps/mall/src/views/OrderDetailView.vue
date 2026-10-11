@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
 import type { OrderDetail } from '@tickcart/shared-types'
@@ -13,6 +13,12 @@ const orderNo = String(route.params.orderNo)
 const order = ref<OrderDetail | null>(null)
 const loading = ref(true)
 const acting = ref(false)
+
+/** 取消成功后「回首页」的延时句柄：组件卸载时要清掉，避免页面已销毁还在跳转 */
+let redirectTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 取消订单后停留多久再回首页（毫秒）：让用户看清「已取消」再离开 */
+const CANCEL_REDIRECT_DELAY_MS = 1500
 
 /** 状态说明文案 */
 const statusTips: Record<number, string> = {
@@ -52,8 +58,14 @@ async function onCancel() {
   acting.value = true
   try {
     await cancelOrder(orderNo)
-    showToast('订单已取消')
+    showToast({ message: '订单已取消', duration: CANCEL_REDIRECT_DELAY_MS })
     await load()
+    // 取消后这笔交易就结束了，没有别的可做：稍作停留让用户看清结果，再回首页。
+    // 用 replace 而不是 push —— 不该再退回一个已取消订单的详情页。
+    redirectTimer = setTimeout(() => {
+      redirectTimer = null
+      router.replace({ name: 'home' })
+    }, CANCEL_REDIRECT_DELAY_MS)
   } catch {
     // 错误提示由请求拦截器统一处理
   } finally {
@@ -84,6 +96,12 @@ function onPay() {
 }
 
 onMounted(load)
+onBeforeUnmount(() => {
+  if (redirectTimer) {
+    clearTimeout(redirectTimer)
+    redirectTimer = null
+  }
+})
 </script>
 
 <template>
