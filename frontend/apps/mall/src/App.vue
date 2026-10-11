@@ -45,6 +45,11 @@ const CACHED_VIEWS = ['HomeView', 'CartView', 'MemberView', 'CheckoutView']
      注意：与首页搜索框描边用的 --color-brand（rgb(107,163,200)）目前**不是同一个色值**，
      两处是独立维护的，别默认它们会一起变。 */
   --van-tabbar-item-active-color: rgb(59, 130, 246);
+  /* 全屏层（登录页 / 收货地址页）上下滑动的时长。原为 300ms —— 整屏 844px 在 300ms 内
+     滑完约 2.8px/ms，观感偏"赶"，放慢到 450ms 后从容很多。
+     ★ 下面三处（进入页上滑 / 离开页下滑 / 被盖住的旧页淡出）必须用同一个值：
+       新页滑 450ms 而旧页 300ms 就淡完的话，后半程会直接透出底下的空白。 */
+  --page-layer-duration: 450ms;
 }
 
 body {
@@ -198,13 +203,13 @@ body {
    旧页全程不动、只是被盖住（或露出来），所以**不给它任何位移**，
    但 `transition` 必须声明 —— Vue 的 <Transition> 靠 computedStyle 的 transition-duration
    判断何时移除离开元素，不声明会被当成「无过渡」立刻删掉，新页就没有东西可盖了。
-   （属性没真正变化时不会有 transitionend，Vue 内部有 timeout+1 的兜底，实测 300ms 后移除。）
+   （属性没真正变化时不会有 transitionend，Vue 内部有 timeout+1 的兜底，实测 450ms 后移除。）
 
    为什么新页用 fixed 而不是「relative + top」：
    relative 的 top: 100% 会把文档撑出额外一屏的纵向可滚动区域。横向那套有
    .layout__content { overflow-x: clip } 收口，纵向没有对应手段（给祖先加 overflow-y: clip
    有可能影响首页 .home__sticky 的吸顶），而 fixed 元素不参与文档滚动尺寸，
-   过渡那 300ms 里不会出现「能上下滚」的穿帮。
+   过渡那 450ms 里不会出现「能上下滚」的穿帮。
 
    【⚠ 选择器必须绑定页面根类名 .login / .address】
    这两组类名描述的是「全屏层的出现 / 消失」，只有登录页和收货地址页会用到
@@ -229,7 +234,7 @@ body {
   left: 0;
   width: 100%;
   z-index: 10;
-  transition: top 300ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: top var(--page-layer-duration) cubic-bezier(0.32, 0.72, 0, 1);
 }
 /* 离开页：可能已经滚过一段（收货地址列表长的时候就会），
    一脱离文档流它就会跳回视口顶部，所以起点要先按 --page-scroll-y 钉回原来的内容位置；
@@ -241,7 +246,7 @@ body {
   left: 0;
   width: 100%;
   z-index: 10;
-  transition: top 300ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: top var(--page-layer-duration) cubic-bezier(0.32, 0.72, 0, 1);
 }
 :root[data-page-dir='up'] :is(.login, .address).page-slide-up-enter-from {
   top: 100%;
@@ -270,7 +275,7 @@ body {
   left: 0;
   width: 100%;
   z-index: 5;
-  transition: opacity 300ms linear;
+  transition: opacity var(--page-layer-duration) linear;
 }
 
 /* 用户开启「减弱动态效果」时，过渡时长压到接近瞬时，只保留状态切换。
@@ -279,7 +284,7 @@ body {
      `.page-slide-left-enter-active` 这类「单类」选择器 = 0,3,0，与下面 :is(...) 那条同权重，靠声明顺序胜出；
      `:is(.login, .address).page-slide-up-enter-active` 这类「双类」= 0,4,0，**压不住**，
      所以必须单独用同等权重再写一遍。顺带修掉了登录页减弱动效一直只生效一半的问题
-     （旧页淡出被压到 1ms，新页上滑仍是 300ms）。 */
+     （旧页淡出被压到 1ms，新页上滑仍是完整时长）。 */
 @media (prefers-reduced-motion: reduce) {
   :root[data-page-dir] :is(.login, .address).page-slide-up-enter-active,
   :root[data-page-dir] :is(.login, .address).page-slide-down-leave-active,
