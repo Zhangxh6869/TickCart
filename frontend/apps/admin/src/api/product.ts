@@ -11,6 +11,13 @@ export interface ProductPayload {
   price: number
   status?: number
   isSeckill?: number
+  /**
+   * 累计销量。
+   *
+   * <p>新增时是初始值（不传后端按 0）；编辑时是绝对值覆盖，**不传则保持原值**。
+   * 成交后由后端在支付成功时按购买数量自动累加，这里只是人工校正入口。</p>
+   */
+  sales?: number
   skus?: Array<{
     id?: number
     specName?: string

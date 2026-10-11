@@ -50,6 +50,19 @@ public class ProductSaveRequest {
     @Schema(description = "是否秒杀商品 0否 1是", example = "0")
     private Integer isSeckill;
 
+    /**
+     * 累计销量。
+     *
+     * <p>新增时作为初始值（不传按 0）；编辑时不传表示「保持原值」，
+     * 避免老调用方漏传就把已有销量清零。</p>
+     *
+     * <p>成交后由 {@code OrderService.markPaid} 按购买数量自动累加，
+     * 后台这里设置的值只是人工校正/铺初始数据的入口。</p>
+     */
+    @Schema(description = "累计销量（新增时作初始值，不传默认 0；编辑时不传保持原值）", example = "128")
+    @Min(value = 0, message = "销量不能为负")
+    private Integer sales;
+
     @Schema(description = "SKU 列表")
     @Valid
     private List<SkuItem> skus;
@@ -202,6 +215,14 @@ public class ProductSaveRequest {
 
     public void setIsSeckill(Integer isSeckill) {
         this.isSeckill = isSeckill;
+    }
+
+    public Integer getSales() {
+        return sales;
+    }
+
+    public void setSales(Integer sales) {
+        this.sales = sales;
     }
 
     public List<SkuItem> getSkus() {

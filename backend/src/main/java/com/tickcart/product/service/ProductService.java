@@ -169,7 +169,8 @@ public class ProductService {
         product.setMainImage(req.getMainImage());
         product.setDetail(req.getDetail());
         product.setPrice(req.getPrice());
-        product.setSales(0);
+        // 销量允许后台铺初始值；不传按 0。成交后由 OrderService.markPaid 自动累加。
+        product.setSales(req.getSales() == null ? 0 : req.getSales());
         product.setStatus(req.getStatus() == null ? STATUS_OFF : req.getStatus());
         product.setIsSeckill(req.getIsSeckill() == null ? 0 : req.getIsSeckill());
         // 总库存 = SKU 库存之和（无 SKU 时为 0）
@@ -198,6 +199,11 @@ public class ProductService {
         }
         if (req.getIsSeckill() != null) {
             product.setIsSeckill(req.getIsSeckill());
+        }
+        // 销量：不传保持原值（老调用方漏传不该把已有销量清零）。
+        // 直接覆盖为绝对值，而不是累加 —— 这里是对账入口，累加语义会让「改成 50」变得不可预期。
+        if (req.getSales() != null) {
+            product.setSales(req.getSales());
         }
         if (req.getSkus() != null) {
             // 全量重建 SKU：先逻辑删除旧的，再插入新的

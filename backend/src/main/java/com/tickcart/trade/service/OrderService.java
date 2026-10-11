@@ -11,6 +11,8 @@ import com.tickcart.common.exception.BizException;
 import com.tickcart.common.mq.OrderMessageProducer;
 import com.tickcart.member.entity.UserAddress;
 import com.tickcart.member.service.AddressService;
+import com.tickcart.product.entity.Product;
+import com.tickcart.product.mapper.ProductMapper;
 import com.tickcart.trade.dto.AdminOrderQuery;
 import com.tickcart.trade.dto.OrderCreateRequest;
 import com.tickcart.trade.dto.OrderQuery;
@@ -34,7 +36,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
@@ -65,19 +69,22 @@ public class OrderService {
     private final CartService cartService;
     private final InventoryService inventoryService;
     private final OrderMessageProducer orderMessageProducer;
+    private final ProductMapper productMapper;
 
     public OrderService(OrderMapper orderMapper,
                         OrderItemMapper orderItemMapper,
                         AddressService addressService,
                         CartService cartService,
                         InventoryService inventoryService,
-                        OrderMessageProducer orderMessageProducer) {
+                        OrderMessageProducer orderMessageProducer,
+                        ProductMapper productMapper) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.addressService = addressService;
         this.cartService = cartService;
         this.inventoryService = inventoryService;
         this.orderMessageProducer = orderMessageProducer;
+        this.productMapper = productMapper;
     }
 
     /**
@@ -290,6 +297,33 @@ public class OrderService {
         if (affected == 0) {
             throw BizException.conflict("订单状态已变更，请刷新后重试");
         }
+
+        // 抢到状态流转之后才累加销量：回调重复到达时上面的 UPDATE 影响 0 行、
+        // 走不到这里，所以不需要额外的幂等标记。
+        accumulateSales(orderNo);
+    }
+
+    /**
+     * 累加商品销量：按订单明细的购买数量聚合，同一商品的多行合并成一次 UPDATE。
+     *
+     * <p>用 {@code sales = sales + n} 的原子写法而非「先查后写」，
+     * 避免多笔订单同时支付时互相覆盖。</p>
+     *
+     * <p>只在 {@link #markPaid(String)} 抢到状态流转后调用，因此：
+     * 支付回调重复到达不会重复累加；超时关单（订单从未支付）也不会误加。</p>
+     */
+    private void accumulateSales(String orderNo) {
+        Map<Long, Integer> quantityByProduct = new LinkedHashMap<>();
+        for (OrderItem item : loadRawItems(orderNo)) {
+            if (item.getProductId() == null || item.getQuantity() == null) {
+                continue;
+            }
+            quantityByProduct.merge(item.getProductId(), item.getQuantity(), Integer::sum);
+        }
+        quantityByProduct.forEach((productId, quantity) -> productMapper.update(null,
+                new LambdaUpdateWrapper<Product>()
+                        .eq(Product::getId, productId)
+                        .setSql("sales = sales + {0}", quantity)));
     }
 
     /**

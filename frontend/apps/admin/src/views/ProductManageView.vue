@@ -63,6 +63,7 @@ const emptyForm = (): ProductPayload => ({
   mainImage: '',
   detail: '',
   price: 0,
+  sales: 0,
   status: 0,
   isSeckill: 0,
   skus: [{ specName: '', specValue: '', skuImage: '', price: 0, stock: 0 }],
@@ -88,6 +89,7 @@ async function openEdit(row: ProductListItem) {
     mainImage: detail.mainImage ?? '',
     detail: detail.detail ?? '',
     price: detail.price,
+    sales: detail.sales,
     status: detail.status,
     isSeckill: detail.isSeckill,
     skus: detail.skus.map((s) => ({
@@ -461,6 +463,10 @@ function categoryName(id: number): string {
         <el-form-item label="展示价格">
           <el-input-number v-model="form.price" :min="0" :precision="2" :step="1" />
         </el-form-item>
+        <el-form-item label="销量">
+          <el-input-number v-model="form.sales" :min="0" :step="1" />
+          <span class="form-hint">可随时修改；用户支付成功后按购买数量自动累加</span>
+        </el-form-item>
         <el-form-item label="状态">
           <el-radio-group v-model="form.status">
             <el-radio :value="1">上架</el-radio>
@@ -720,6 +726,13 @@ function categoryName(id: number): string {
 .gallery-editor__hint {
   width: 100%;
   margin-top: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: #909399;
+}
+
+.form-hint {
+  margin-left: 8px;
   font-size: 12px;
   line-height: 18px;
   color: #909399;

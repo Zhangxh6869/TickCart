@@ -14,6 +14,8 @@ import com.tickcart.common.exception.BizException;
 import com.tickcart.common.mq.OrderMessageProducer;
 import com.tickcart.member.entity.UserAddress;
 import com.tickcart.member.service.AddressService;
+import com.tickcart.product.entity.Product;
+import com.tickcart.product.mapper.ProductMapper;
 import com.tickcart.trade.dto.AdminOrderQuery;
 import com.tickcart.trade.dto.OrderCreateRequest;
 import com.tickcart.trade.dto.OrderQuery;
@@ -44,6 +46,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -71,6 +74,8 @@ class OrderServiceTest {
     private InventoryService inventoryService;
     @Mock
     private OrderMessageProducer orderMessageProducer;
+    @Mock
+    private ProductMapper productMapper;
 
     @InjectMocks
     private OrderService orderService;
@@ -83,6 +88,8 @@ class OrderServiceTest {
     static void initTableInfo() {
         TableInfoHelper.initTableInfo(
                 new MapperBuilderAssistant(new MybatisConfiguration(), ""), Order.class);
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""), Product.class);
     }
 
     private UserAddress address() {
@@ -135,6 +142,14 @@ class OrderServiceTest {
         o.setReceiverPhone("13800138000");
         o.setReceiverAddr("广东省深圳市南山区科技园路 1 号");
         return o;
+    }
+
+    private OrderItem item(Long productId, Long skuId, int quantity) {
+        OrderItem item = new OrderItem();
+        item.setProductId(productId);
+        item.setSkuId(skuId);
+        item.setQuantity(quantity);
+        return item;
     }
 
     private OrderCreateRequest createReq(Long addressId) {
@@ -375,6 +390,48 @@ class OrderServiceTest {
         assertThatThrownBy(() -> orderService.markPaid("NO14"))
                 .isInstanceOf(BizException.class)
                 .hasMessage("订单状态已变更，请刷新后重试");
+        // 没抢到状态流转就不能累加销量，否则重复回调会把销量加多次
+        verifyNoInteractions(productMapper);
+    }
+
+    @Test
+    @DisplayName("支付成功：按购买数量累加商品销量，同商品多规格合并成一次 UPDATE")
+    void markPaidAccumulatesSalesByQuantity() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO17", UID, OrderStatus.PENDING_PAYMENT));
+        when(orderMapper.update(ArgumentMatchers.<Order>isNull(), any())).thenReturn(1);
+        when(orderItemMapper.selectList(any())).thenReturn(List.of(
+                item(10L, 5L, 2),
+                item(10L, 6L, 3),
+                item(11L, 0L, 1)));
+
+        orderService.markPaid("NO17");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Wrapper<Product>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(productMapper, times(2)).update(ArgumentMatchers.<Product>isNull(), captor.capture());
+
+        List<Wrapper<Product>> wrappers = captor.getAllValues();
+        // 累加语句落在 set 段（getSqlSet），where 段（getSqlSegment）只有 id 条件
+        assertThat(wrappers.stream().map(w -> ((LambdaUpdateWrapper<Product>) w).getSqlSet()))
+                .allMatch(sqlSet -> sqlSet != null && sqlSet.contains("sales = sales +"));
+        // 商品 10 的两行规格合并成 2 + 3 = 5，商品 11 是 1
+        assertThat(wrappers.stream()
+                .map(w -> ((LambdaUpdateWrapper<Product>) w).getParamNameValuePairs().values())
+                .flatMap(values -> values.stream())
+                .toList())
+                .contains(5, 1);
+    }
+
+    @Test
+    @DisplayName("支付成功但订单无明细时不触碰商品表")
+    void markPaidWithoutItemsSkipsSales() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO18", UID, OrderStatus.PENDING_PAYMENT));
+        when(orderMapper.update(ArgumentMatchers.<Order>isNull(), any())).thenReturn(1);
+        when(orderItemMapper.selectList(any())).thenReturn(List.of());
+
+        orderService.markPaid("NO18");
+
+        verifyNoInteractions(productMapper);
     }
 
     @Test

@@ -174,6 +174,68 @@ class ProductServiceTest {
     }
 
     @Test
+    @DisplayName("新增商品：销量取请求里的初始值")
+    void createUsesRequestedSales() {
+        categoryExists();
+        ProductSaveRequest req = productReq(List.of(sku(10)));
+        req.setSales(128);
+        when(productMapper.insert(any(Product.class))).thenAnswer(inv -> {
+            assertThat(((Product) inv.getArgument(0)).getSales()).isEqualTo(128);
+            return 1;
+        });
+        when(skuMapper.insert(any(ProductSku.class))).thenReturn(1);
+
+        productService.create(req);
+    }
+
+    @Test
+    @DisplayName("新增商品：不传销量时默认 0")
+    void createDefaultsSalesToZero() {
+        categoryExists();
+        when(productMapper.insert(any(Product.class))).thenAnswer(inv -> {
+            assertThat(((Product) inv.getArgument(0)).getSales()).isZero();
+            return 1;
+        });
+        when(skuMapper.insert(any(ProductSku.class))).thenReturn(1);
+
+        productService.create(productReq(List.of(sku(10))));
+    }
+
+    @Test
+    @DisplayName("编辑商品：传销量则覆盖为绝对值")
+    void updateAppliesRequestedSales() {
+        Product product = new Product();
+        product.setId(1L);
+        product.setPrice(new BigDecimal("99.00"));
+        product.setSales(10);
+        when(productMapper.selectById(1L)).thenReturn(product);
+        categoryExists();
+        ProductSaveRequest req = productReq(null);
+        req.setSales(50);
+        when(productMapper.updateById(any(Product.class))).thenReturn(1);
+
+        productService.update(1L, req);
+
+        assertThat(product.getSales()).isEqualTo(50);
+    }
+
+    @Test
+    @DisplayName("编辑商品：不传销量时保留原值，不被清零")
+    void updateKeepsSalesWhenAbsent() {
+        Product product = new Product();
+        product.setId(1L);
+        product.setPrice(new BigDecimal("99.00"));
+        product.setSales(10);
+        when(productMapper.selectById(1L)).thenReturn(product);
+        categoryExists();
+        when(productMapper.updateById(any(Product.class))).thenReturn(1);
+
+        productService.update(1L, productReq(null));
+
+        assertThat(product.getSales()).isEqualTo(10);
+    }
+
+    @Test
     @DisplayName("分类不存在时拒绝新增")
     void createWithMissingCategory() {
         when(categoryMapper.selectById(1L)).thenReturn(null);
