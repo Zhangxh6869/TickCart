@@ -18,7 +18,7 @@ const acting = ref(false)
 let redirectTimer: ReturnType<typeof setTimeout> | null = null
 
 /** 取消订单后停留多久再回首页（毫秒）：让用户看清「已取消」再离开 */
-const CANCEL_REDIRECT_DELAY_MS = 1500
+const CANCEL_REDIRECT_DELAY_MS = 1000
 
 /** 状态说明文案 */
 const statusTips: Record<number, string> = {
