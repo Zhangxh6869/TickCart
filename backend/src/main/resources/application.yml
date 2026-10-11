@@ -96,6 +96,10 @@ tickcart:
   order:
     # 待付款订单自动关闭时限（毫秒），即 trade.order.timeout 队列的 TTL
     timeout-ttl-ms: ${ORDER_TIMEOUT_TTL_MS:900000}
+  # 支付
+  payment:
+    # 模拟渠道的处理耗时（毫秒）：渠道受理后延迟多久才回调商城，即 trade.payment.notify 队列的 TTL
+    notify-delay-ms: ${PAYMENT_NOTIFY_DELAY_MS:3000}
   # 图片上传（后台商品主图）
   upload:
     # 落盘根目录，相对路径以进程工作目录为基准（backend/ 下启动即 backend/uploads）

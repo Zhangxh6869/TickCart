@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.tickcart.trade.enums.PaymentStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -12,8 +13,12 @@ import java.time.LocalDateTime;
 /**
  * 支付记录实体，对应 {@code payment_record}。
  *
- * <p>模拟支付也会真实落库，形态与真实网关一致：先落一条待支付记录，回调后置为成功。
- * 这样将来接入真实支付时只需替换「发起支付」与「回调来源」，订单侧逻辑不用动。</p>
+ * <p>模拟支付也会真实落库，形态与真实网关一致：先落一条待支付记录，
+ * 待渠道**异步回调**到达后才置为终态。这样将来接入真实支付时只需替换
+ * 「发起支付」与「回调来源」，订单侧逻辑不用动。</p>
+ *
+ * <p>状态取值集中在 {@link com.tickcart.trade.enums.PaymentStatus}，此处只做常量转发，
+ * 避免同一套状态码在两个地方各写一遍。</p>
  */
 @TableName("payment_record")
 public class PaymentRecord {
@@ -22,13 +27,16 @@ public class PaymentRecord {
     public static final int CHANNEL_MOCK = 0;
 
     /** 支付状态：待支付 */
-    public static final int STATUS_PENDING = 0;
+    public static final int STATUS_PENDING = PaymentStatus.PENDING.getCode();
 
     /** 支付状态：支付成功 */
-    public static final int STATUS_SUCCESS = 1;
+    public static final int STATUS_SUCCESS = PaymentStatus.SUCCESS.getCode();
 
     /** 支付状态：支付失败 */
-    public static final int STATUS_FAILED = 2;
+    public static final int STATUS_FAILED = PaymentStatus.FAILED.getCode();
+
+    /** 支付状态：已关闭（用户取消支付） */
+    public static final int STATUS_CLOSED = PaymentStatus.CLOSED.getCode();
 
     @TableId(type = IdType.AUTO)
     private Long id;
@@ -45,7 +53,7 @@ public class PaymentRecord {
 
     private BigDecimal amount;
 
-    /** 状态 0待支付 1成功 2失败 */
+    /** 状态 0待支付 1成功 2失败 3已关闭 */
     private Integer status;
 
     private LocalDateTime callbackTime;

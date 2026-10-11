@@ -23,10 +23,10 @@ public class PaymentVO {
     @Schema(description = "支付渠道 0模拟 1微信 2支付宝")
     private Integer channel;
 
-    @Schema(description = "支付状态 0待支付 1成功 2失败")
+    @Schema(description = "支付状态 0待支付 1成功 2失败 3已关闭")
     private Integer status;
 
-    @Schema(description = "支付完成时间")
+    @Schema(description = "支付完成/关闭时间；待支付时为 null")
     private LocalDateTime payTime;
 
     public String getPayNo() {
