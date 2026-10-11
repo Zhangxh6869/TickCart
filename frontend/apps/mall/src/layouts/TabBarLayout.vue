@@ -44,9 +44,21 @@ const indicatorLeft = computed(() => `calc(${activeIndex.value} * 100% / 3 + 100
  *                     只剩顶部 4px 能点到（点中间会命中 tabbar 的「购物车」直接跳走）。
  *                     与其给按钮条加 z-index 硬压 tabbar（那会让 tabbar 彻底点不到），
  *                     不如让 tabbar 在这个二级页整体让位，用户走左上角返回。
+ *   orders / favorites / profile
+ *                  —— 「我的」里的二级功能页（我的订单 / 我的收藏 / 个人信息）。
+ *                     它们都自带 van-nav-bar 返回，属于从「我的」往下的独立层级，
+ *                     继续挂着底部导航会让人以为还在 tab 主框架里，
+ *                     误点 tabbar 就直接跳走、把当前浏览位置丢了。
  * 顺带 .layout--tabbar 的 50px 底部内边距也会一起去掉，登录页正好占满一屏。
  */
-const FULLSCREEN_ROUTES = ['product-detail', 'login', 'address']
+const FULLSCREEN_ROUTES = [
+  'product-detail',
+  'login',
+  'address',
+  'orders',
+  'favorites',
+  'profile',
+]
 const showTabbar = computed(() => !FULLSCREEN_ROUTES.includes(route.name as string))
 
 /** 只有购物车带角标，其余为空字符串（Vant 收到空串不渲染角标） */
