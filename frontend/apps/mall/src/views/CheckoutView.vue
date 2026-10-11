@@ -16,6 +16,8 @@ const selectedAddressId = ref<number | null>(null)
 const remark = ref('')
 const submitting = ref(false)
 const addressPopupVisible = ref(false)
+/** 点「管理收货地址」后，等弹层关闭动画结束再跳转（原因见 goAddressManage） */
+const pendingAddressNav = ref(false)
 
 const selectedAddress = computed(
   () => addresses.value.find((item) => item.id === selectedAddressId.value) ?? null
@@ -78,13 +80,35 @@ function fullAddress(address: UserAddress) {
   return `${address.province}${address.city}${address.district}${address.detail}`
 }
 
+function openAddressPopup() {
+  pendingAddressNav.value = false
+  addressPopupVisible.value = true
+}
+
 function chooseAddress(address: UserAddress) {
   selectedAddressId.value = address.id
   addressPopupVisible.value = false
 }
 
+/**
+ * 「管理收货地址」不能在这里直接 router.push。
+ *
+ * 弹层关闭时，它那层全屏遮罩（`.van-overlay`，z-index 2001、黑色 0.7）要淡出约 300ms，
+ * 而地址页从底部升起来要 450ms —— 前 300ms 它还盖不住上半屏。
+ * 两件事同时发生的话，遮罩一淡下去，上半屏就露出确认订单页（它 opacity 恒为 1，本来就不淡出），
+ * 观感就是「上拉之后闪了一下确认订单界面」。
+ *
+ * 改成等弹层完全关闭（@closed）再跳转，两个动作串行，不再重叠。
+ * 代价是跳转比点击晚约 300ms，但正好接在弹层收起的动作后面，不会觉得卡。
+ */
 function goAddressManage() {
+  pendingAddressNav.value = true
   addressPopupVisible.value = false
+}
+
+function onAddressPopupClosed() {
+  if (!pendingAddressNav.value) return
+  pendingAddressNav.value = false
   router.push({ name: 'address' })
 }
 
@@ -118,7 +142,7 @@ async function onSubmit() {
     <van-nav-bar title="确认订单" left-arrow @click-left="router.back()" />
 
     <div class="checkout__body">
-      <div class="card" @click="addressPopupVisible = true">
+      <div class="card" @click="openAddressPopup">
         <template v-if="selectedAddress">
           <div class="card__row">
             <span class="card__name">{{ selectedAddress.receiver }}</span>
@@ -182,7 +206,13 @@ async function onSubmit() {
       @submit="onSubmit"
     />
 
-    <van-popup v-model:show="addressPopupVisible" position="bottom" round :style="{ maxHeight: '70%' }">
+    <van-popup
+      v-model:show="addressPopupVisible"
+      position="bottom"
+      round
+      :style="{ maxHeight: '70%' }"
+      @closed="onAddressPopupClosed"
+    >
       <div class="addr-popup">
         <div class="addr-popup__title">选择收货地址</div>
         <div
