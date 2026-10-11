@@ -294,8 +294,14 @@ async function onSubmit() {
   font-weight: 500;
   color: #323233;
 }
+/* 提交栏抬到 tabbar 之上，与购物车页的 .cart__bar 保持同一套写法。
+   别写 bottom: 0 —— van-submit-bar 自带 z-index: 100，会整块压住 tabbar，
+   结算页的「首页 / 购物车 / 我的」就完全点不到了（实测点 tabbar 的坐标命中的
+   是提交栏里的价格文本，真点一下会直接下单）。
+   底部留白不用另外加：.layout--tabbar 的 50px 内边距 + .checkout 自身的
+   padding-bottom: 50px，正好等于「提交栏 50 + tabbar 50」。 */
 .checkout__bar {
-  bottom: 0;
+  bottom: 50px;
 }
 .addr-popup {
   padding: 16px 12px calc(16px + env(safe-area-inset-bottom));
