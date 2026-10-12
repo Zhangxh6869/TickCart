@@ -5,6 +5,7 @@ import { showConfirmDialog, showToast } from 'vant'
 import type { OrderSummary } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import { cancelOrder, confirmOrder, fetchOrders } from '@/api/order'
+import { formatCountdown, remainMsOf, useNow } from '@/composables/usePayCountdown'
 
 const router = useRouter()
 
@@ -37,6 +38,17 @@ async function load() {
 /** ISO 时间转 "YYYY-MM-DD HH:mm" */
 function formatTime(value: string) {
   return value ? value.replace('T', ' ').slice(0, 16) : ''
+}
+
+// 整页共用一个每秒跳一次的时钟：列表里可能有多张待付款卡片，
+// 各自起一个定时器会白白多出 N 个（见 composables/usePayCountdown）
+const now = useNow()
+
+/** 待付款订单的支付倒计时文案；非待付款、或倒计时已结束返回空串（不展示） */
+function payCountdown(order: OrderSummary): string {
+  if (order.status !== 0) return ''
+  const remainMs = remainMsOf(order.createdAt, now.value)
+  return remainMs > 0 ? formatCountdown(remainMs) : ''
 }
 
 function goDetail(orderNo: string) {
@@ -109,6 +121,11 @@ onMounted(load)
             :src="item.productImage || ''"
           />
           <div v-if="order.items.length > 3" class="order__more">等 {{ order.items.length }} 件</div>
+        </div>
+
+        <!-- 待付款订单的支付倒计时：与收银台、订单详情同一个实现 -->
+        <div v-if="payCountdown(order)" class="order__countdown">
+          剩余支付时间 {{ payCountdown(order) }}，超时自动关闭
         </div>
 
         <div class="order__foot">
@@ -195,6 +212,11 @@ onMounted(load)
 .order__more {
   font-size: 12px;
   color: #969799;
+}
+.order__countdown {
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgb(107, 163, 200);
 }
 .order__foot {
   display: flex;

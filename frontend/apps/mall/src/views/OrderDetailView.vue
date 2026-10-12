@@ -5,6 +5,7 @@ import { showConfirmDialog, showToast } from 'vant'
 import type { OrderDetail } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import { cancelOrder, confirmOrder, fetchOrderDetail } from '@/api/order'
+import { usePayCountdown } from '@/composables/usePayCountdown'
 import { ORDER_ORIGIN_BUY_NOW, ORDER_ORIGIN_CART, parseOrderOrigin } from '@/utils/checkout-route'
 
 const route = useRoute()
@@ -21,9 +22,8 @@ let redirectTimer: ReturnType<typeof setTimeout> | null = null
 /** 取消订单后停留多久再回首页（毫秒）：让用户看清「已取消」再离开 */
 const CANCEL_REDIRECT_DELAY_MS = 1000
 
-/** 状态说明文案 */
+/** 状态说明文案（待付款那条带倒计时，单独在 tip 里拼，不放这里） */
 const statusTips: Record<number, string> = {
-  0: '请尽快完成支付，超时订单将自动关闭',
   1: '商家正在备货，请耐心等待',
   2: '商品已发出，请及时查收',
   3: '交易已完成，感谢你的购买',
@@ -31,7 +31,19 @@ const statusTips: Record<number, string> = {
   5: '超时未支付，订单已自动关闭',
 }
 
-const tip = computed(() => (order.value ? statusTips[order.value.status] ?? '' : ''))
+// 支付倒计时与收银台、订单列表共用同一个实现（见 composables/usePayCountdown）
+const { countdown, expired } = usePayCountdown(computed(() => order.value?.createdAt))
+
+const tip = computed(() => {
+  const status = order.value?.status
+  if (status === undefined) return ''
+  if (status === 0) {
+    return expired.value
+      ? '支付时间已结束，订单即将自动关闭'
+      : `剩余支付时间 ${countdown.value}，超时订单将自动关闭`
+  }
+  return statusTips[status] ?? ''
+})
 const canCancel = computed(() => order.value?.status === 0)
 const canConfirm = computed(() => order.value?.status === 2)
 

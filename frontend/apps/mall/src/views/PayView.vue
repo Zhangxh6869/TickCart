@@ -6,6 +6,7 @@ import type { OrderDetail, PaymentChannel } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import { fetchOrderDetail } from '@/api/order'
 import { createPayment, fetchPaymentStatus } from '@/api/payment'
+import { usePayCountdown } from '@/composables/usePayCountdown'
 import { parseOrderOrigin } from '@/utils/checkout-route'
 
 /**
@@ -41,15 +42,10 @@ const orderOrigin = computed(() => parseOrderOrigin(route.query))
 /** 跳转时要原样带上的 query；没有来源时为空对象。 */
 const originQuery = computed(() => (orderOrigin.value ? { from: orderOrigin.value } : {}))
 
-/** 待付款订单的支付时限（与后端超时关单一致：15 分钟） */
-const PAY_WINDOW_MS = 15 * 60 * 1000
 /** 支付结果轮询间隔；渠道回调约 1 秒到达，300ms 一次让结果尽快显示出来 */
 const POLL_INTERVAL_MS = 300
 /** 轮询上限：超过仍未确认就交给用户手动重查，避免无限转圈 */
 const POLL_TIMEOUT_MS = 30 * 1000
-
-const remainMs = ref(0)
-let timer: ReturnType<typeof setInterval> | null = null
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let pollDeadline = 0
@@ -59,34 +55,9 @@ const channels: { value: PaymentChannel; label: string; icon: string }[] = [
   { value: 2, label: '支付宝', icon: 'alipay' },
 ]
 
-const countdown = computed(() => {
-  const total = Math.max(0, Math.floor(remainMs.value / 1000))
-  const mm = String(Math.floor(total / 60)).padStart(2, '0')
-  const ss = String(total % 60).padStart(2, '0')
-  return `${mm}:${ss}`
-})
-const expired = computed(() => remainMs.value <= 0)
+// 支付倒计时与订单详情页共用同一个实现（见 composables/usePayCountdown）
+const { countdown, expired } = usePayCountdown(computed(() => order.value?.createdAt))
 const channelLabel = computed(() => channels.find((c) => c.value === channel.value)?.label ?? '渠道')
-
-function startCountdown(createdAt: string) {
-  const deadline = new Date(createdAt.replace(' ', 'T')).getTime() + PAY_WINDOW_MS
-  const tick = () => {
-    remainMs.value = deadline - Date.now()
-    if (remainMs.value <= 0 && timer) {
-      clearInterval(timer)
-      timer = null
-    }
-  }
-  tick()
-  timer = setInterval(tick, 1000)
-}
-
-function stopCountdown() {
-  if (timer) {
-    clearInterval(timer)
-    timer = null
-  }
-}
 
 async function load() {
   loading.value = true
@@ -100,7 +71,6 @@ async function load() {
       router.replace({ name: 'order-detail', params: { orderNo }, query: originQuery.value })
       return
     }
-    startCountdown(detail.createdAt)
   } catch {
     order.value = null
   } finally {
@@ -209,7 +179,6 @@ watch(
 
 onMounted(load)
 onBeforeUnmount(() => {
-  stopCountdown()
   stopPolling()
 })
 </script>
