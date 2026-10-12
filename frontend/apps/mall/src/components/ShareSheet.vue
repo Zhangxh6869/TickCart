@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { showToast } from 'vant'
 import ShareGuide from '@/components/ShareGuide.vue'
 import SharePoster from '@/components/SharePoster.vue'
@@ -20,8 +20,7 @@ import {
  * 商品分享面板（「分享至」）。
  *
  * <p>面板本身用 Vant 内置的 {@code van-share-sheet}：它的品牌图标（微信 / 朋友圈 / QQ / 微博）
- * 自带品牌色圆底，省掉一整套图片素材；{@code link} / {@code poster} 还会自动映射到
- * {@code link-o} / {@code photo-o}。QQ空间 没有内置图标，用星形 + 自定义配色顶替。</p>
+ * 自带品牌色圆底，省掉一整套图片素材；QQ空间 没有内置图标，用星形 + 自定义配色顶替。</p>
  *
  * <p>本组件是「分享」这件事的唯一出口：面板、引导蒙层、海报、举报、反馈都在这里，
  * 外部页面只需要 {@code <ShareSheet v-model:show="x" :product="p" />}。</p>
@@ -87,53 +86,6 @@ const target = computed<ShareTarget>(() => ({
   image: toAbsoluteUrl(props.product.mainImage),
 }))
 
-const rootRef = ref<HTMLElement | null>(null)
-
-/**
- * 两行选项各自横向滚动。
- *
- * <p>行容器由 Vant 内部渲染，拿不到模板 ref，只能在面板打开后从根节点查。这里只做两件事：</p>
- * <ol>
- *   <li>量出「这一行是否真的溢出」→ 溢出才挂 `is-scrollable`（右侧渐隐只在能滑时出现，
- *       正常宽度下 5 个正好铺满，视觉与之前完全一致）；</li>
- *   <li>滑到最右端挂 `is-at-end`，把右侧渐隐收掉。</li>
- * </ol>
- */
-let rowEls: HTMLElement[] = []
-let detachRows: Array<() => void> = []
-
-function measureRows() {
-  rowEls.forEach((row) => {
-    const scrollable = row.scrollWidth > row.clientWidth + 1
-    const atEnd = scrollable && row.scrollLeft + row.clientWidth >= row.scrollWidth - 1
-    row.classList.toggle('is-scrollable', scrollable)
-    row.classList.toggle('is-at-end', atEnd)
-  })
-}
-
-function bindRows() {
-  unbindRows()
-  rowEls = Array.from(
-    rootRef.value?.querySelectorAll<HTMLElement>('.van-share-sheet__options') ?? []
-  )
-  rowEls.forEach((row) => {
-    const onScroll = () => measureRows()
-    row.addEventListener('scroll', onScroll, { passive: true })
-    detachRows.push(() => row.removeEventListener('scroll', onScroll))
-  })
-  measureRows()
-}
-
-function unbindRows() {
-  detachRows.forEach((off) => off())
-  detachRows = []
-  rowEls = []
-}
-
-function onResize() {
-  if (props.show) measureRows()
-}
-
 /**
  * 关面板 → 等它退场 → 再开下一层，避免两个弹层同时挂在屏幕上（Vant 出场约 300ms）。
  *
@@ -147,26 +99,7 @@ function switchLayer(open: () => void) {
   window.clearTimeout(layerTimer)
   layerTimer = window.setTimeout(open, LAYER_SWITCH_MS)
 }
-
-window.addEventListener('resize', onResize)
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', onResize)
-  window.clearTimeout(layerTimer)
-  unbindRows()
-})
-
-watch(
-  () => props.show,
-  async (show) => {
-    if (!show) {
-      unbindRows()
-      return
-    }
-    await nextTick()
-    // 弹层是 lazyRender 的，DOM 要等这一帧之后才真正挂上
-    window.requestAnimationFrame(bindRows)
-  }
-)
+onBeforeUnmount(() => window.clearTimeout(layerTimer))
 
 function close() {
   emit('update:show', false)
@@ -263,7 +196,7 @@ function beforeFeedbackClose(action: string) {
 </script>
 
 <template>
-  <div ref="rootRef" class="share">
+  <div class="share">
     <van-share-sheet
       :show="show"
       title="分享至"
@@ -312,17 +245,18 @@ function beforeFeedbackClose(action: string) {
  *
  * 底色用淡灰（Vant 的 --van-gray-2）：面板里有两个「白块」——「取消」按钮与第二行的
  * 圆形图标底 —— 面板若是白的，这两处就跟底色糊在一起看不出边界；铺成淡灰它们才浮得出来。
+ *
+ * 圆底 44px（原 48）：一行 5 个，窄屏（375/360/320）下每项只有 75/72/64px，
+ * 48px 的圆在 320px 上左右只剩 8px，缩小一点更透气。
  */
 .share :deep(.van-share-sheet) {
   overflow-x: hidden;
   background: var(--van-gray-2, #f2f3f5);
-  /* 圆底 48 → 44：一行 5 个，窄屏（375/360/320）下每项只有 75/72/64px，
-     48px 的圆在 320px 上左右只剩 8px，缩小一点更透气 */
   --van-share-sheet-icon-size: 44px;
 }
 
+/* ── 文字 ── */
 /*
- * ── 文字 ──
  * 面板内所有文字统一「正文黑」。Vant 默认口径不统一：选项名是 gray-7(#646566) 偏灰，
  * 标题与「取消」是 --van-text-color(#323233)。在淡灰底上灰字更糊，所以统一压到最深的正文黑。
  * ★ 本项目从不用纯 #000 —— 正文黑统一是 #323233（App.vue / ProductCard.vue / CartView.vue 同款）。
@@ -339,10 +273,18 @@ function beforeFeedbackClose(action: string) {
   font-weight: var(--van-font-bold, 600);
 }
 
-/* ── 两行选项：各自横向滚动 ── */
+/* ── 两行选项 ── */
+/*
+ * 行本身是 Vant 给的横向滚动容器（`overflow-x: auto`），只做两件事：
+ * 收紧纵向留白、并阻止滑到头之后把滑动「传染」给面板或页面。
+ *
+ * ★ 这里**不放任何覆盖层**。曾经加过一个「右缘白色渐隐」来暗示可以滑动，
+ *   但它本质是一块盖在内容上的白色遮罩，窄屏下正好压住第 5 项 —— 那才是用户说的「遮挡」。
+ *   而项宽按 20% 平分之后，常见手机宽度（390/375/360/320）根本不会溢出、也不需要滑动，
+ *   所以那块遮罩已经没有任何存在意义，连同量 `scrollWidth` 挂类的逻辑一起删掉了。
+ */
 .share :deep(.van-share-sheet__options) {
   padding: 16px 0 4px;
-  /* 行滑到头之后不要把滑动传给面板或页面 */
   overscroll-behavior-x: contain;
 }
 
@@ -355,7 +297,7 @@ function beforeFeedbackClose(action: string) {
  * ★ 项宽：`flex: 0 0 20%` + **很小的 min-width**。
  *   之前写 `min-width: 78px` 是个坑：375px 视口下 20% 只有 75px，被 min-width 顶到 78px，
  *   5×78 = 390 > 375 → 整行横向溢出 15px（360px 下溢出 30px），
- *   最后一项被视口右缘 + 右缘渐隐盖住，看着就是「被遮挡」。
+ *   最后一项被视口右缘盖住，看着就是「被遮挡」。
  *   60px 只在极窄屏（<300px）才兜底，正常手机宽度一律按 20% 平分、永远放得下。
  */
 .share :deep(.van-share-sheet__option) {
@@ -375,30 +317,12 @@ function beforeFeedbackClose(action: string) {
 }
 
 /*
- * 右侧边缘渐隐：只在「这一行真的能滑」且「还没滑到头」时出现。
- * 用 sticky 钉在滚动视口右边缘 —— 行内容不够宽时整个伪元素不渲染，视觉零变化。
- */
-.share :deep(.van-share-sheet__options.is-scrollable:not(.is-at-end))::after {
-  content: '';
-  position: sticky;
-  right: 0;
-  flex: 0 0 28px;
-  margin-left: -28px;
-  align-self: stretch;
-  pointer-events: none;
-  background: linear-gradient(to right, rgba(255, 255, 255, 0), #fff);
-}
-
-/*
- * 第二行（复制链接 / 生成海报 / 举报 / 反馈与建议 / 更多）用设计给的 SVG，
- * 外面套一层白色圆底。
+ * 第二行（复制链接 / 生成海报 / 举报 / 反馈与建议 / 更多）用设计给的 SVG，外面套一层白色圆底。
  *
  * ★ 必须打在 `.van-share-sheet__image-icon` 上：Vant 对「图片图标」渲染的是**光秃秃的
  *   `<img>`**，没有 `.van-share-sheet__icon` 那层带圆底的外壳 —— 圆底、描边、内边距都得自己补。
- *   `box-sizing: border-box` + `padding` 把 48px 的圆压到 30px 的图形（48 − 8×2 − 1×2），
- *   与第一行品牌图标的 30px 对齐。
- *   `object-fit: contain` 是为了举报那个图标（viewBox 1127×1024，比别的宽），
- *   不加会被拉伸变形。
+ *   `box-sizing: border-box` + `padding` 把 44px 的圆压到 26px 的图形（44 − 8×2 − 1×2）。
+ *   `object-fit: contain` 是为了举报那个图标（viewBox 比别的宽），不加会被拉伸变形。
  */
 .share :deep(.share-opt--plain .van-share-sheet__image-icon) {
   box-sizing: border-box;
@@ -408,6 +332,7 @@ function beforeFeedbackClose(action: string) {
   background-color: #fff;
   object-fit: contain;
 }
+
 /* 第一行品牌字形：圆底缩到 44px 后同步收一点（Vant 默认 30px 在 44px 圆里只剩 7px 边距） */
 .share :deep(.van-share-sheet__icon--wechat),
 .share :deep(.van-share-sheet__icon--wechat-moments),

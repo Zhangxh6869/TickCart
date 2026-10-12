@@ -134,7 +134,7 @@
 
 | 本地文件 | 用途 | 原件 |
 | --- | --- | --- |
-| `imgs/share/copy-link.svg` | 复制链接 | `复制链接 (1).svg` |
+| `imgs/share/copy-link.svg` | 复制链接 | `复制链接.svg`（完整闭合链条；早先用过 `复制链接 (1).svg` 那版「断链」，看着像被切了一半，已替换） |
 | `imgs/share/poster.svg` | 生成海报 | `图片.svg` |
 | `imgs/share/report.svg` | 举报 | `举报.svg` |
 | `imgs/share/feedback.svg` | 反馈与建议 | `笔.svg` |
