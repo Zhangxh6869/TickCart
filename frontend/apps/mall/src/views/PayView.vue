@@ -43,8 +43,8 @@ const originQuery = computed(() => (orderOrigin.value ? { from: orderOrigin.valu
 
 /** 待付款订单的支付时限（与后端超时关单一致：15 分钟） */
 const PAY_WINDOW_MS = 15 * 60 * 1000
-/** 支付结果轮询间隔；渠道回调约 3 秒到达，1 秒一次足够及时 */
-const POLL_INTERVAL_MS = 1000
+/** 支付结果轮询间隔；渠道回调约 1 秒到达，300ms 一次让结果尽快显示出来 */
+const POLL_INTERVAL_MS = 300
 /** 轮询上限：超过仍未确认就交给用户手动重查，避免无限转圈 */
 const POLL_TIMEOUT_MS = 30 * 1000
 

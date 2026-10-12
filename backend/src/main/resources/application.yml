@@ -99,7 +99,8 @@ tickcart:
   # 支付
   payment:
     # 模拟渠道的处理耗时（毫秒）：渠道受理后延迟多久才回调商城，即 trade.payment.notify 队列的 TTL
-    notify-delay-ms: ${PAYMENT_NOTIFY_DELAY_MS:3000}
+    # 调小它 = 收银台「正在确认支付结果…」的等待变短；但别调到 0，那样就看不到异步等待了
+    notify-delay-ms: ${PAYMENT_NOTIFY_DELAY_MS:1000}
   # 图片上传（后台商品主图）
   upload:
     # 落盘根目录，相对路径以进程工作目录为基准（backend/ 下启动即 backend/uploads）

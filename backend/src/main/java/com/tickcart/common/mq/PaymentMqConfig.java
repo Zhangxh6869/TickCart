@@ -61,7 +61,7 @@ public class PaymentMqConfig {
     private final DirectExchange tradeExchange;
     private final DirectExchange tradeDlx;
 
-    public PaymentMqConfig(@Value("${tickcart.payment.notify-delay-ms:3000}") long notifyDelayMs,
+    public PaymentMqConfig(@Value("${tickcart.payment.notify-delay-ms:1000}") long notifyDelayMs,
                            @Qualifier("tradeExchange") DirectExchange tradeExchange,
                            @Qualifier("tradeDlx") DirectExchange tradeDlx) {
         this.notifyDelayMs = notifyDelayMs;
