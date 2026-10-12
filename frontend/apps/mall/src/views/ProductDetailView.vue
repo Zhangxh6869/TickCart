@@ -4,11 +4,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import type { ProductDetail, ProductSku } from '@tickcart/shared-types'
 import { formatCount, formatPrice } from '@tickcart/shared-utils'
+import ShareSheet from '@/components/ShareSheet.vue'
 import { fetchProductDetail } from '@/api/product'
 import { addFavorite, fetchFavoriteStatus, removeFavorite } from '@/api/favorite'
 import { useCartStore } from '@/stores/cart'
 import { useUserStore } from '@/stores/user'
 import { buildBuyNowQuery } from '@/utils/checkout-route'
+import type { ShareProduct } from '@/utils/share'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,6 +32,8 @@ const titleOverflow = ref(false)
 const skuPopupVisible = ref(false)
 /** 是否已收藏；未登录时恒为 false */
 const favorited = ref(false)
+/** 分享面板 */
+const shareSheetVisible = ref(false)
 
 const titleRef = ref<HTMLElement | null>(null)
 const galleryRef = ref<HTMLElement | null>(null)
@@ -57,6 +61,13 @@ const currentStock = computed(() => selectedSku.value?.stock ?? detail.value?.st
 const canBuy = computed(() => currentStock.value > 0)
 const skuCount = computed(() => detail.value?.skus.length ?? 0)
 const isSeckill = computed(() => detail.value?.isSeckill === 1)
+/** 分享只需要这几个字段：价格跟着当前选中规格走，分享出去的才是用户看到的那一档 */
+const shareProduct = computed<ShareProduct>(() => ({
+  id: detail.value?.id ?? 0,
+  name: detail.value?.name ?? '',
+  price: currentPrice.value,
+  mainImage: detail.value?.mainImage ?? null,
+}))
 /** 价格拆成整数/小数两段，整数走大字号（对齐参考图的 ¥16 版式） */
 const priceParts = computed(() => {
   const [integer, decimal] = formatPrice(currentPrice.value).split('.')
@@ -127,8 +138,9 @@ function goBack() {
   else router.replace({ name: 'home' })
 }
 
+/** 分享：打开「分享至」面板。分享是浏览态行为，未登录也允许 */
 function onShare() {
-  showToast('分享功能将在阶段2开通')
+  shareSheetVisible.value = true
 }
 
 function onCart() {
@@ -373,6 +385,9 @@ function onBuyNow() {
           </div>
         </div>
       </van-popup>
+
+      <!-- 分享面板（含引导蒙层 / 海报 / 举报 / 反馈），未登录也能用 -->
+      <ShareSheet v-model:show="shareSheetVisible" :product="shareProduct" />
     </template>
   </div>
 </template>

@@ -62,6 +62,9 @@ importers:
       pinia:
         specifier: ^2.2.6
         version: 2.3.1(typescript@5.9.3)(vue@3.5.43(typescript@5.9.3))
+      qrcode-generator:
+        specifier: ^2.0.4
+        version: 2.0.4
       vant:
         specifier: ^4.9.10
         version: 4.10.2(vue@3.5.43(typescript@5.9.3))
@@ -727,6 +730,9 @@ packages:
     resolution: {integrity: sha512-cJ+oHTW1VAEa8cJslgmUZrc+sjRKgAKl3Zyse6+PV38hZe/V6Z14TbCuXcan9F9ghlz4QrFr2c92TNF82UkYHA==}
     engines: {node: '>=10'}
 
+  qrcode-generator@2.0.4:
+    resolution: {integrity: sha512-mZSiP6RnbHl4xL2Ap5HfkjLnmxfKcPWpWe/c+5XxCuetEenqmNFf1FH/ftXPCtFG5/TDobjsjz6sSNL0Sr8Z9g==}
+
   rollup@4.64.0:
     resolution: {integrity: sha512-gjA/kFeDfffII8COoPsvLPvE16hWDTEc1+0QKQNKUkuV8iJjqsC4xXs8/FzuL0v9EV39kuxTbAgcFoTRyy2TGQ==}
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
@@ -1350,6 +1356,8 @@ snapshots:
       source-map-js: 1.2.2
 
   proxy-from-env@2.1.0: {}
+
+  qrcode-generator@2.0.4: {}
 
   rollup@4.64.0:
     dependencies:
