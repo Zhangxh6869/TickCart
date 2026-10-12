@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { showToast } from 'vant'
 import ShareGuide from '@/components/ShareGuide.vue'
 import SharePoster from '@/components/SharePoster.vue'
@@ -37,18 +37,30 @@ interface ShareOption {
   className?: string
 }
 
-const options: ShareOption[] = [
+/** 第一行：社交渠道 */
+const CHANNEL_OPTIONS: ShareOption[] = [
   { key: 'wechat', name: '微信', icon: 'wechat' },
   { key: 'moments', name: '朋友圈', icon: 'wechat-moments' },
   { key: 'qq', name: 'QQ', icon: 'qq' },
   { key: 'qzone', name: 'QQ空间', icon: 'star-o', className: 'share-opt--qzone' },
   { key: 'weibo', name: '新浪微博', icon: 'weibo' },
+]
+
+/** 第二行：站内动作 */
+const ACTION_OPTIONS: ShareOption[] = [
   { key: 'link', name: '复制链接', icon: 'link', className: 'share-opt--plain' },
   { key: 'poster', name: '生成海报', icon: 'poster', className: 'share-opt--plain' },
   { key: 'report', name: '举报', icon: 'warning-o', className: 'share-opt--plain' },
   { key: 'feedback', name: '反馈与建议', icon: 'edit', className: 'share-opt--plain' },
   { key: 'more', name: '更多', icon: 'ellipsis', className: 'share-opt--plain' },
 ]
+
+/**
+ * ★ 传「二维数组」而不是扁平数组 —— Vant 的 ShareSheet 会把每个子数组渲染成**独立的一行**
+ * （各自一个 `.van-share-sheet__options`，自带 `overflow-x: auto`）。
+ * 这样「左右滑动」的能力天然落在行上，面板本身不需要、也不应该横向滚动。
+ */
+const optionRows = [CHANNEL_OPTIONS, ACTION_OPTIONS]
 
 const REPORT_REASONS = ['虚假宣传', '价格欺诈', '禁售商品', '其他']
 
@@ -67,6 +79,53 @@ const target = computed<ShareTarget>(() => ({
   image: toAbsoluteUrl(props.product.mainImage),
 }))
 
+const rootRef = ref<HTMLElement | null>(null)
+
+/**
+ * 两行选项各自横向滚动。
+ *
+ * <p>行容器由 Vant 内部渲染，拿不到模板 ref，只能在面板打开后从根节点查。这里只做两件事：</p>
+ * <ol>
+ *   <li>量出「这一行是否真的溢出」→ 溢出才挂 `is-scrollable`（右侧渐隐只在能滑时出现，
+ *       正常宽度下 5 个正好铺满，视觉与之前完全一致）；</li>
+ *   <li>滑到最右端挂 `is-at-end`，把右侧渐隐收掉。</li>
+ * </ol>
+ */
+let rowEls: HTMLElement[] = []
+let detachRows: Array<() => void> = []
+
+function measureRows() {
+  rowEls.forEach((row) => {
+    const scrollable = row.scrollWidth > row.clientWidth + 1
+    const atEnd = scrollable && row.scrollLeft + row.clientWidth >= row.scrollWidth - 1
+    row.classList.toggle('is-scrollable', scrollable)
+    row.classList.toggle('is-at-end', atEnd)
+  })
+}
+
+function bindRows() {
+  unbindRows()
+  rowEls = Array.from(
+    rootRef.value?.querySelectorAll<HTMLElement>('.van-share-sheet__options') ?? []
+  )
+  rowEls.forEach((row) => {
+    const onScroll = () => measureRows()
+    row.addEventListener('scroll', onScroll, { passive: true })
+    detachRows.push(() => row.removeEventListener('scroll', onScroll))
+  })
+  measureRows()
+}
+
+function unbindRows() {
+  detachRows.forEach((off) => off())
+  detachRows = []
+  rowEls = []
+}
+
+function onResize() {
+  if (props.show) measureRows()
+}
+
 /**
  * 关面板 → 等它退场 → 再开下一层，避免两个弹层同时挂在屏幕上（Vant 出场约 300ms）。
  *
@@ -80,7 +139,26 @@ function switchLayer(open: () => void) {
   window.clearTimeout(layerTimer)
   layerTimer = window.setTimeout(open, LAYER_SWITCH_MS)
 }
-onBeforeUnmount(() => window.clearTimeout(layerTimer))
+
+window.addEventListener('resize', onResize)
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onResize)
+  window.clearTimeout(layerTimer)
+  unbindRows()
+})
+
+watch(
+  () => props.show,
+  async (show) => {
+    if (!show) {
+      unbindRows()
+      return
+    }
+    await nextTick()
+    // 弹层是 lazyRender 的，DOM 要等这一帧之后才真正挂上
+    window.requestAnimationFrame(bindRows)
+  }
+)
 
 function close() {
   emit('update:show', false)
@@ -177,12 +255,12 @@ function beforeFeedbackClose(action: string) {
 </script>
 
 <template>
-  <div class="share">
+  <div ref="rootRef" class="share">
     <van-share-sheet
       :show="show"
       title="分享至"
       cancel-text="取消"
-      :options="options"
+      :options="optionRows"
       @update:show="(value: boolean) => emit('update:show', value)"
       @select="onSelect"
     />
@@ -219,21 +297,56 @@ function beforeFeedbackClose(action: string) {
 </template>
 
 <style scoped>
-/* ── 分享面板：把 Vant 的「单行横向滚动」改成参考图的「两行 5 列」 ── */
-.share :deep(.van-share-sheet__options) {
-  flex-wrap: wrap;
-  overflow-x: visible;
-  padding: 16px 0 4px;
-  row-gap: 18px;
+/*
+ * ★ 面板本身绝不横向滚动：横向滑动只允许发生在两行选项内部。
+ * 这里既是「守卫」（万一将来有东西撑宽了，也是裁掉而不是让整块面板跟着动），
+ * 也覆盖了「取消」按钮那个 width:100% + margin 的溢出（见下）。
+ */
+.share :deep(.van-share-sheet) {
+  overflow-x: hidden;
 }
+
+/* ── 两行选项：各自横向滚动 ── */
+.share :deep(.van-share-sheet__options) {
+  padding: 16px 0 4px;
+  /* 行滑到头之后不要把滑动传给面板或页面 */
+  overscroll-behavior-x: contain;
+}
+
+/* Vant 会给第二行加一条内缩分隔线；参考图里两行之间只有留白 */
+.share :deep(.van-share-sheet__options--border)::before {
+  display: none;
+}
+
+/*
+ * 固定项宽：宽屏按 20% 铺满，窄屏锁 78px。
+ * 390 宽下 20% 正好 78px → 5 个铺满、滑不动（与参考图一致）；
+ * 窄屏或以后加到 6 个以上时行内容超宽 → 该行自然可横向滑动。
+ */
 .share :deep(.van-share-sheet__option) {
   flex: 0 0 20%;
-  width: 20%;
+  min-width: 78px;
 }
-/* Vant 默认给图标左右各 16px 外边距，会把 48px 图标挤出 20% 栅格 */
+
+/* Vant 默认给图标左右各 16px 外边距，会把 48px 图标挤出栅格 */
 .share :deep(.van-share-sheet__icon),
 .share :deep(.van-share-sheet__image-icon) {
   margin: 0;
+}
+
+/*
+ * 右侧边缘渐隐：只在「这一行真的能滑」且「还没滑到头」时出现。
+ * 用 sticky 钉在滚动视口右边缘 —— 行内容不够宽时整个伪元素不渲染，视觉零变化。
+ */
+.share :deep(.van-share-sheet__options.is-scrollable:not(.is-at-end))::after {
+  content: '';
+  position: sticky;
+  right: 0;
+  flex: 0 0 28px;
+  margin-left: -28px;
+  align-self: stretch;
+  pointer-events: none;
+  background: linear-gradient(to right, rgba(255, 255, 255, 0), #fff);
 }
 
 /*
@@ -255,8 +368,16 @@ function beforeFeedbackClose(action: string) {
   font-size: 30px;
 }
 
-/* 「取消」在参考图里是带左右留白的圆角白块 */
+/*
+ * ★ 宽度必须显式算出来，不能用 Vant 的 `width: 100%`，也不能图省事写 `auto`：
+ *   - Vant 默认 `width: 100%` 是「内容宽 = 容器宽」，**不会**扣掉下面这两条 margin，
+ *     两者相加会让按钮右端越界 24px，把整个 popup 变成横向可滚动容器 ——
+ *     表现就是「弹窗整体会跟着左右移动」；
+ *   - 改成 `auto` 也不行：`<button>` 是 shrink-to-fit，会塌成文字宽（实测只剩 32px）。
+ *   `calc(100% - 24px)` 才是「左右各留 12px 的整宽块」。
+ */
 .share :deep(.van-share-sheet__cancel) {
+  width: calc(100% - 24px);
   margin: 0 12px 12px;
   border-radius: 8px;
 }
