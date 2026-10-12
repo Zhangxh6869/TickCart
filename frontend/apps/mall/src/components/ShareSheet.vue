@@ -330,7 +330,7 @@ function beforeFeedbackClose(action: string) {
  */
 .share :deep(.share-opt--plain .van-share-sheet__image-icon) {
   box-sizing: border-box;
-  padding: 8.25px;
+  padding: 8px;
   border: 1px solid var(--van-border-color);
   border-radius: 50%;
   background-color: #fff;
