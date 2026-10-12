@@ -323,13 +323,14 @@ function beforeFeedbackClose(action: string) {
  *   `<img>`**，没有 `.van-share-sheet__icon` 那层带圆底的外壳 —— 圆底、描边、内边距都得自己补。
  *   `object-fit: contain` 是为了举报那个图标（viewBox 比别的宽），不加会被拉伸变形。
  *
- * ★ 内边距给足 10px（图形 = 44 − 10×2 − 1×2 = 22px）。之前取 8px（图形 26px）时，
- *   图形到圆边只剩 9px、**对角处只剩 3.6px** —— 圆形图标（链条、三角、铅笔）的角几乎顶到
- *   圆底边缘，看着就像被圆底切掉一块。22px 时对角余量有 6.4px，边界清楚。
+ * ★ 内边距 6px（图形 = 44 − 6×2 − 1×2 = **30px**）。
+ *   注意这是「44px 的圆能塞下的最大正方形」：内接正方形边长 = 44/√2 ≈ 31.1px，
+ *   减去 1px 描边后上限约 29.7px，所以 30px 已经到顶（对角只余 0.2px）。
+ *   **再往小调（padding < 6px）字形四角就会真的被 border-radius 裁掉。**
  */
 .share :deep(.share-opt--plain .van-share-sheet__image-icon) {
   box-sizing: border-box;
-  padding: 10px;
+  padding: 6px;
   border: 1px solid var(--van-border-color);
   border-radius: 50%;
   background-color: #fff;
