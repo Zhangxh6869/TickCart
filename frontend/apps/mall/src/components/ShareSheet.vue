@@ -301,9 +301,13 @@ function beforeFeedbackClose(action: string) {
  * ★ 面板本身绝不横向滚动：横向滑动只允许发生在两行选项内部。
  * 这里既是「守卫」（万一将来有东西撑宽了，也是裁掉而不是让整块面板跟着动），
  * 也覆盖了「取消」按钮那个 width:100% + margin 的溢出（见下）。
+ *
+ * 底色用淡灰（Vant 的 --van-gray-2）：面板里有两个「白块」——「取消」按钮与第二行的
+ * 圆形图标底 —— 面板若是白的，这两处就跟底色糊在一起看不出边界；铺成淡灰它们才浮得出来。
  */
 .share :deep(.van-share-sheet) {
   overflow-x: hidden;
+  background: var(--van-gray-2, #f2f3f5);
 }
 
 /* ── 两行选项：各自横向滚动 ── */
@@ -375,19 +379,22 @@ function beforeFeedbackClose(action: string) {
  *     表现就是「弹窗整体会跟着左右移动」；
  *   - 改成 `auto` 也不行：`<button>` 是 shrink-to-fit，会塌成文字宽（实测只剩 32px）。
  *   `calc(100% - 24px)` 才是「左右各留 12px 的整宽块」。
+ *
+ * 底色显式写白（Vant 默认取 --van-background-2 也是白，这里写明是为了不受主题改动影响）：
+ * 面板已是淡灰，这块白就是参考图里那个「取消」白块。
  */
 .share :deep(.van-share-sheet__cancel) {
   width: calc(100% - 24px);
-  margin: 0 12px 12px;
+  margin: 12px;
   border-radius: 8px;
+  background: #fff;
 }
 /*
- * Vant 用这个伪元素画「取消」上方的灰色分隔条。按钮已有 margin 留白，
- * 这里把灰条铺满整宽（负外边距抵消按钮的左右留白），才不会在圆角块顶部糊出一条灰边。
+ * Vant 用这个伪元素画「取消」上方的灰色分隔条。面板本身就是灰的，
+ * 留白改由上面的 margin-top 提供 —— 伪元素必须收掉，否则它会在白块顶部糊出一条灰带。
  */
 .share :deep(.van-share-sheet__cancel)::before {
-  height: 12px;
-  margin: 0 -12px;
+  display: none;
 }
 
 .share__feedback {
