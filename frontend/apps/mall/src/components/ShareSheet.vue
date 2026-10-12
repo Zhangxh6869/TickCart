@@ -310,6 +310,24 @@ function beforeFeedbackClose(action: string) {
   background: var(--van-gray-2, #f2f3f5);
 }
 
+/*
+ * ── 文字 ──
+ * 面板内所有文字统一「正文黑」。Vant 默认口径不统一：选项名是 gray-7(#646566) 偏灰，
+ * 标题与「取消」是 --van-text-color(#323233)。在淡灰底上灰字更糊，所以统一压到最深的正文黑。
+ * ★ 本项目从不用纯 #000 —— 正文黑统一是 #323233（App.vue / ProductCard.vue / CartView.vue 同款）。
+ */
+.share :deep(.van-share-sheet__title),
+.share :deep(.van-share-sheet__name),
+.share :deep(.van-share-sheet__cancel) {
+  color: #323233;
+}
+
+/* 标题「分享至」加大加粗（Vant 默认 14px / 400，在面板里存在感太弱） */
+.share :deep(.van-share-sheet__title) {
+  font-size: 17px;
+  font-weight: var(--van-font-bold, 600);
+}
+
 /* ── 两行选项：各自横向滚动 ── */
 .share :deep(.van-share-sheet__options) {
   padding: 16px 0 4px;
