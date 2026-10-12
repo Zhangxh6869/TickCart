@@ -143,3 +143,8 @@
 > 通过后端 `/img/**` 以 `image/svg+xml` 提供（Vite dev server 也代理了 `/img`）。
 > 图标本身只有字形、没有圆形底，面板上的白色圆底由 `ShareSheet.vue` 的
 > `.share-opt--plain .van-share-sheet__image-icon` 样式补出来。
+>
+> ★ 入库时**规整过 `viewBox`**（路径一个字节没动）：原件的字形要么**顶在画布边界**上
+> （举报的三角形底边、复制链接的链条两端会被裁掉最外圈），要么**内缩太多**
+> （反馈的铅笔只占画布 73%×87%，渲染出来比别人小一圈）。现在统一成
+> 「viewBox 收紧到字形包围盒 + 4% 余量」，`width`/`height` 同步改成新 viewBox 尺寸。

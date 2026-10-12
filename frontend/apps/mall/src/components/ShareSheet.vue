@@ -385,15 +385,14 @@ function beforeFeedbackClose(action: string) {
  *
  * ★ 必须打在 `.van-share-sheet__image-icon` 上：Vant 对「图片图标」渲染的是**光秃秃的
  *   `<img>`**，没有 `.van-share-sheet__icon` 那层带圆底的外壳 —— 圆底、描边、内边距都得自己补。
- *   `box-sizing: border-box` + `padding` 把 48px 的圆压到 26px 的图形（48 − 10×2 − 1×2）。
- *   （设计给的这几个 SVG 字形比 Vant 的图标字体占位更小，22px 时明显比第一行的品牌图标弱，
- *   所以取 26px 让两行视觉重量接近。）
+ *   `box-sizing: border-box` + `padding` 把 48px 的圆压到 30px 的图形（48 − 8×2 − 1×2），
+ *   与第一行品牌图标的 30px 对齐。
  *   `object-fit: contain` 是为了举报那个图标（viewBox 1127×1024，比别的宽），
  *   不加会被拉伸变形。
  */
 .share :deep(.share-opt--plain .van-share-sheet__image-icon) {
   box-sizing: border-box;
-  padding: 10px;
+  padding: 8px;
   border: 1px solid var(--van-border-color);
   border-radius: 50%;
   background-color: #fff;
