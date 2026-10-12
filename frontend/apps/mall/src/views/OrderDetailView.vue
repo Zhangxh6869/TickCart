@@ -96,7 +96,12 @@ async function onConfirm() {
 }
 
 function onPay() {
-  router.push({ name: 'pay', params: { orderNo } })
+  router.push({
+    name: 'pay',
+    params: { orderNo },
+    // 把下单来源一起带进支付链路：支付成功后回到的订单详情还要靠它决定返回键去哪
+    query: orderOrigin.value ? { from: orderOrigin.value } : {},
+  })
 }
 
 /**

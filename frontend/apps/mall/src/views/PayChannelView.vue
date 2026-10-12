@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import type { MockChannelResult } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import { submitMockChannelResult } from '@/api/payment'
+import { parseOrderOrigin } from '@/utils/checkout-route'
 
 /**
  * 模拟第三方支付渠道页。
@@ -21,6 +22,9 @@ const payNo = String(route.params.payNo)
 const orderNo = String(route.query.orderNo ?? '')
 const amount = Number(route.query.amount ?? 0)
 const channel = Number(route.query.channel ?? 1)
+
+/** 下单来源标记：本页用不到，但退回收银台时必须原样带走，不能弄丢。 */
+const orderOrigin = parseOrderOrigin(route.query)
 
 const submitting = ref(false)
 
@@ -49,9 +53,13 @@ async function submit(result: MockChannelResult) {
   }
 }
 
-/** 退回收银台并带上轮询标记，收银台据此开始确认支付结果。 */
+/** 退回收银台：带上轮询标记让收银台开始确认结果，并原样带回下单来源。 */
 function backToCashier() {
-  router.replace({ name: 'pay', params: { orderNo }, query: { polling: '1' } })
+  router.replace({
+    name: 'pay',
+    params: { orderNo },
+    query: { polling: '1', ...(orderOrigin ? { from: orderOrigin } : {}) },
+  })
 }
 </script>
 

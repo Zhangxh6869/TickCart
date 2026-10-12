@@ -6,6 +6,7 @@ import type { OrderDetail, PaymentChannel } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import { fetchOrderDetail } from '@/api/order'
 import { createPayment, fetchPaymentStatus } from '@/api/payment'
+import { parseOrderOrigin } from '@/utils/checkout-route'
 
 /**
  * 收银台。
@@ -28,6 +29,17 @@ const channel = ref<PaymentChannel>(1)
 
 /** 收银台阶段：idle 选渠道付款 / polling 等待渠道回调 / timeout 轮询超时未确认 */
 const phase = ref<'idle' | 'polling' | 'timeout'>('idle')
+
+/**
+ * 下单来源（结算页提交时写在 URL 上，随支付链路一路带过来）。
+ *
+ * <p>收银台自己用不到它，但**不能在跳转时丢掉** —— 支付成功后落到的订单详情，
+ * 返回键要靠它决定回首页还是回购物车。</p>
+ */
+const orderOrigin = computed(() => parseOrderOrigin(route.query))
+
+/** 跳转时要原样带上的 query；没有来源时为空对象。 */
+const originQuery = computed(() => (orderOrigin.value ? { from: orderOrigin.value } : {}))
 
 /** 待付款订单的支付时限（与后端超时关单一致：15 分钟） */
 const PAY_WINDOW_MS = 15 * 60 * 1000
@@ -85,7 +97,7 @@ async function load() {
       // 已支付/已关闭的订单不该停留在收银台；轮询可能同时在跑，先收掉
       stopPolling()
       showToast(detail.status === 1 ? '支付成功' : '该订单无需支付')
-      router.replace({ name: 'order-detail', params: { orderNo } })
+      router.replace({ name: 'order-detail', params: { orderNo }, query: originQuery.value })
       return
     }
     startCountdown(detail.createdAt)
@@ -113,6 +125,8 @@ async function onPay() {
         orderNo,
         amount: String(result.amount),
         channel: String(result.channel),
+        // 来源标记一路带着走，支付成功后回到的订单详情还要靠它决定返回键去哪
+        ...originQuery.value,
       },
     })
   } catch {
@@ -148,14 +162,14 @@ async function pollPayment() {
     if (status.orderStatus === 1) {
       stopPolling()
       showToast('支付成功')
-      router.replace({ name: 'order-detail', params: { orderNo } })
+      router.replace({ name: 'order-detail', params: { orderNo }, query: originQuery.value })
       return
     }
     if (status.orderStatus === 4 || status.orderStatus === 5) {
       // 订单已被取消 / 超时关闭：付款来不及落到订单上，不再继续等待
       stopPolling()
       showToast(status.orderStatusLabel || '订单已关闭')
-      router.replace({ name: 'order-detail', params: { orderNo } })
+      router.replace({ name: 'order-detail', params: { orderNo }, query: originQuery.value })
       return
     }
     if (status.payStatus === 2) {
@@ -180,8 +194,8 @@ function settleUnpaid(message: string) {
   stopPolling()
   phase.value = 'idle'
   showToast(message)
-  // 清掉轮询标记，避免用户刷新页面后又进入等待态
-  router.replace({ name: 'pay', params: { orderNo } })
+  // 清掉轮询标记（保留来源标记），避免用户刷新页面后又进入等待态
+  router.replace({ name: 'pay', params: { orderNo }, query: originQuery.value })
 }
 
 // 从渠道页返回时会带上 ?polling=1；无论组件是新建还是复用，都靠这个标记触发
@@ -241,7 +255,7 @@ onBeforeUnmount(() => {
             block
             plain
             size="small"
-            @click="router.replace({ name: 'order-detail', params: { orderNo } })"
+            @click="router.replace({ name: 'order-detail', params: { orderNo }, query: originQuery })"
           >
             查看订单
           </van-button>

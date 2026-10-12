@@ -52,6 +52,8 @@ const indicatorLeft = computed(() => `calc(${activeIndex.value} * 100% / 3 + 100
  *   order-detail   —— 订单详情。下单后由结算页直接进入，是这笔交易的终点页；
  *                     页内自带底部操作条（取消订单 / 去支付 / 确认收货），
  *                     与 tabbar 同贴视口底会互相压叠，且此时也不该让人误切 tab。
+ *   pay            —— 收银台。支付流程中不该出现商城底部导航：
+ *                     误点 tab 会直接跳走、把正在进行的支付丢掉。
  *   pay-channel    —— 模拟第三方渠道收银台，语义上已经"跳出商城"，
  *                     留着商城底部导航会与渠道界面冲突；它自带固定底部按钮区。
  * 顺带 .layout--tabbar 的 50px 底部内边距也会一起去掉，登录页正好占满一屏。
@@ -64,6 +66,7 @@ const FULLSCREEN_ROUTES = [
   'favorites',
   'profile',
   'order-detail',
+  'pay',
   'pay-channel',
 ]
 const showTabbar = computed(() => !FULLSCREEN_ROUTES.includes(route.name as string))
