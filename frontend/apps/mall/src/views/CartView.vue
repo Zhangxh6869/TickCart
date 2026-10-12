@@ -221,7 +221,7 @@ function goLogin() {
     </van-empty>
 
     <van-empty v-else-if="!cartStore.loading && items.length === 0" description="购物车还是空的">
-      <van-button round type="primary" class="cart__empty-btn" @click="goHome">去逛逛</van-button>
+      <van-button round type="primary" class="cart__empty-btn cart__empty-btn--brand" @click="goHome">去逛逛</van-button>
     </van-empty>
 
     <!-- 删除入口改为左滑露出：卡片本身不再放删除图标（SwipeCell 的删除按钮只在左滑后可见） -->
@@ -357,11 +357,25 @@ function goLogin() {
    取 App.vue 在 :root 覆盖过的 Vant 选中色变量，改那一个变量时两处一起变，
    不用在这里再抄一份色值。
    覆盖的是 Vant primary 按钮自己的两个变量（默认取 --van-primary-color = #1989fa，
-   和 tabbar 的选中色并不是同一个值）；文字色保持 Vant 默认的白，不用动。
-   只加在未登录按钮上：「去逛逛」是已登录空态的按钮，不在此次改动范围内。 */
+   和 tabbar 的选中色并不是同一个值）；文字色保持 Vant 默认的白，不用动。 */
 .cart__empty-btn--accent {
   --van-button-primary-background: var(--van-tabbar-item-active-color, rgb(59, 130, 246));
   --van-button-primary-border-color: var(--van-tabbar-item-active-color, rgb(59, 130, 246));
+}
+/* 已登录空态的主按钮（「去逛逛」）：底色与字体样式对齐「我的」页的「退出登录」按钮 ——
+   即品牌浅蓝 rgb(107,163,200)（与购物车底部「结算」按钮同色）+ 白字 + 字重 600。
+   本按钮仍是 type="primary"（「去逛逛」是引导性操作，不是危险操作），
+   所以覆盖的是 primary 的底色变量；「退出登录」那边覆盖的是 danger 的两个变量。
+   两边色值必须保持一致，改一处记得改另一处。 */
+.cart__empty-btn--brand {
+  --van-button-primary-background: rgb(107, 163, 200);
+  --van-button-primary-border-color: rgb(107, 163, 200);
+  /* 字重也要与「退出登录」一致：那边（同「结算」按钮）用的是
+     var(--van-font-bold) = 600，而普通 van-button 默认只有 400。
+     用 Vant 自己的变量而不是写死 600，以后改 --van-font-bold 两处会一起变。
+     本类直接写在 <van-button> 标签上（= 子组件根节点本身），普通选择器即可命中；
+     若像 MemberView 那样把类挂在**父级包裹 div** 上，则必须用 :deep(.van-button)。 */
+  font-weight: var(--van-font-bold, 600);
 }
 .cart__list {
   padding: 10px 12px 0;
