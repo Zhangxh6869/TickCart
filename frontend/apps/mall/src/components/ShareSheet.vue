@@ -317,23 +317,45 @@ function beforeFeedbackClose(action: string) {
 }
 
 /*
- * 第二行（复制链接 / 生成海报 / 举报 / 反馈与建议 / 更多）用设计给的 SVG，外面套一层白色圆底。
+ * 第二行（复制链接 / 生成海报 / 举报 / 反馈与建议 / 更多）用设计给的 SVG。
  *
  * ★ 必须打在 `.van-share-sheet__image-icon` 上：Vant 对「图片图标」渲染的是**光秃秃的
- *   `<img>`**，没有 `.van-share-sheet__icon` 那层带圆底的外壳 —— 圆底、描边、内边距都得自己补。
- *   `object-fit: contain` 是为了举报那个图标（viewBox 比别的宽），不加会被拉伸变形。
+ *   `<img>`**，没有 `.van-share-sheet__icon` 那层带圆底的外壳。
  *
- * ★ 内边距 8.25px（图形 = 44 − 8.25×2 − 1×2 = **25.5px**）。
- *   外圈圆底保持 44×44px 不变，只把里面的 SVG 图形缩小 15%（30 → 25.5，×0.85）。
- *   25.5px 远小于 44px 圆内接上限 29.7px，四角有余量、不会被 border-radius 裁掉。
- *   （要正好 15% 必须用 8.25px；取 8px→26px / 8.5px→25px 均为近似值。）
+ * ★ 关键结构：把「白圆底」和「图形」拆成两层，否则只能靠加大 padding 缩小图形，
+ *   而那个 <img> 自带白色背景，padding 越大白边越厚，图形就会被白底「包」住、看着像被遮盖。
+ *   - 白圆底（44px 白底 + 1px 描边 + 圆角）用第二行 option 的 ::before 画，置于图形之下；
+ *   - <img> 自身透明、去掉描边/圆角，只靠 padding 把图形收到 25.5px（= 原 30px 的 85%，缩 15%），
+ *     居中叠在白圆底上。按钮外圈仍是 44px，图形缩 15%，白边只剩 1px 细线。
+ *   Vant 把 option 的 className（share-opt--plain）加在 `.van-share-sheet__option` 这个 div 上，
+ *   所以第二行选项直接用 `.van-share-sheet__option.share-opt--plain` 选中，无需 :has()。
+ *   `object-fit: contain` 是为了举报那个图标（viewBox 比别的宽），不加会被拉伸变形。
  */
-.share :deep(.share-opt--plain .van-share-sheet__image-icon) {
+.share :deep(.van-share-sheet__option.share-opt--plain) {
+  position: relative;
+}
+.share :deep(.van-share-sheet__option.share-opt--plain)::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 44px;
+  height: 44px;
   box-sizing: border-box;
-  padding: 8px;
   border: 1px solid var(--van-border-color);
   border-radius: 50%;
   background-color: #fff;
+  z-index: 0;
+}
+.share :deep(.share-opt--plain .van-share-sheet__image-icon) {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  padding: 9.25px;            /* 44 − 9.25×2 = 25.5px：原 30px 缩 15% */
+  border: none;
+  border-radius: 0;
+  background-color: transparent;
   object-fit: contain;
 }
 
