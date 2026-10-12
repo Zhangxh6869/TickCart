@@ -323,14 +323,14 @@ function beforeFeedbackClose(action: string) {
  *   `<img>`**，没有 `.van-share-sheet__icon` 那层带圆底的外壳 —— 圆底、描边、内边距都得自己补。
  *   `object-fit: contain` 是为了举报那个图标（viewBox 比别的宽），不加会被拉伸变形。
  *
- * ★ 内边距 6px（图形 = 44 − 6×2 − 1×2 = **30px**）。
- *   注意这是「44px 的圆能塞下的最大正方形」：内接正方形边长 = 44/√2 ≈ 31.1px，
- *   减去 1px 描边后上限约 29.7px，所以 30px 已经到顶（对角只余 0.2px）。
- *   **再往小调（padding < 6px）字形四角就会真的被 border-radius 裁掉。**
+ * ★ 内边距 8.25px（图形 = 44 − 8.25×2 − 1×2 = **25.5px**）。
+ *   外圈圆底保持 44×44px 不变，只把里面的 SVG 图形缩小 15%（30 → 25.5，×0.85）。
+ *   25.5px 远小于 44px 圆内接上限 29.7px，四角有余量、不会被 border-radius 裁掉。
+ *   （要正好 15% 必须用 8.25px；取 8px→26px / 8.5px→25px 均为近似值。）
  */
 .share :deep(.share-opt--plain .van-share-sheet__image-icon) {
   box-sizing: border-box;
-  padding: 6px;
+  padding: 8.25px;
   border: 1px solid var(--van-border-color);
   border-radius: 50%;
   background-color: #fff;
