@@ -316,6 +316,9 @@ function beforeFeedbackClose(action: string) {
 .share :deep(.van-share-sheet) {
   overflow-x: hidden;
   background: var(--van-gray-2, #f2f3f5);
+  /* 圆底 48 → 44：一行 5 个，窄屏（375/360/320）下每项只有 75/72/64px，
+     48px 的圆在 320px 上左右只剩 8px，缩小一点更透气 */
+  --van-share-sheet-icon-size: 44px;
 }
 
 /*
@@ -349,13 +352,20 @@ function beforeFeedbackClose(action: string) {
 }
 
 /*
- * 固定项宽：宽屏按 20% 铺满，窄屏锁 78px。
- * 390 宽下 20% 正好 78px → 5 个铺满、滑不动（与参考图一致）；
- * 窄屏或以后加到 6 个以上时行内容超宽 → 该行自然可横向滑动。
+ * ★ 项宽：`flex: 0 0 20%` + **很小的 min-width**。
+ *   之前写 `min-width: 78px` 是个坑：375px 视口下 20% 只有 75px，被 min-width 顶到 78px，
+ *   5×78 = 390 > 375 → 整行横向溢出 15px（360px 下溢出 30px），
+ *   最后一项被视口右缘 + 右缘渐隐盖住，看着就是「被遮挡」。
+ *   60px 只在极窄屏（<300px）才兜底，正常手机宽度一律按 20% 平分、永远放得下。
  */
 .share :deep(.van-share-sheet__option) {
   flex: 0 0 20%;
-  min-width: 78px;
+  min-width: 60px;
+}
+
+/* 选项名左右各 4px 内边距在 64px 的项里太占地方（5 个字要 60px），收到 2px */
+.share :deep(.van-share-sheet__name) {
+  padding: 0 2px;
 }
 
 /* Vant 默认给图标左右各 16px 外边距，会把 48px 图标挤出栅格 */
@@ -398,11 +408,18 @@ function beforeFeedbackClose(action: string) {
   background-color: #fff;
   object-fit: contain;
 }
+/* 第一行品牌字形：圆底缩到 44px 后同步收一点（Vant 默认 30px 在 44px 圆里只剩 7px 边距） */
+.share :deep(.van-share-sheet__icon--wechat),
+.share :deep(.van-share-sheet__icon--wechat-moments),
+.share :deep(.van-share-sheet__icon--qq),
+.share :deep(.van-share-sheet__icon--weibo),
+.share :deep(.share-opt--qzone .van-share-sheet__icon) {
+  font-size: 27px;
+}
 /* QQ空间：Vant 没有内置图标，用星形配黄色圆底复刻参考图 */
 .share :deep(.share-opt--qzone .van-share-sheet__icon) {
   background-color: #f7b500;
   color: #fff;
-  font-size: 30px;
 }
 
 /*
