@@ -125,3 +125,21 @@
 | `imgs/sku/p116-body.jpg` | 116 相机 套装=单机身 | `https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=900&q=80&fm=jpg&fit=crop` |
 
 > 仅为本地演示数据，请勿用于商业用途。产品外观与商标归各自权利人所有。
+
+## 分享面板图标（`imgs/share/`）
+
+分享面板第二行（复制链接 / 生成海报 / 举报 / 反馈与建议 / 更多）用的图标，
+由项目开发者提供（iconfont 导出的字形，`viewBox` 为 1024×1024、统一 `fill="#2c2c2c"`），
+原件放在 `~/Downloads`，此处按用途重命名后入库：
+
+| 本地文件 | 用途 | 原件 |
+| --- | --- | --- |
+| `imgs/share/copy-link.svg` | 复制链接 | `复制链接 (1).svg` |
+| `imgs/share/poster.svg` | 生成海报 | `图片.svg` |
+| `imgs/share/report.svg` | 举报 | `举报.svg` |
+| `imgs/share/feedback.svg` | 反馈与建议 | `笔.svg` |
+| `imgs/share/more.svg` | 更多 | `更多.svg` |
+
+> 通过后端 `/img/**` 以 `image/svg+xml` 提供（Vite dev server 也代理了 `/img`）。
+> 图标本身只有字形、没有圆形底，面板上的白色圆底由 `ShareSheet.vue` 的
+> `.share-opt--plain .van-share-sheet__image-icon` 样式补出来。

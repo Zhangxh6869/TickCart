@@ -46,13 +46,21 @@ const CHANNEL_OPTIONS: ShareOption[] = [
   { key: 'weibo', name: '新浪微博', icon: 'weibo' },
 ]
 
-/** 第二行：站内动作 */
+/**
+ * 第二行：站内动作。
+ *
+ * <p>图标用设计给的 SVG（放在仓库 {@code imgs/share/}，由后端 {@code /img/**} 以
+ * {@code image/svg+xml} 提供）。Vant 的 {@code icon} 只要字符串里含 {@code /} 就会渲染成
+ * {@code <img class="van-share-sheet__image-icon">}，所以这里直接给路径 —— 面板上就不再需要
+ * 图标字体了。注意 image-icon **没有** {@code .van-share-sheet__icon} 那层圆形外壳，
+ * 白色圆底得自己补（见样式里的 {@code share-opt--plain}）。</p>
+ */
 const ACTION_OPTIONS: ShareOption[] = [
-  { key: 'link', name: '复制链接', icon: 'link', className: 'share-opt--plain' },
-  { key: 'poster', name: '生成海报', icon: 'poster', className: 'share-opt--plain' },
-  { key: 'report', name: '举报', icon: 'warning-o', className: 'share-opt--plain' },
-  { key: 'feedback', name: '反馈与建议', icon: 'edit', className: 'share-opt--plain' },
-  { key: 'more', name: '更多', icon: 'ellipsis', className: 'share-opt--plain' },
+  { key: 'link', name: '复制链接', icon: '/img/share/copy-link.svg', className: 'share-opt--plain' },
+  { key: 'poster', name: '生成海报', icon: '/img/share/poster.svg', className: 'share-opt--plain' },
+  { key: 'report', name: '举报', icon: '/img/share/report.svg', className: 'share-opt--plain' },
+  { key: 'feedback', name: '反馈与建议', icon: '/img/share/feedback.svg', className: 'share-opt--plain' },
+  { key: 'more', name: '更多', icon: '/img/share/more.svg', className: 'share-opt--plain' },
 ]
 
 /**
@@ -372,16 +380,24 @@ function beforeFeedbackClose(action: string) {
 }
 
 /*
- * 第二行（复制链接 / 生成海报 / 举报 / 反馈与建议 / 更多）在参考图里是「白底 + 细描边」。
- * 只作用于带 .share-opt--plain 的选项 —— 不这么限定的选择器权重会压过 Vant 自己的
- * .van-share-sheet__icon--wechat 等品牌色规则，把品牌图标也刷成白色。
+ * 第二行（复制链接 / 生成海报 / 举报 / 反馈与建议 / 更多）用设计给的 SVG，
+ * 外面套一层白色圆底。
+ *
+ * ★ 必须打在 `.van-share-sheet__image-icon` 上：Vant 对「图片图标」渲染的是**光秃秃的
+ *   `<img>`**，没有 `.van-share-sheet__icon` 那层带圆底的外壳 —— 圆底、描边、内边距都得自己补。
+ *   `box-sizing: border-box` + `padding` 把 48px 的圆压到 26px 的图形（48 − 10×2 − 1×2）。
+ *   （设计给的这几个 SVG 字形比 Vant 的图标字体占位更小，22px 时明显比第一行的品牌图标弱，
+ *   所以取 26px 让两行视觉重量接近。）
+ *   `object-fit: contain` 是为了举报那个图标（viewBox 1127×1024，比别的宽），
+ *   不加会被拉伸变形。
  */
-.share :deep(.share-opt--plain .van-share-sheet__icon) {
-  border: 1px solid var(--van-border-color);
-  background-color: #fff;
-  color: var(--van-gray-7);
-  font-size: 24px;
+.share :deep(.share-opt--plain .van-share-sheet__image-icon) {
   box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid var(--van-border-color);
+  border-radius: 50%;
+  background-color: #fff;
+  object-fit: contain;
 }
 /* QQ空间：Vant 没有内置图标，用星形配黄色圆底复刻参考图 */
 .share :deep(.share-opt--qzone .van-share-sheet__icon) {
