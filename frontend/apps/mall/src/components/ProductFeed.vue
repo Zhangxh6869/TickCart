@@ -8,7 +8,7 @@
  * 数据源固定为公开接口 `GET /api/products`（仅返回上架商品），查询条件全部走 props，
  * 父组件只需改 props，组件内部 `watch` 到变化后自动重查并回到第一页。
  */
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { ProductListItem } from '@tickcart/shared-types'
 import { fetchProducts } from '@/api/product'
 import ProductCard from '@/components/ProductCard.vue'
@@ -49,6 +49,15 @@ const sortOptions = [
 const products = ref<ProductListItem[]>([])
 /** 交给 van-list 的 v-model，只表达「正在加载」，**不用它当并发锁**（原因见 load()） */
 const loading = ref(false)
+/**
+ * 加载失败。
+ *
+ * ★ 必须有这个状态，不能只靠 `finished` + 空数组：那样「请求失败」会和「没有结果」
+ * 长得一模一样 —— 后端一挂（或断网），用户看到的是「没有找到相关商品」，
+ * 会以为是自己搜错了词，而不是「服务不可用」。实测踩过。
+ * 置 true 后由 van-list 渲染「加载失败，点击重试」，点它清掉 error 并重新 check。
+ */
+const error = ref(false)
 const finished = ref(false)
 const page = ref(1)
 const sortBy = ref('createdAt')
@@ -85,8 +94,13 @@ async function load() {
     if (gen !== generation) return // 已被更新的查询取代，丢弃这批结果
     products.value.push(...res.records)
     total.value = res.total
+    error.value = false
     finished.value = page.value >= res.pages
     page.value += 1
+  } catch {
+    // 失败只置 error，不动 products/finished：已加载的内容留在页面上，
+    // van-list 会在列表底部显示「加载失败，点击重试」。
+    if (gen === generation) error.value = true
   } finally {
     if (gen === generation) {
       loading.value = false
@@ -102,6 +116,7 @@ async function reload() {
   page.value = 1
   products.value = []
   total.value = 0
+  error.value = false
   finished.value = false
   await load()
 }
@@ -112,6 +127,15 @@ function selectSort(opt: (typeof sortOptions)[number]) {
   order.value = opt.order
   reload()
 }
+
+/**
+ * 「没有更多了」只在真有商品时才显示。
+ *
+ * 空结果时 `res.pages === 0` 会让 `finished` 直接为 true，van-list 就会在
+ * van-empty 上方先渲染一行「没有更多了」——「没有更多了」和「没有找到相关商品」
+ * 叠在一起很怪。van-list 收到空串不渲染该文案，所以按有无商品给值。
+ */
+const finishedText = computed(() => (products.value.length > 0 ? '没有更多了' : ''))
 
 // 查询条件变化即重查。父组件只管改 props，不用自己调 reload()。
 watch(() => [props.keyword, props.categoryId], reload)
@@ -154,12 +178,15 @@ onMounted(reload)
 
     <van-list
       v-model:loading="loading"
+      v-model:error="error"
       :finished="finished"
       :immediate-check="false"
-      finished-text="没有更多了"
+      :finished-text="finishedText"
+      error-text="加载失败，点击重试"
       @load="load"
     />
-    <van-empty v-if="!loading && products.length === 0" :description="emptyText">
+    <!-- 空态只在「确实查完了、且没有出错」时出现，否则会把「失败」说成「没有结果」 -->
+    <van-empty v-if="!loading && !error && products.length === 0" :description="emptyText">
       <slot name="empty" />
     </van-empty>
   </div>

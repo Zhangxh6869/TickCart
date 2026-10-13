@@ -16,7 +16,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showConfirmDialog } from 'vant'
-import { fetchCategories } from '@/api/product'
+import { fetchProducts } from '@/api/product'
 import ProductFeed from '@/components/ProductFeed.vue'
 
 const route = useRoute()
@@ -25,8 +25,10 @@ const router = useRouter()
 /** 搜索历史在本机的存储键与上限 */
 const HISTORY_KEY = 'tickcart.search.history'
 const HISTORY_MAX = 10
-/** 热门搜索展示的个数（分类名） */
+/** 热门搜索展示的个数 */
 const HOT_MAX = 8
+/** 算热搜词时取多少条热销商品（去重前的候选池，留足余量） */
+const HOT_POOL = 20
 /** 关键词长度上限。后端对该字段没有长度约束，先在前端收口。 */
 const KEYWORD_MAX = 30
 
@@ -125,6 +127,34 @@ function goBack() {
   }
 }
 
+/**
+ * 拉热门搜索词。
+ *
+ * ★★ 用「热销商品名的首段」而不是分类名 —— 这是踩过的坑：
+ * 后端搜索只匹配商品名 `name`（见 ProductService.filterWrapper），而分类名
+ * （「手机数码」「鞋类」…）几乎不可能出现在任何商品名里，拿它当关键词点进去
+ * **必然**是「没有找到相关商品」。实测 8 个分类名热搜词命中 0/8，
+ * 用户点第一下就会以为「搜索坏了」。
+ *
+ * 取热销商品名的首段（去掉规格/颜色后缀，如「全面屏智能手机 8+256G 赤焰红」→
+ * 「全面屏智能手机」）既能保证每个词都搜得到东西，也天然对应「热门」。
+ * 更好的做法是接一张搜索词统计表（二期，见方案 §2.3）。
+ */
+async function loadHotWords() {
+  try {
+    const res = await fetchProducts({ page: 1, size: HOT_POOL, sortBy: 'sales', order: 'desc' })
+    const words: string[] = []
+    for (const p of res.records) {
+      const head = p.name.trim().split(/\s+/)[0]
+      if (head && !words.includes(head)) words.push(head)
+      if (words.length >= HOT_MAX) break
+    }
+    hotWords.value = words
+  } catch {
+    // 热搜拉不到就不显示该区块，不影响搜索本身
+  }
+}
+
 onMounted(async () => {
   // 支持 /search?keyword=xxx 直达（首页搜索框、外部分享链接）
   const q = typeof route.query.keyword === 'string' ? route.query.keyword.trim() : ''
@@ -134,12 +164,7 @@ onMounted(async () => {
     pushHistory(q)
   }
 
-  try {
-    const categories = await fetchCategories()
-    hotWords.value = categories.slice(0, HOT_MAX).map((c) => c.name)
-  } catch {
-    // 热搜拉不到就不显示该区块，不影响搜索本身
-  }
+  await loadHotWords()
 })
 </script>
 
@@ -229,6 +254,17 @@ onMounted(async () => {
       </template>
       <template #empty>
         <span class="search__empty-tip">换个关键词试试</span>
+        <!-- 搜不到时给一组「一定搜得到」的热门词，别让用户困在空结果里 -->
+        <div v-if="hotWords.length" class="chips chips--center">
+          <span
+            v-for="word in hotWords"
+            :key="word"
+            class="chip chip--hot"
+            @click="submit(word)"
+          >
+            {{ word }}
+          </span>
+        </div>
       </template>
     </ProductFeed>
   </div>
@@ -375,5 +411,11 @@ onMounted(async () => {
   margin-top: 4px;
   font-size: 12px;
   color: #969799;
+}
+/* 空结果里的热搜词：van-empty 是居中的，这里也要跟着居中且限宽换行 */
+.chips--center {
+  justify-content: center;
+  max-width: 300px;
+  margin: 14px auto 0;
 }
 </style>
