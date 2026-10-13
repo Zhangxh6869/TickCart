@@ -32,6 +32,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/OrderManageView.vue'),
         meta: { title: '订单管理', requiresAuth: true },
       },
+      {
+        path: 'search-analytics',
+        name: 'search-analytics',
+        component: () => import('@/views/SearchAnalyticsView.vue'),
+        meta: { title: '搜索分析', requiresAuth: true },
+      },
     ],
   },
   {

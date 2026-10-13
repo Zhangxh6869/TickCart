@@ -8,6 +8,8 @@ import com.tickcart.product.service.CategoryService;
 import com.tickcart.product.service.ProductService;
 import com.tickcart.product.vo.ProductDetail;
 import com.tickcart.product.vo.ProductListItem;
+import com.tickcart.common.security.UserContext;
+import com.tickcart.search.service.SearchLogService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,16 +29,26 @@ public class ProductController {
 
     private final ProductService productService;
     private final CategoryService categoryService;
+    private final SearchLogService searchLogService;
 
-    public ProductController(ProductService productService, CategoryService categoryService) {
+    public ProductController(ProductService productService,
+                             CategoryService categoryService,
+                             SearchLogService searchLogService) {
         this.productService = productService;
         this.categoryService = categoryService;
+        this.searchLogService = searchLogService;
     }
 
     @Operation(summary = "商品列表", description = "支持关键字搜索、分类筛选、排序、分页；仅返回上架商品")
     @GetMapping("/products")
     public R<PageResult<ProductListItem>> list(ProductQuery query) {
-        return R.ok(productService.page(query, true));
+        PageResult<ProductListItem> result = productService.page(query, true);
+        // 仅在带关键词的「搜索」场景下记日志（普通浏览/按分类筛选不记），避免污染无结果词榜
+        String keyword = query.getKeyword();
+        if (keyword != null && !keyword.isBlank()) {
+            searchLogService.record(keyword, (int) result.getTotal(), UserContext.getUserId());
+        }
+        return R.ok(result);
     }
 
     @Operation(summary = "商品详情")

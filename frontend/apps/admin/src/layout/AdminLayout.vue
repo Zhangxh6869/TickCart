@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import { Goods, Menu, Tickets } from '@element-plus/icons-vue'
+import { Goods, Menu, Tickets, Search } from '@element-plus/icons-vue'
 import { useAdminStore } from '@/stores/admin'
 
 const route = useRoute()
@@ -34,6 +34,10 @@ async function onLogout() {
         <el-menu-item index="/orders">
           <el-icon><Tickets /></el-icon>
           <span>订单管理</span>
+        </el-menu-item>
+        <el-menu-item index="/search-analytics">
+          <el-icon><Search /></el-icon>
+          <span>搜索分析</span>
         </el-menu-item>
       </el-menu>
     </el-aside>
