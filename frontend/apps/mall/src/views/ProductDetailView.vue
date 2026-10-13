@@ -19,6 +19,26 @@ import type { ShareProduct } from '@/utils/share'
  */
 type SkuSheetMode = 'cart' | 'buyNow' | 'browse'
 
+/**
+ * 底部「收藏」图标的两个状态。
+ *
+ * <p>设计给的 SVG 里其实是两段闭合子路径：外层是描边星（未收藏），内层是一颗完整的
+ * 实心星（已收藏）。两段都在同一份画布上，拆开直接用即可，不用再要一张实心图。
+ * 只保留 viewBox 与 path —— 源文件里的 `t` / `p-id` / `class` / DOCTYPE 都是导出工具
+ * 留下的元数据，对渲染无意义（与 `TabBarIcon.vue` 同一套做法）。</p>
+ *
+ * <p>viewBox 必须跟着状态一起换：外层轮廓铺满整张 1065×1024 画布，内层只有 894×854
+ * 且偏在画布中间，共用一个 viewBox 的话「实心」那档会看起来小一圈。</p>
+ */
+const STAR_OUTLINE = {
+  viewBox: '0 0 1065 1024',
+  d: 'M964.340451 303.311757l-209.677811-30.424833a32.072845 32.072845 0 0 1-24.086326-17.62105l-93.683133-190.155209a116.755298 116.755298 0 0 0-209.424271 0l-93.683133 190.155209a32.199615 32.199615 0 0 1-24.213096 17.494279L100.02164 303.311757a116.755298 116.755298 0 0 0-64.652771 199.155889l152.124167 147.813983a31.946075 31.946075 0 0 1 9.25422 28.396511L160.364226 887.7221A116.501758 116.501758 0 0 0 329.602363 1010.435595l187.619806-98.500398a32.072845 32.072845 0 0 1 29.917753 0l187.366266 98.500398a115.994678 115.994678 0 0 0 122.967036-8.87391 115.994678 115.994678 0 0 0 46.397871-114.093125l-35.74918-208.79042a31.946075 31.946075 0 0 1 9.25422-28.396511l152.124168-147.813983a116.755298 116.755298 0 0 0-64.652771-199.155889z',
+}
+const STAR_FILLED = {
+  viewBox: '84.308 85.231 894.731 853.965',
+  d: 'M969.918337 441.744749l-152.124167 147.940753a116.628528 116.628528 0 0 0-33.467317 103.317664l36.12949 208.663649a32.199615 32.199615 0 0 1-46.524641 33.847628L586.565435 837.014044a118.910391 118.910391 0 0 0-108.768779 0l-187.366266 98.500399a32.072845 32.072845 0 0 1-46.524642-33.847628l35.74918-208.663649a116.755298 116.755298 0 0 0-33.594087-103.317664l-152.124168-147.940753a32.072845 32.072845 0 0 1 17.74782-54.63793l209.55104-30.424833a116.882069 116.882069 0 0 0 87.978477-63.38507l93.683133-190.155209a32.072845 32.072845 0 0 1 57.553644 0l93.683133 190.155209a116.755298 116.755298 0 0 0 87.851706 63.38507l209.677811 30.424833a32.072845 32.072845 0 0 1 17.74782 54.63793z',
+}
+
 const route = useRoute()
 const router = useRouter()
 const cartStore = useCartStore()
@@ -105,6 +125,8 @@ const priceParts = computed(() => {
   const [integer, decimal] = formatPrice(currentPrice.value).split('.')
   return { integer, decimal }
 })
+/** 当前收藏状态对应的星形：未收藏描边、已收藏实心 */
+const starIcon = computed(() => (favorited.value ? STAR_FILLED : STAR_OUTLINE))
 
 // 换规格后库存跟着变，把数量夹回合法区间，避免出现「选了 3 件但只剩 1 件」
 watch(selectedSku, () => {
@@ -418,7 +440,15 @@ function submitBuyNow(count: number) {
           :class="{ 'is-favorited': favorited }"
           @click="onFavorite"
         >
-          <van-icon :name="favorited ? 'star' : 'star-o'" size="20" />
+          <svg
+            class="action-bar__star"
+            :viewBox="starIcon.viewBox"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path :d="starIcon.d" fill="currentColor" />
+          </svg>
           <span>收藏</span>
         </button>
         <button
@@ -782,12 +812,24 @@ function submitBuyNow(count: number) {
   border: none;
   background: none;
   font-size: 11px;
-  color: #646566;
+  /* 图标色 = 设计给的 SVG 自带的 #2c2c2c（path 的 fill 走 currentColor） */
+  color: #2c2c2c;
   cursor: pointer;
 }
-/* 已收藏：实心星 + 与 tabbar 选中态同源的强调色 */
+/* 已收藏：星形换成实心并转橘黄（与「加入购物车」同色） */
 .action-bar__icon.is-favorited {
-  color: var(--van-tabbar-item-active-color, rgb(59, 130, 246));
+  color: #ff9500;
+}
+/* 「收藏」两个字固定黑色，不跟图标的状态色走 */
+.action-bar__icon span {
+  color: #000;
+}
+/* 图标由内联 SVG 承担后，尺寸对齐原来的 van-icon（20px）；
+   display: block 不能省 —— 内联元素会在基线处留出缝隙 */
+.action-bar__star {
+  display: block;
+  width: 21px;
+  height: 20px;
 }
 .action-bar__btn {
   flex: 1;
