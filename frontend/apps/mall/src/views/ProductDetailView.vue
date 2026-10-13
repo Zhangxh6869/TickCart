@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import type { ProductDetail, ProductSku } from '@tickcart/shared-types'
@@ -11,6 +11,13 @@ import { useCartStore } from '@/stores/cart'
 import { useUserStore } from '@/stores/user'
 import { buildBuyNowQuery } from '@/utils/checkout-route'
 import type { ShareProduct } from '@/utils/share'
+
+/**
+ * 「选择款式」面板的入口模式，决定底部按钮文案与确认后的动作。
+ *
+ * <p>{@code browse} 只用于详情页快捷行的「款式 N」——那里只是挑款式看，不执行下单动作。</p>
+ */
+type SkuSheetMode = 'cart' | 'buyNow' | 'browse'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,8 +35,14 @@ const activeSection = ref<'gallery' | 'detail'>('gallery')
 /** 长标题是否已展开；只有折叠态下真的被截断才显示「更多」 */
 const titleExpanded = ref(false)
 const titleOverflow = ref(false)
-/** 规格选择弹层 */
-const skuPopupVisible = ref(false)
+/** 选择款式面板：加入购物车 / 立即购买都先经过它 */
+const skuSheetVisible = ref(false)
+/** 面板本次的入口模式，决定底部按钮文案与确认后的动作 */
+const skuSheetMode = ref<SkuSheetMode>('browse')
+/** 面板内选购的数量，范围 1 ~ 当前规格库存 */
+const quantity = ref(1)
+/** 加购提交中：避免连点重复下单 */
+const submitting = ref(false)
 /** 是否已收藏；未登录时恒为 false */
 const favorited = ref(false)
 /** 分享面板 */
@@ -60,6 +73,25 @@ const currentPrice = computed(() => selectedSku.value?.price ?? detail.value?.pr
 const currentStock = computed(() => selectedSku.value?.stock ?? detail.value?.stock ?? 0)
 const canBuy = computed(() => currentStock.value > 0)
 const skuCount = computed(() => detail.value?.skus.length ?? 0)
+/**
+ * 是否还有可购的规格。
+ *
+ * <p>底部两个按钮据此决定能否点击：不能只看「当前选中的规格」——当前那档售罄时
+ * 用户还得能点进面板换一档。无规格商品则看商品自身的库存。</p>
+ */
+const hasStock = computed(() =>
+  skuCount.value ? (detail.value?.skus ?? []).some((sku) => sku.stock > 0) : currentStock.value > 0,
+)
+/** 数量上限；库存为 0 时也至少给 1，步进器不会被夹成 0 */
+const maxQuantity = computed(() => Math.max(1, currentStock.value))
+/** 面板头部的封面图：优先当前规格自己的图，没有就退回商品主图 */
+const sheetImage = computed(() => selectedSku.value?.skuImage || detail.value?.mainImage || '')
+/** 面板底部按钮文案：跟随入口模式，浏览态只做「确定」 */
+const skuSheetConfirmText = computed(() => {
+  if (skuSheetMode.value === 'cart') return '加入购物车'
+  if (skuSheetMode.value === 'buyNow') return '立即购买'
+  return '确定'
+})
 const isSeckill = computed(() => detail.value?.isSeckill === 1)
 /** 分享只需要这几个字段：价格跟着当前选中规格走，分享出去的才是用户看到的那一档 */
 const shareProduct = computed<ShareProduct>(() => ({
@@ -72,6 +104,12 @@ const shareProduct = computed<ShareProduct>(() => ({
 const priceParts = computed(() => {
   const [integer, decimal] = formatPrice(currentPrice.value).split('.')
   return { integer, decimal }
+})
+
+// 换规格后库存跟着变，把数量夹回合法区间，避免出现「选了 3 件但只剩 1 件」
+watch(selectedSku, () => {
+  if (quantity.value > maxQuantity.value) quantity.value = maxQuantity.value
+  if (quantity.value < 1) quantity.value = 1
 })
 
 onMounted(load)
@@ -174,34 +212,85 @@ function requireLogin(): boolean {
   return false
 }
 
-async function onAddToCart() {
-  if (!canBuy.value) {
-    showToast('该规格已售罄')
+/**
+ * 打开「选择款式」面板。
+ *
+ * <p>加入购物车与立即购买都先经过它：用户在面板里挑款式、定数量，再点底部按钮执行。
+ * 无规格商品没有款式可选，直接按原动作走，不弹一个空面板。</p>
+ */
+function openSkuSheet(mode: SkuSheetMode) {
+  if (!hasStock.value) {
+    showToast('该商品已售罄')
     return
   }
-  if (!requireLogin()) return
-  try {
-    await cartStore.add(detail.value!.id, 1, selectedSku.value?.id ?? 0)
-    showToast('已加入购物车')
-  } catch {
-    // 库存不足等错误提示由请求拦截器统一处理
+  if (!skuCount.value) {
+    if (mode === 'cart') {
+      if (!requireLogin()) return
+      // 提示由请求拦截器统一处理，这里只吞掉 rejection 避免未捕获告警
+      submitAddToCart(1).catch(() => undefined)
+    } else if (mode === 'buyNow') {
+      submitBuyNow(1)
+    }
+    return
   }
+  skuSheetMode.value = mode
+  quantity.value = 1
+  skuSheetVisible.value = true
 }
 
 /**
- * 立即购买：直接进确认订单页，**不加入购物车**。
+ * 面板底部确认：按入口模式执行对应动作。
  *
- * <p>商品与规格通过路由 query 传给结算页，由结算页自己重新拉一次详情来展示 ——
- * 不把本页的数据带过去，价格与库存才会以服务端最新值结算。</p>
+ * <p>加购失败（库存不足等）时面板留在原地，方便用户改数量重试；跳转类动作先收起面板，
+ * 否则登录页/结算页会被面板压住。</p>
  */
-function onBuyNow() {
+async function confirmSkuSheet() {
+  if (submitting.value) return
+  const mode = skuSheetMode.value
+  if (mode === 'browse') {
+    skuSheetVisible.value = false
+    return
+  }
   if (!canBuy.value) {
     showToast('该规格已售罄')
     return
   }
+  if (mode === 'buyNow') {
+    skuSheetVisible.value = false
+    submitBuyNow(quantity.value)
+    return
+  }
+  if (!requireLogin()) {
+    skuSheetVisible.value = false
+    return
+  }
+  submitting.value = true
+  try {
+    await submitAddToCart(quantity.value)
+    skuSheetVisible.value = false
+  } catch {
+    // 库存不足等错误提示由请求拦截器统一处理，面板保持打开便于调整数量
+  } finally {
+    submitting.value = false
+  }
+}
+
+/** 加入购物车；数量由面板决定 */
+async function submitAddToCart(count: number) {
+  await cartStore.add(detail.value!.id, count, selectedSku.value?.id ?? 0)
+  showToast('已加入购物车')
+}
+
+/**
+ * 立即购买：进确认订单页，**不加入购物车**。
+ *
+ * <p>商品、规格与数量通过路由 query 传给结算页，由结算页自己重新拉一次详情来展示 ——
+ * 不把本页的数据带过去，价格与库存才会以服务端最新值结算。</p>
+ */
+function submitBuyNow(count: number) {
   const target = {
     name: 'checkout' as const,
-    query: buildBuyNowQuery(detail.value!.id, selectedSku.value?.id ?? 0),
+    query: buildBuyNowQuery(detail.value!.id, selectedSku.value?.id ?? 0, count),
   }
   if (!userStore.isLoggedIn) {
     // 登录后直接回到确认订单页，不用让用户再点一次「立即购买」
@@ -257,7 +346,7 @@ function onBuyNow() {
         >
           图集 {{ gallery.length ? activeImage + 1 : 0 }}/{{ gallery.length }}
         </button>
-        <button class="quick-bar__item" type="button" :disabled="!skuCount" @click="skuPopupVisible = true">
+        <button class="quick-bar__item" type="button" :disabled="!skuCount" @click="openSkuSheet('browse')">
           款式 {{ skuCount }}
         </button>
         <button
@@ -335,30 +424,46 @@ function onBuyNow() {
         <button
           class="action-bar__btn action-bar__btn--cart"
           type="button"
-          :disabled="!canBuy"
-          @click="onAddToCart"
+          :disabled="!hasStock"
+          @click="openSkuSheet('cart')"
         >
-          {{ canBuy ? '加入购物车' : '已售罄' }}
+          {{ hasStock ? '加入购物车' : '已售罄' }}
         </button>
         <button
           class="action-bar__btn action-bar__btn--buy"
           type="button"
-          :disabled="!canBuy"
-          @click="onBuyNow"
+          :disabled="!hasStock"
+          @click="openSkuSheet('buyNow')"
         >
           立即购买
         </button>
       </div>
 
-      <!-- 规格选择弹层 -->
-      <van-popup v-model:show="skuPopupVisible" position="bottom" round>
+      <!-- 选择款式面板：加入购物车 / 立即购买都先经过它，选好款式与数量再执行 -->
+      <van-popup v-model:show="skuSheetVisible" position="bottom" round class="sku-sheet">
         <div class="sku-popup">
+          <!-- 头部：封面 + 当前价 + 数量，随选中的规格实时联动 -->
           <div class="sku-popup__head">
-            <span class="sku-popup__title">选择规格</span>
-            <button class="sku-popup__close" type="button" aria-label="关闭" @click="skuPopupVisible = false">
+            <span class="sku-popup__cover">
+              <img v-if="sheetImage" :src="sheetImage" alt="" />
+              <van-icon v-else name="photo-o" size="22" />
+            </span>
+            <div class="sku-popup__summary">
+              <div class="sku-popup__amount">
+                <span class="sku-popup__symbol">¥</span>{{ formatPrice(currentPrice) }}
+              </div>
+              <div class="sku-popup__qty">
+                <span class="sku-popup__qty-label">数量</span>
+                <van-stepper v-model="quantity" :min="1" :max="maxQuantity" integer />
+              </div>
+            </div>
+            <button class="sku-popup__close" type="button" aria-label="关闭" @click="skuSheetVisible = false">
               <van-icon name="cross" size="18" />
             </button>
           </div>
+
+          <div class="sku-popup__title">规格（{{ skuCount }}）</div>
+
           <div class="sku-popup__body">
             <button
               v-for="sku in detail.skus"
@@ -381,6 +486,19 @@ function onBuyNow() {
               </span>
               <span class="sku-popup__price">¥{{ formatPrice(sku.price) }}</span>
               <span class="sku-popup__stock">{{ sku.stock > 0 ? `库存 ${sku.stock}` : '已售罄' }}</span>
+            </button>
+          </div>
+
+          <!-- 底部确认：文案跟着入口走（加入购物车 / 立即购买 / 确定） -->
+          <div class="sku-popup__foot">
+            <button
+              class="sku-popup__submit"
+              :class="`sku-popup__submit--${skuSheetMode}`"
+              type="button"
+              :disabled="!canBuy || submitting"
+              @click="confirmSkuSheet"
+            >
+              {{ submitting ? '处理中…' : skuSheetConfirmText }}
             </button>
           </div>
         </div>
@@ -692,33 +810,90 @@ function onBuyNow() {
   background: #ee0a24;
 }
 
-/* ── 规格弹层 ── */
+/* ── 选择款式面板 ──
+   面板整体收在视口内：头部与底部固定，只有中间的规格列表滚动 */
+.sku-sheet {
+  max-height: 86vh;
+  overflow: hidden;
+}
 .sku-popup {
-  padding: 16px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  padding: 16px;
 }
 .sku-popup__head {
   display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: 12px;
+}
+.sku-popup__cover {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #f2f3f5;
+  color: #c8c9cc;
+}
+.sku-popup__cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sku-popup__summary {
+  flex: 1;
+  min-width: 0;
+}
+.sku-popup__amount {
+  display: flex;
+  align-items: baseline;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #ee0a24;
+}
+.sku-popup__symbol {
+  margin-right: 1px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.sku-popup__qty {
+  display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-top: 10px;
 }
-.sku-popup__title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #323233;
+.sku-popup__qty-label {
+  font-size: 13px;
+  color: #646566;
 }
 .sku-popup__close {
+  flex: none;
   padding: 4px;
   border: none;
   background: none;
   color: #969799;
   cursor: pointer;
 }
+.sku-popup__title {
+  flex: none;
+  margin: 16px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #323233;
+}
 .sku-popup__body {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 8px;
-  max-height: 40vh;
+  min-height: 0;
   overflow-y: auto;
 }
 .sku-popup__item {
@@ -760,14 +935,47 @@ function onBuyNow() {
 }
 .sku-popup__name {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
   color: #323233;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .sku-popup__price {
+  flex: none;
   font-weight: 600;
   color: #ee0a24;
 }
 .sku-popup__stock {
+  flex: none;
   font-size: 12px;
   color: #969799;
+}
+.sku-popup__foot {
+  flex: none;
+  padding-top: 16px;
+}
+/* 用普通按钮而非 van-button：三个入口各一种底色，普通按钮更好控 */
+.sku-popup__submit {
+  display: block;
+  width: 100%;
+  height: 44px;
+  border: none;
+  border-radius: 22px;
+  background: #ee0a24;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+}
+.sku-popup__submit--cart {
+  background: #ff9500;
+}
+.sku-popup__submit--browse {
+  background: var(--van-primary-color, #1989fa);
+}
+.sku-popup__submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>
