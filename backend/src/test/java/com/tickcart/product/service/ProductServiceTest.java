@@ -3,6 +3,7 @@ package com.tickcart.product.service;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tickcart.common.exception.BizException;
 import com.tickcart.product.dto.ProductQuery;
 import com.tickcart.product.dto.ProductSaveRequest;
@@ -60,8 +61,10 @@ class ProductServiceTest {
      */
     @BeforeAll
     static void initTableInfo() {
-        TableInfoHelper.initTableInfo(
-                new MapperBuilderAssistant(new MybatisConfiguration(), ""), ProductSku.class);
+        MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
+        TableInfoHelper.initTableInfo(assistant, ProductSku.class);
+        // 关键字转义的断言要实体化商品表的 wrapper，Product 也要初始化
+        TableInfoHelper.initTableInfo(assistant, Product.class);
     }
 
     private void categoryExists() {
@@ -384,5 +387,94 @@ class ProductServiceTest {
                 .contains("spec_value")
                 .contains("IS NOT NULL")
                 .contains("<>");
+    }
+
+    // -------------------------------------------------------------------------
+    // 关键字搜索：通配符转义
+    // -------------------------------------------------------------------------
+
+    /** 跑一次列表查询，返回真正传给 mapper 的 wrapper */
+    private LambdaQueryWrapper<Product> captureListWrapper(String keyword) {
+        when(productMapper.selectPage(any(), any())).thenReturn(new Page<>(1, 10));
+
+        ProductQuery query = new ProductQuery();
+        query.setKeyword(keyword);
+        productService.page(query, true);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaQueryWrapper<Product>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(productMapper).selectPage(any(), captor.capture());
+        return captor.getValue();
+    }
+
+    /**
+     * 取 wrapper 里绑定的参数值。
+     *
+     * <p>★ 必须先调一次 {@code getSqlSegment()} 把条件实体化：{@code apply(...)} 的参数是
+     * **惰性**写入 {@code paramNameValuePairs} 的（内部存的是个 lambda，只有真正拼 SQL 时
+     * 才格式化并登记参数）。少了这一步，读到的永远是空表，测试会假失败。</p>
+     *
+     * <p>结果里除关键字外还会带上 {@code status} 条件绑定的 1（前台固定只查上架），
+     * 所以断言用 {@code contains} 而不是 {@code containsExactly}。</p>
+     */
+    private List<Object> capturedParams(LambdaQueryWrapper<Product> wrapper) {
+        wrapper.getSqlSegment();
+        return new ArrayList<>(wrapper.getParamNameValuePairs().values());
+    }
+
+    @Test
+    @DisplayName("关键字走 LIKE 且显式声明转义字符")
+    void keywordUsesLikeWithEscape() {
+        LambdaQueryWrapper<Product> wrapper = captureListWrapper("手机");
+
+        assertThat(wrapper.getSqlSegment())
+                .contains("name LIKE")
+                .contains("ESCAPE '!'");
+        assertThat(capturedParams(wrapper)).contains("%手机%");
+    }
+
+    @Test
+    @DisplayName("关键字里的 % 被转义，不再当成通配符")
+    void keywordEscapesPercent() {
+        // 不转义时 keyword=% 会命中全库，这是修复前实测到的行为
+        LambdaQueryWrapper<Product> wrapper = captureListWrapper("%");
+
+        assertThat(capturedParams(wrapper)).contains("%!%%");
+    }
+
+    @Test
+    @DisplayName("关键字里的 _ 被转义，不再当成单字符通配符")
+    void keywordEscapesUnderscore() {
+        LambdaQueryWrapper<Product> wrapper = captureListWrapper("a_b");
+
+        assertThat(capturedParams(wrapper)).contains("%a!_b%");
+    }
+
+    @Test
+    @DisplayName("转义字符自身也被转义，防止绕过")
+    void keywordEscapesEscapeCharItself() {
+        // 输入 "!%" 若不转义 ! 本身，会被解析成「转义符 + 通配符」= 字面量 %，
+        // 用户就又能用 !% 注入通配符了
+        LambdaQueryWrapper<Product> wrapper = captureListWrapper("!%");
+
+        assertThat(capturedParams(wrapper)).contains("%!!!%%");
+    }
+
+    @Test
+    @DisplayName("关键字两侧空白被裁掉")
+    void keywordIsTrimmed() {
+        LambdaQueryWrapper<Product> wrapper = captureListWrapper("  手机  ");
+
+        assertThat(capturedParams(wrapper)).contains("%手机%");
+    }
+
+    @Test
+    @DisplayName("空白关键字不产生 LIKE 条件")
+    void blankKeywordProducesNoLikeCondition() {
+        LambdaQueryWrapper<Product> wrapper = captureListWrapper("   ");
+
+        assertThat(wrapper.getSqlSegment()).doesNotContain("LIKE");
+        assertThat(capturedParams(wrapper)).noneMatch(String.class::isInstance);
     }
 }

@@ -127,10 +127,31 @@ public class ProductService {
         return new PageResult<>(items, shuffled.size(), query.getPage(), size, pages);
     }
 
-    /** 组装筛选条件（关键字 / 分类 / 状态），常规分页与随机分页共用。 */
+    /**
+     * LIKE 的转义字符。
+     *
+     * <p>特意不用反斜杠：MySQL 的字符串字面量里 {@code '\'} 本身是不完整的
+     * （反斜杠会转义右引号），要写 {@code '\\'} 才行；而 {@code NO_BACKSLASH_ESCAPES}
+     * 模式下 {@code '\\'} 又会变成两个反斜杠。换个字符就完全绕开这套引号/模式的坑。</p>
+     */
+    private static final String LIKE_ESCAPE = "!";
+
+    /**
+     * 组装筛选条件（关键字 / 分类 / 状态），常规分页与随机分页共用。
+     *
+     * <p><b>关键字必须转义通配符。</b> {@code LambdaQueryWrapper.like()} 只做
+     * {@code '%' + 值 + '%'} 拼接，不会处理用户输入里的 {@code %} 与 {@code _} ——
+     * 它们是 LIKE 的通配符。实测 {@code keyword=%} 会把**全部商品**都查出来
+     * （搜「100%」同理），属于明确的搜索行为错误，所以这里改成
+     * {@code apply} + 显式 {@code ESCAPE}。</p>
+     */
     private LambdaQueryWrapper<Product> filterWrapper(ProductQuery query, boolean onlyOnSale) {
+        String keyword = query.getKeyword() == null ? "" : query.getKeyword().trim();
+        boolean hasKeyword = StringUtils.hasText(keyword);
+
         LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<Product>()
-                .like(StringUtils.hasText(query.getKeyword()), Product::getName, query.getKeyword())
+                .apply(hasKeyword, "name LIKE {0} ESCAPE '" + LIKE_ESCAPE + "'",
+                        "%" + escapeLike(keyword) + "%")
                 .eq(query.getCategoryId() != null, Product::getCategoryId, query.getCategoryId());
 
         if (onlyOnSale) {
@@ -139,6 +160,19 @@ public class ProductService {
             wrapper.eq(Product::getStatus, query.getStatus());
         }
         return wrapper;
+    }
+
+    /**
+     * 把用户输入里的 LIKE 通配符转义成字面量。
+     *
+     * <p>转义字符自身必须先转义，否则 {@code !%} 这种输入会被解析成「转义符 + 通配符」，
+     * 用户就又能注入通配符了。</p>
+     */
+    private static String escapeLike(String value) {
+        return value
+                .replace(LIKE_ESCAPE, LIKE_ESCAPE + LIKE_ESCAPE)
+                .replace("%", LIKE_ESCAPE + "%")
+                .replace("_", LIKE_ESCAPE + "_");
     }
 
     /** 商品详情（含 SKU、图集、分类名）。 */
