@@ -56,6 +56,9 @@ const indicatorLeft = computed(() => `calc(${activeIndex.value} * 100% / 3 + 100
  *                     误点 tab 会直接跳走、把正在进行的支付丢掉。
  *   pay-channel    —— 模拟第三方渠道收银台，语义上已经"跳出商城"，
  *                     留着商城底部导航会与渠道界面冲突；它自带固定底部按钮区。
+ *   search         —— 独立搜索页。顶部自带「返回 + 输入框 + 搜索」，
+ *                     属于从首页往下的独立层级；结果列表是无限滚动的，
+ *                     底部压着 tabbar 既挡内容又容易被误点跳走。
  * 顺带 .layout--tabbar 的 50px 底部内边距也会一起去掉，登录页正好占满一屏。
  */
 const FULLSCREEN_ROUTES = [
@@ -68,6 +71,7 @@ const FULLSCREEN_ROUTES = [
   'order-detail',
   'pay',
   'pay-channel',
+  'search',
 ]
 const showTabbar = computed(() => !FULLSCREEN_ROUTES.includes(route.name as string))
 

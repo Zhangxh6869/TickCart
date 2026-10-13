@@ -144,6 +144,10 @@ onMounted(reload)
       </span>
     </div>
 
+    <!-- 排序栏与商品网格之间的信息行（如「为你找到 N 件商品」）。放在组件内部，
+         是为了让这一行的纵向位置在所有使用方完全一致，不用各自写一遍外边距。 -->
+    <slot name="summary" />
+
     <div class="product-grid">
       <ProductCard v-for="p in products" :key="p.id" :product="p" />
     </div>

@@ -255,12 +255,15 @@ function selectCategory(id: number | null) {
   centerActiveCategory()
 }
 
-/** 跳商品列表页，带上当前分类，保证列表页与首页看到的是同一批商品。 */
-function goList() {
-  router.push({
-    name: 'product-list',
-    query: activeCategoryId.value === null ? {} : { categoryId: activeCategoryId.value },
-  })
+/**
+ * 点搜索框进独立搜索页。
+ *
+ * ★ 这里**不再**跳 `/products`。首页的搜索框是 `readonly` 的装饰态（真输入在搜索页），
+ * 原先跳列表页既带不上关键词、也没有历史/热搜，用户以为能搜却搜不了。
+ * 现在统一进 `/search`（空态给历史 + 热搜，提交后同页出结果）。
+ */
+function goSearch() {
+  router.push({ name: 'search' })
 }
 
 onMounted(async () => {
@@ -292,7 +295,7 @@ onBeforeUnmount(() => {
         placeholder="搜索商品"
         readonly
         show-action
-        @click="goList"
+        @click="goSearch"
       >
         <template #left-icon>
           <svg
@@ -308,7 +311,7 @@ onBeforeUnmount(() => {
           </svg>
         </template>
         <template #action>
-          <button class="search-btn" type="button" @click.stop="goList">搜索</button>
+          <button class="search-btn" type="button" @click.stop="goSearch">搜索</button>
         </template>
       </van-search>
 

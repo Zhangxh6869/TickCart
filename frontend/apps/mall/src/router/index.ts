@@ -144,6 +144,16 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '商品列表', depth: 2 },
   },
   {
+    // 独立搜索页。depth 与商品列表同级（都是首页的下一层），
+    // 所以「首页 → 搜索」天然判为 forward（右滑前进）、返回为 back，无需在
+    // resolvePageTransition 里加配对规则。
+    // 结果与空态在同一路由内切换，改词不产生新的历史记录（见 SearchView）。
+    path: '/search',
+    name: 'search',
+    component: () => import('@/views/SearchView.vue'),
+    meta: { title: '搜索', depth: 2 },
+  },
+  {
     path: '/products/:id',
     name: 'product-detail',
     component: () => import('@/views/ProductDetailView.vue'),
