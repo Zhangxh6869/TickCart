@@ -20,6 +20,21 @@ import type { ShareProduct } from '@/utils/share'
 type SkuSheetMode = 'cart' | 'buyNow' | 'browse'
 
 /**
+ * 顶部导航的「分享」图标。
+ *
+ * <p>设计给的 SVG 只保留 viewBox 与 path —— 源文件里的 `t` / `p-id` / `class` / DOCTYPE
+ * 都是导出工具留下的元数据，对渲染无意义。`fill` 走 `currentColor`，图标就跟随
+ * `.nav__btn` 的文字色（`#323233`），与左侧返回箭头同一套配色（与 `TabBarIcon.vue` 同一做法）。</p>
+ *
+ * <p>图形包围盒是 1024×921.6，几乎铺满整张画布，所以 viewBox 沿用文件自带的
+ * `0 0 1024 1024` 即可，不用像「收藏」那样另收紧一个。</p>
+ */
+const SHARE_ICON = {
+  viewBox: '0 0 1024 1024',
+  d: 'M999.72532 455.7L590.25032 71.95c-14.525-13.6-33.4-20.75-52.551-20.75-10.299 0-20.674 2.1-30.5 6.35C479.10032 69.7 460.92532 97.4 460.92532 128v172.05c-113.2 13.8-208.675 59-284.575 135C1.67532 609.899-0.02468 884.5 0.00032 896.1c0.05 38.351 28.375 70.8 66.375 76 3.525 0.5 7.025 0.7 10.475 0.7 33.975 0 64.5-22.55 73.9-56.05 1.925-6.05 53.25-159 310.175-184.9V896c0 30.649 18.2 58.3 46.275 70.5a76.726 76.726 0 0 0 30.5 6.3c19.176 0 38.051-7.15 52.576-20.8L999.75032 567.75c15.475-14.5 24.25-34.8 24.25-56 0-21.25-8.801-41.5-24.275-56.05z m-462 440.3V651.35C145.42532 651.35 76.80032 896 76.80032 896s-0.6-523.7 460.925-523.7V128L947.20032 511.75 537.72532 896z',
+}
+
+/**
  * 底部「收藏」图标的两个状态。
  *
  * <p>设计给的 SVG 是一条 path、两段闭合子路径，靠 nonzero 填充规则挖空：
@@ -208,11 +223,6 @@ function onShare() {
   shareSheetVisible.value = true
 }
 
-function onCart() {
-  // 购物车页自己处理未登录态（就地提示登录），这里不再拦到登录页，与底部 tabbar 行为保持一致
-  router.push({ name: 'cart' })
-}
-
 /** 收藏 / 取消收藏：未登录先带 redirect 去登录 */
 async function onFavorite() {
   if (!requireLogin()) return
@@ -337,10 +347,15 @@ function submitBuyNow(count: number) {
       </button>
       <div class="nav__right">
         <button class="nav__btn" type="button" aria-label="分享" @click="onShare">
-          <van-icon name="share-o" size="20" />
-        </button>
-        <button class="nav__btn" type="button" aria-label="购物车" @click="onCart">
-          <van-icon name="cart-o" size="20" />
+          <svg
+            class="nav__share-icon"
+            :viewBox="SHARE_ICON.viewBox"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path :d="SHARE_ICON.d" fill="currentColor" />
+          </svg>
         </button>
       </div>
     </div>
@@ -590,6 +605,13 @@ function submitBuyNow(count: number) {
   background: none;
   color: #323233;
   cursor: pointer;
+}
+/* 「分享」图标由内联 SVG 承担，尺寸对齐原来的 van-icon（20px）；
+   display: block 不能省 —— 内联元素会在基线处留出缝隙 */
+.nav__share-icon {
+  display: block;
+  width: 20px;
+  height: 20px;
 }
 
 /* ── 主图 / 图集 ── */
