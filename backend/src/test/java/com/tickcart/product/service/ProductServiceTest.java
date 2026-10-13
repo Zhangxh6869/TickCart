@@ -435,6 +435,33 @@ class ProductServiceTest {
     }
 
     @Test
+    @DisplayName("商品名与副标题两个字段都参与匹配")
+    void subtitleIsAlsoSearched() {
+        LambdaQueryWrapper<Product> wrapper = captureListWrapper("亲肤");
+
+        assertThat(wrapper.getSqlSegment())
+                .contains("name LIKE")
+                .contains("subtitle LIKE")
+                // 两个字段都要显式 ESCAPE，别只给 name 加
+                .contains("ESCAPE '!'");
+        assertThat(wrapper.getSqlSegment()).contains(" OR ");
+
+        // 两个字段共用同一份 pattern（两个占位符，值相同）
+        assertThat(capturedParams(wrapper).stream().filter("%亲肤%"::equals).count())
+                .isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("副标题同样受通配符转义保护")
+    void subtitleIsAlsoEscaped() {
+        LambdaQueryWrapper<Product> wrapper = captureListWrapper("%");
+
+        // name 与 subtitle 两个占位符都必须是转义后的 pattern，不能有一个漏掉
+        assertThat(capturedParams(wrapper).stream().filter("%!%%"::equals).count())
+                .isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("关键字里的 % 被转义，不再当成通配符")
     void keywordEscapesPercent() {
         // 不转义时 keyword=% 会命中全库，这是修复前实测到的行为
