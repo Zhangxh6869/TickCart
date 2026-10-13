@@ -148,3 +148,209 @@
 > （举报的三角形底边、复制链接的链条两端会被裁掉最外圈），要么**内缩太多**
 > （反馈的铅笔只占画布 73%×87%，渲染出来比别人小一圈）。现在统一成
 > 「viewBox 收紧到字形包围盒 + 4% 余量」，`width`/`height` 同步改成新 viewBox 尺寸。
+
+
+---
+
+## imgs/<分类目录>/ —— V12 补建分类的商品主图
+
+由 `V12__seed_more_categories.sql` 写入 `product.main_image`，覆盖 17 个原先「有分类没商品」的分类、
+每类 6 个商品，共 102 张。
+
+来源：**Unsplash 免费图**（[Unsplash License](https://unsplash.com/license)，可免费使用，仅作本地演示）。
+下载方式：`https://unsplash.com/photos/{短ID}/download?force=true` 会 302 到 `images.unsplash.com` 的直链，
+把参数改成 `?w=900&q=80&fm=jpg&fit=crop` 后落盘，与既有 56 张商品图同规格（平均 ~120KB）。
+
+> ★ 注意：**Unsplash+ 的付费图下载会返回 403**，所以入库前必须逐张确认是免费图
+> （页面上带 `/plus?referrer=` 链接的是付费图，带 `download?force=true` 的才是免费图）。
+>
+> ★ 这些是**真实商品照**，因此个别图片会与商品名不完全对应（例如箱包类可能取到某个具体品牌的款式）。
+> 演示数据可接受；若要逐张校对替换，改 `V12` 里的 `main_image` 即可。
+
+
+### 护肤彩妆（`imgs/skincare/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/skincare/skincare-01.jpg` | https://unsplash.com/photos/_42NKYROG7g |
+| `imgs/skincare/skincare-02.jpg` | https://unsplash.com/photos/PdzMmdHqN2c |
+| `imgs/skincare/skincare-03.jpg` | https://unsplash.com/photos/ceWgSMd8rvQ |
+| `imgs/skincare/skincare-04.jpg` | https://unsplash.com/photos/nwOip8AOZz0 |
+| `imgs/skincare/skincare-05.jpg` | https://unsplash.com/photos/sCFL6R7loQk |
+| `imgs/skincare/skincare-06.jpg` | https://unsplash.com/photos/Pm0K9Y3EPUc |
+
+### 个人洗护（`imgs/bath/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/bath/bath-01.jpg` | https://unsplash.com/photos/Wlu-dcVLuOI |
+| `imgs/bath/bath-02.jpg` | https://unsplash.com/photos/5EIC9E9Strw |
+| `imgs/bath/bath-03.jpg` | https://unsplash.com/photos/SZjzhjOddTc |
+| `imgs/bath/bath-04.jpg` | https://unsplash.com/photos/reEySFadyJQ |
+| `imgs/bath/bath-05.jpg` | https://unsplash.com/photos/gr6Rp3Rjfw8 |
+| `imgs/bath/bath-06.jpg` | https://unsplash.com/photos/if90AsVIDAc |
+
+### 箱包（`imgs/bags/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/bags/bags-01.jpg` | https://unsplash.com/photos/ZmeFtu11Hpc |
+| `imgs/bags/bags-02.jpg` | https://unsplash.com/photos/nvQemFKRBUo |
+| `imgs/bags/bags-03.jpg` | https://unsplash.com/photos/wGTO-1EuXYY |
+| `imgs/bags/bags-04.jpg` | https://unsplash.com/photos/IFlg3kFbR0E |
+| `imgs/bags/bags-05.jpg` | https://unsplash.com/photos/zxPo13geJ5U |
+| `imgs/bags/bags-06.jpg` | https://unsplash.com/photos/hLwkfi3oPp0 |
+
+### 家居百货（`imgs/home/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/home/home-01.jpg` | https://unsplash.com/photos/jWU9FpLW7fI |
+| `imgs/home/home-02.jpg` | https://unsplash.com/photos/d9qnD33cBJs |
+| `imgs/home/home-03.jpg` | https://unsplash.com/photos/p2JOmn_V3YU |
+| `imgs/home/home-04.jpg` | https://unsplash.com/photos/zYMyL_QSSE8 |
+| `imgs/home/home-05.jpg` | https://unsplash.com/photos/BYm1kkFasEI |
+| `imgs/home/home-06.jpg` | https://unsplash.com/photos/wkC8EX8y9Mc |
+
+### 配饰（`imgs/accessories/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/accessories/accessories-01.jpg` | https://unsplash.com/photos/lsxBmX8Hmwc |
+| `imgs/accessories/accessories-02.jpg` | https://unsplash.com/photos/XPUxDVWBGYM |
+| `imgs/accessories/accessories-03.jpg` | https://unsplash.com/photos/Lqfqsij4EvQ |
+| `imgs/accessories/accessories-04.jpg` | https://unsplash.com/photos/wGStSPAvuIo |
+| `imgs/accessories/accessories-05.jpg` | https://unsplash.com/photos/Asngw4A5_tM |
+| `imgs/accessories/accessories-06.jpg` | https://unsplash.com/photos/GKbfUFna-9I |
+
+### 运动（`imgs/sports/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/sports/sports-01.jpg` | https://unsplash.com/photos/VJ2s0c20qCo |
+| `imgs/sports/sports-02.jpg` | https://unsplash.com/photos/mTorQ9gFfOg |
+| `imgs/sports/sports-03.jpg` | https://unsplash.com/photos/zEAX0E0KJxs |
+| `imgs/sports/sports-04.jpg` | https://unsplash.com/photos/JWK2H-2qz1Y |
+| `imgs/sports/sports-05.jpg` | https://unsplash.com/photos/0zkJ1EsH9dY |
+| `imgs/sports/sports-06.jpg` | https://unsplash.com/photos/BBR_zigEmyQ |
+
+### 手表（`imgs/watches/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/watches/watches-01.jpg` | https://unsplash.com/photos/LWPPpkn6NEQ |
+| `imgs/watches/watches-02.jpg` | https://unsplash.com/photos/4R_WEmhx8og |
+| `imgs/watches/watches-03.jpg` | https://unsplash.com/photos/p2WUEFGrAdA |
+| `imgs/watches/watches-04.jpg` | https://unsplash.com/photos/9eTlQo7oXYQ |
+| `imgs/watches/watches-05.jpg` | https://unsplash.com/photos/05IxAEjVNl0 |
+| `imgs/watches/watches-06.jpg` | https://unsplash.com/photos/TJrkkhdB39E |
+
+### 酒水（`imgs/drinks/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/drinks/drinks-01.jpg` | https://unsplash.com/photos/hX_zHSbcMr0 |
+| `imgs/drinks/drinks-02.jpg` | https://unsplash.com/photos/qieV0U5E_ME |
+| `imgs/drinks/drinks-03.jpg` | https://unsplash.com/photos/RcZLutyCF8c |
+| `imgs/drinks/drinks-04.jpg` | https://unsplash.com/photos/tDfILN5dfx4 |
+| `imgs/drinks/drinks-05.jpg` | https://unsplash.com/photos/aK6WGqxyHFw |
+| `imgs/drinks/drinks-06.jpg` | https://unsplash.com/photos/CPMZguYURMw |
+
+### 医药健康（`imgs/health/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/health/health-01.jpg` | https://unsplash.com/photos/w8p9cQDLX7I |
+| `imgs/health/health-02.jpg` | https://unsplash.com/photos/ZHys6xN7sUE |
+| `imgs/health/health-03.jpg` | https://unsplash.com/photos/kfJkpeI6Lgc |
+| `imgs/health/health-04.jpg` | https://unsplash.com/photos/iPl3q-gEGzY |
+| `imgs/health/health-05.jpg` | https://unsplash.com/photos/nvmVK78tE5I |
+| `imgs/health/health-06.jpg` | https://unsplash.com/photos/kdgiNc0sDeI |
+
+### 家电（`imgs/appliances/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/appliances/appliances-01.jpg` | https://unsplash.com/photos/O78kGuS079Y |
+| `imgs/appliances/appliances-02.jpg` | https://unsplash.com/photos/IEIoyXSvFD8 |
+| `imgs/appliances/appliances-03.jpg` | https://unsplash.com/photos/nnnmri5Gtpc |
+| `imgs/appliances/appliances-04.jpg` | https://unsplash.com/photos/1s7QKaogJ9c |
+| `imgs/appliances/appliances-05.jpg` | https://unsplash.com/photos/HbI-pbY7g4w |
+| `imgs/appliances/appliances-06.jpg` | https://unsplash.com/photos/TpDFsRWfNsw |
+
+### 模玩盲盒（`imgs/toys/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/toys/toys-01.jpg` | https://unsplash.com/photos/8FjAcgcWR4E |
+| `imgs/toys/toys-02.jpg` | https://unsplash.com/photos/1MQZq-1diGY |
+| `imgs/toys/toys-03.jpg` | https://unsplash.com/photos/GYaMC-_RPNY |
+| `imgs/toys/toys-04.jpg` | https://unsplash.com/photos/sYVY_ZKwaxU |
+| `imgs/toys/toys-05.jpg` | https://unsplash.com/photos/h2z-BKEUR8s |
+| `imgs/toys/toys-06.jpg` | https://unsplash.com/photos/Wysqv_-Kbjg |
+
+### 宠物（`imgs/pets/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/pets/pets-01.jpg` | https://unsplash.com/photos/TDTwMuHPHp4 |
+| `imgs/pets/pets-02.jpg` | https://unsplash.com/photos/ueDWzSQxfsQ |
+| `imgs/pets/pets-03.jpg` | https://unsplash.com/photos/OF6KKOvR_x4 |
+| `imgs/pets/pets-04.jpg` | https://unsplash.com/photos/irtfTPKr6og |
+| `imgs/pets/pets-05.jpg` | https://unsplash.com/photos/b6QV83tHnNY |
+| `imgs/pets/pets-06.jpg` | https://unsplash.com/photos/7hmTpiSlF-8 |
+
+### 母婴（`imgs/baby/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/baby/baby-01.jpg` | https://unsplash.com/photos/vaozLvtSHok |
+| `imgs/baby/baby-02.jpg` | https://unsplash.com/photos/0YyubcHEuWA |
+| `imgs/baby/baby-03.jpg` | https://unsplash.com/photos/pGIVYCg7Wns |
+| `imgs/baby/baby-04.jpg` | https://unsplash.com/photos/2vfwTakDTIo |
+| `imgs/baby/baby-05.jpg` | https://unsplash.com/photos/8XtQp4UVB34 |
+| `imgs/baby/baby-06.jpg` | https://unsplash.com/photos/8yDbxoPySYM |
+
+### 车类（`imgs/cars/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/cars/cars-01.jpg` | https://unsplash.com/photos/-Qy5lEDcUqw |
+| `imgs/cars/cars-02.jpg` | https://unsplash.com/photos/2DrK_hrVsrk |
+| `imgs/cars/cars-03.jpg` | https://unsplash.com/photos/c-xuKGftep4 |
+| `imgs/cars/cars-04.jpg` | https://unsplash.com/photos/jMMqIOUzGs0 |
+| `imgs/cars/cars-05.jpg` | https://unsplash.com/photos/_bNIvRUvjOk |
+| `imgs/cars/cars-06.jpg` | https://unsplash.com/photos/5_ynL2n5Ijc |
+
+### 乐器（`imgs/instruments/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/instruments/instruments-01.jpg` | https://unsplash.com/photos/zYBg9AFDsww |
+| `imgs/instruments/instruments-02.jpg` | https://unsplash.com/photos/bWA_bIT0LE8 |
+| `imgs/instruments/instruments-03.jpg` | https://unsplash.com/photos/C8gib_msapY |
+| `imgs/instruments/instruments-04.jpg` | https://unsplash.com/photos/4Hpljf9Y1ko |
+| `imgs/instruments/instruments-05.jpg` | https://unsplash.com/photos/ZHr2TzM1-hk |
+| `imgs/instruments/instruments-06.jpg` | https://unsplash.com/photos/r8k_S3QMwuM |
+
+### 图书（`imgs/books/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/books/books-01.jpg` | https://unsplash.com/photos/Oaqk7qqNh_c |
+| `imgs/books/books-02.jpg` | https://unsplash.com/photos/zQpJD0rBmlA |
+| `imgs/books/books-03.jpg` | https://unsplash.com/photos/_nm_mZ4Cs2I |
+| `imgs/books/books-04.jpg` | https://unsplash.com/photos/LUGuCtvlk1Q |
+| `imgs/books/books-05.jpg` | https://unsplash.com/photos/qrZb0p421Uw |
+| `imgs/books/books-06.jpg` | https://unsplash.com/photos/Ft_Wn-K5YH8 |
+
+### 食品生鲜（`imgs/fresh/`）
+
+| 本地文件 | Unsplash 原图 |
+| --- | --- |
+| `imgs/fresh/fresh-01.jpg` | https://unsplash.com/photos/5aJVJvJ9rG8 |
+| `imgs/fresh/fresh-02.jpg` | https://unsplash.com/photos/bRdRUUtbxO0 |
+| `imgs/fresh/fresh-03.jpg` | https://unsplash.com/photos/KUZnfk-2DSQ |
+| `imgs/fresh/fresh-04.jpg` | https://unsplash.com/photos/IhgdJavmiXQ |
+| `imgs/fresh/fresh-05.jpg` | https://unsplash.com/photos/QvkAQTNj4zk |
+| `imgs/fresh/fresh-06.jpg` | https://unsplash.com/photos/Y5n8mCpvlZU |
