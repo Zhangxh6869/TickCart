@@ -803,7 +803,11 @@ function submitBuyNow(count: number) {
   margin-top: auto;
   padding: 0 12px;
   background: #fff;
-  box-shadow: 0 -1px 0 rgba(0, 0, 0, 0.06);
+  /* 与上面的详情内容区分界：一条实色线 + 一层上浮阴影。
+     原来只有 `0 -1px 0 rgba(0,0,0,.06)`，叠在白底上约等于 #f0f0f0，基本看不出来；
+     换成实色 #ebedf0 后分界清楚，再补一层朝上的柔和阴影，让它有「浮在内容之上」的层次。
+     阴影不占版面，操作栏高度仍是 56px。 */
+  box-shadow: 0 -1px 0 #ebedf0, 0 -3px 8px rgba(0, 0, 0, 0.07);
 }
 .action-bar__icon {
   display: flex;
