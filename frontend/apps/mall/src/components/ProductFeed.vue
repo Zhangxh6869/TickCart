@@ -1,9 +1,13 @@
 <script setup lang="ts">
 /**
- * 商品列表「排序栏 + 网格 + 触底分页」公共组件。
+ * 商品列表「排序栏 + 网格 + 触底分页 + 空态/失败态」通用组件。
  *
- * 由 `/products`（分类列表页）与 `/search`（搜索页）共用：
- * 排序口径、分页时序、竞态处理只有一份实现，避免两边各写一套再各自踩坑。
+ * 目前由搜索页 `/search` 的结果区使用。原先还跟 `/products`（商品列表页）共用，
+ * 那个页面已按「排序只在搜索结果里用、浏览全部商品走首页」的结论删除，
+ * 见 `router/index.ts` 里 `/search` 上方的说明。
+ *
+ * 保留成独立组件而不是内联进 SearchView：列表时序 / 并发竞态 / 失败态这套东西
+ * 和「搜索状态（历史、热搜、URL 同步）」是两件事，后续秒杀商品列表也能直接复用。
  *
  * 数据源固定为公开接口 `GET /api/products`（仅返回上架商品），查询条件全部走 props，
  * 父组件只需改 props，组件内部 `watch` 到变化后自动重查并回到第一页。
@@ -38,7 +42,7 @@ const props = withDefaults(
  */
 const total = defineModel<number>('total', { default: 0 })
 
-/** 排序口径与 `/products` 原有行为保持一致 */
+/** 排序口径：字段名走后端 `applySort` 的白名单（price / sales / createdAt） */
 const sortOptions = [
   { text: '综合', value: 'createdAt', order: 'desc' },
   { text: '销量', value: 'sales', order: 'desc' },
@@ -70,7 +74,7 @@ const order = ref('desc')
  * van-list 触底时是**先** `loading.value = true; emit('update:loading', true)`，
  * **再** `emit('load')`。所以进入 load() 时 `loading` 已经是 true —— 拿它当守卫
  * 等于把自己刚触发的那次请求挡在门外，`loading` 再也不会回到 false，
- * 列表就永久停在「加载中...」。（`/products` 原先加载不出商品，一半原因在此。）
+ * 列表就永久停在「加载中...」。（历史上那页商品列表加载不出商品，一半原因在此。）
  */
 let requesting = false
 

@@ -138,15 +138,14 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '首页', depth: 1 },
   },
   {
-    path: '/products',
-    name: 'product-list',
-    component: () => import('@/views/ProductListView.vue'),
-    meta: { title: '商品列表', depth: 2 },
-  },
-  {
-    // 独立搜索页。depth 与商品列表同级（都是首页的下一层），
-    // 所以「首页 → 搜索」天然判为 forward（右滑前进）、返回为 back，无需在
-    // resolvePageTransition 里加配对规则。
+    // 独立搜索页。
+    // 注意：**这里没有「商品列表页」**。原先的 `/products`（带分类 tab + 排序栏的商品列表）
+    // 已随「排序只在搜索结果里用」的结论删除 —— 浏览全部商品由首页承担（首页分类栏原地切换），
+    // 排序由本页的结果区承担（见 ProductFeed）。
+    // `/products/:id`（商品详情）是另一条路由，分享链接靠它，别一起删掉。
+    //
+    // depth 与首页的下一层对齐，所以「首页 → 搜索」天然判为 forward（右滑前进）、
+    // 返回为 back，无需在 resolvePageTransition 里加配对规则。
     // 结果与空态在同一路由内切换，改词不产生新的历史记录（见 SearchView）。
     path: '/search',
     name: 'search',
