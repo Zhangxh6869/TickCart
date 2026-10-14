@@ -13,6 +13,7 @@ import com.tickcart.product.entity.ProductSku;
 import com.tickcart.product.mapper.CategoryMapper;
 import com.tickcart.product.mapper.ProductImageMapper;
 import com.tickcart.product.mapper.ProductMapper;
+import com.tickcart.search.service.SynonymService;
 import com.tickcart.product.mapper.ProductSkuMapper;
 import com.tickcart.product.vo.ProductDetail;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -50,6 +51,12 @@ class ProductServiceTest {
     private ProductImageMapper imageMapper;
     @Mock
     private CategoryMapper categoryMapper;
+    /**
+     * 同义词服务。默认（未打桩）返回空列表 → {@code ProductService} 回退成「只按原关键词」，
+     * 因此下面的关键字测试在语义上等价于「没有同义词」，与引入同义词前一致。
+     */
+    @Mock
+    private SynonymService synonymService;
 
     @InjectMocks
     private ProductService productService;
@@ -503,5 +510,32 @@ class ProductServiceTest {
 
         assertThat(wrapper.getSqlSegment()).doesNotContain("LIKE");
         assertThat(capturedParams(wrapper)).noneMatch(String.class::isInstance);
+    }
+
+    // -------------------------------------------------------------------------
+    // 关键字搜索：同义词展开
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("命中同义词时，连同义词一起召回")
+    void synonymExpandsKeyword() {
+        when(synonymService.expand("苹果手机")).thenReturn(List.of("苹果手机", "iPhone"));
+
+        LambdaQueryWrapper<Product> wrapper = captureListWrapper("苹果手机");
+
+        // 两个展开词 → 两段 (name LIKE … OR subtitle LIKE …)
+        assertThat(wrapper.getSqlSegment()).contains("name LIKE").contains("subtitle LIKE");
+        assertThat(capturedParams(wrapper)).contains("%苹果手机%").contains("%iPhone%");
+    }
+
+    @Test
+    @DisplayName("无同义词时只按原关键词匹配（与引入同义词前一致）")
+    void noSynonymKeepsOriginalBehaviour() {
+        when(synonymService.expand("手机")).thenReturn(List.of("手机"));
+
+        LambdaQueryWrapper<Product> wrapper = captureListWrapper("手机");
+
+        assertThat(capturedParams(wrapper).stream().filter("%手机%"::equals).count()).isEqualTo(2);
+        assertThat(capturedParams(wrapper)).noneMatch("%iPhone%"::equals);
     }
 }

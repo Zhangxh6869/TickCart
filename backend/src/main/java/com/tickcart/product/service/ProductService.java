@@ -16,6 +16,7 @@ import com.tickcart.product.mapper.ProductMapper;
 import com.tickcart.product.mapper.ProductSkuMapper;
 import com.tickcart.product.vo.ProductDetail;
 import com.tickcart.product.vo.ProductListItem;
+import com.tickcart.search.service.SynonymService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -47,15 +48,18 @@ public class ProductService {
     private final ProductSkuMapper skuMapper;
     private final ProductImageMapper imageMapper;
     private final CategoryMapper categoryMapper;
+    private final SynonymService synonymService;
 
     public ProductService(ProductMapper productMapper,
                           ProductSkuMapper skuMapper,
                           ProductImageMapper imageMapper,
-                          CategoryMapper categoryMapper) {
+                          CategoryMapper categoryMapper,
+                          SynonymService synonymService) {
         this.productMapper = productMapper;
         this.skuMapper = skuMapper;
         this.imageMapper = imageMapper;
         this.categoryMapper = categoryMapper;
+        this.synonymService = synonymService;
     }
 
     /**
@@ -153,18 +157,19 @@ public class ProductService {
      *
      * <p>注意：{@code subtitle} 列可为 NULL，{@code NULL LIKE '%x%'} 结果为 NULL（不为真），
      * 但外层是 OR，不会因此漏掉 name 命中的行。</p>
+     *
+     * <p><b>关键字会按同义词展开。</b>搜「苹果手机」时除了匹配「苹果手机」，还会连同义词
+     * （iPhone）一起召回，见 {@link SynonymService}。展开出的每个词同样要转义通配符。</p>
      */
     private LambdaQueryWrapper<Product> filterWrapper(ProductQuery query, boolean onlyOnSale) {
         String keyword = query.getKeyword() == null ? "" : query.getKeyword().trim();
-        boolean hasKeyword = StringUtils.hasText(keyword);
-        String pattern = "%" + escapeLike(keyword) + "%";
 
         LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<Product>()
-                .apply(hasKeyword,
-                        "(name LIKE {0} ESCAPE '" + LIKE_ESCAPE
-                                + "' OR subtitle LIKE {1} ESCAPE '" + LIKE_ESCAPE + "')",
-                        pattern, pattern)
                 .eq(query.getCategoryId() != null, Product::getCategoryId, query.getCategoryId());
+
+        if (StringUtils.hasText(keyword)) {
+            applyKeyword(wrapper, keyword);
+        }
 
         if (onlyOnSale) {
             wrapper.eq(Product::getStatus, STATUS_ON);
@@ -172,6 +177,37 @@ public class ProductService {
             wrapper.eq(Product::getStatus, query.getStatus());
         }
         return wrapper;
+    }
+
+    /**
+     * 关键字条件：把关键词按同义词展开成若干「展开词」，逐词 OR；每个词都同时匹配
+     * 「商品名 + 副标题」两个字段；整组用一层括号包住，避免与分类/状态条件的 AND 抢优先级。
+     *
+     * <p>展开词由 {@link SynonymService} 提供；无同义词时只含原关键词，SQL 与引入同义词前一致。
+     * 每个展开词都要独立转义 LIKE 通配符（见 {@link #escapeLike}）。</p>
+     */
+    private void applyKeyword(LambdaQueryWrapper<Product> wrapper, String keyword) {
+        List<String> terms = synonymService.expand(keyword);
+        if (terms == null || terms.isEmpty()) {
+            terms = List.of(keyword);
+        }
+
+        StringBuilder sql = new StringBuilder("(");
+        Object[] args = new Object[terms.size() * 2];
+        for (int i = 0; i < terms.size(); i++) {
+            if (i > 0) {
+                sql.append(" OR ");
+            }
+            int a = i * 2;
+            sql.append("(name LIKE {").append(a).append("} ESCAPE '").append(LIKE_ESCAPE)
+                    .append("' OR subtitle LIKE {").append(a + 1).append("} ESCAPE '")
+                    .append(LIKE_ESCAPE).append("')");
+            String pattern = "%" + escapeLike(terms.get(i)) + "%";
+            args[a] = pattern;
+            args[a + 1] = pattern;
+        }
+        sql.append(")");
+        wrapper.apply(sql.toString(), args);
     }
 
     /**
