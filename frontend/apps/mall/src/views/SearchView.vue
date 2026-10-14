@@ -553,9 +553,16 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
 }
+/**
+ * 区块标题（搜索历史 / 热门搜索 / 相关搜索）。
+ *
+ * ★ 用 700 而不是 500：这三个是**区块标题**，要跟下面的浅灰 chip 拉开层次，
+ *   500 在默认字体栈下几乎和正文一样重，看起来不像标题。
+ *   三处共用一个类，所以是一起加粗的 —— 只加粗其中一两个会显得不统一。
+ */
 .block__title {
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 700;
   color: #323233;
 }
 .block__action {
