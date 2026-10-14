@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import type { Category, ProductListItem } from '@tickcart/shared-types'
 import { fetchCategories, fetchProducts } from '@/api/product'
+import BackToTop from '@/components/BackToTop.vue'
 import ProductCard from '@/components/ProductCard.vue'
 
 // 显式声明组件名：App.vue 里用 <KeepAlive include="HomeView"> 缓存首页
@@ -381,6 +382,11 @@ onBeforeUnmount(() => {
         </div>
       </Transition>
     </div>
+
+    <!-- 回到顶部：滚过一屏后出现在右下角。
+         ★ 必须是 .home 的直接子元素、不能放进 .section —— .section 带 overflow: clip 会把它裁掉。
+         ★ bottom 默认 62px = 50px tabbar + 12px，悬在 tabbar 上方，不与底部导航抢点击。 -->
+    <BackToTop />
   </div>
 </template>
 

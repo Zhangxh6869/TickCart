@@ -18,6 +18,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showConfirmDialog } from 'vant'
 import { fetchHotSearches, fetchRelatedSearches } from '@/api/search'
+import BackToTop from '@/components/BackToTop.vue'
 import ProductFeed from '@/components/ProductFeed.vue'
 
 const route = useRoute()
@@ -469,6 +470,10 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </ProductFeed>
+
+    <!-- 回到顶部：搜索页在 FULLSCREEN_ROUTES 里、无 tabbar，所以贴视口 16px。
+         结果列表（空态的历史 + 热搜也可能）滚过一屏后出现。 -->
+    <BackToTop bottom="16px" />
   </div>
 </template>
 
@@ -500,6 +505,10 @@ onBeforeUnmount(() => {
   z-index: 2;
   display: flex;
   align-items: center;
+  /* 定高 60px（含上下 padding）。全局 `* { box-sizing: border-box }`，
+     所以内容盒 = 60 - 6 - 6 = 48px；搜索框自身 42px（34 输入 + 2×2 内边距 + 2×2 描边），
+     由 align-items: center 居中，上下各留 3px。改这个值不用动搜索框内部样式。 */
+  height: 60px;
   padding: 6px 12px 6px 2px;
   background: var(--van-background, #fff);
   box-shadow:

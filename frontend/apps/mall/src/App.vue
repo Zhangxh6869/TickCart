@@ -297,6 +297,22 @@ body {
   transition: opacity var(--page-layer-duration) linear;
 }
 
+/* ── 过渡期间隐藏页内的「回到顶部」浮动按钮 ──────────────────────────────
+   fixed 的包含块是视口、不跟着页面滑：后退时当前页向右滑出，按钮却钉在视口右下角，
+   会以「悬在原位」的样子漂在露出的上一页上约 280ms（tab 互切时它整体被新页盖住，
+   只有新页左缘扫过之前那几十毫秒可见）。在页面根的过渡类上把按钮藏掉即可 ——
+   滑完类名被移除，按钮按滚动位置自然恢复。
+   与 .address__footer 过渡期间改 absolute 是同一类问题、同一套门禁思路：
+   只认「页面根 + leave-active + data-page-dir」，up/down 两个全屏层没有这个按钮。 */
+:root[data-page-dir='forward'] .page-slide-left-leave-active .back-to-top,
+:root[data-page-dir='back'] .page-slide-right-leave-active .back-to-top,
+:root[data-page-dir='tab-left'] .page-slide-tab-left-leave-active .back-to-top,
+:root[data-page-dir='tab-left'] .page-slide-tab-right-leave-active .back-to-top,
+:root[data-page-dir='tab-right'] .page-slide-tab-left-leave-active .back-to-top,
+:root[data-page-dir='tab-right'] .page-slide-tab-right-leave-active .back-to-top {
+  display: none;
+}
+
 /* 用户开启「减弱动态效果」时，过渡时长压到接近瞬时，只保留状态切换。
    权重必须 ≥ 上面的主规则，否则会被它们的 transition 简写覆盖掉。
    注意两处主规则的权重并不一样（原注释以为都是 0,3,0，实际不是）：
