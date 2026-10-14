@@ -33,6 +33,17 @@ public class ProductSaveRequest {
     @Size(max = 255, message = "副标题最长 255 字")
     private String subtitle;
 
+    /**
+     * 搜索补充关键词，英文逗号分隔。
+     *
+     * <p>用户会搜、但商品名/副标题里没有的品类词与别名（如「手机,智能手机,苹果手机」）。
+     * 搜索时与商品名、副标题一起参与匹配，见 {@code ProductService#applyKeyword}。
+     * 不传即不补词，商品仍可按名称与副标题被搜到。</p>
+     */
+    @Schema(description = "搜索补充关键词（英文逗号分隔，如「手机,智能手机」）", example = "手机,智能手机,苹果手机")
+    @Size(max = 255, message = "搜索关键词最长 255 字")
+    private String searchKeywords;
+
     @Schema(description = "主图URL")
     private String mainImage;
 
@@ -175,6 +186,14 @@ public class ProductSaveRequest {
 
     public void setSubtitle(String subtitle) {
         this.subtitle = subtitle;
+    }
+
+    public String getSearchKeywords() {
+        return searchKeywords;
+    }
+
+    public void setSearchKeywords(String searchKeywords) {
+        this.searchKeywords = searchKeywords;
     }
 
     public String getMainImage() {

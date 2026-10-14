@@ -60,6 +60,7 @@ const emptyForm = (): ProductPayload => ({
   categoryId: 1,
   name: '',
   subtitle: '',
+  searchKeywords: '',
   mainImage: '',
   detail: '',
   price: 0,
@@ -86,6 +87,7 @@ async function openEdit(row: ProductListItem) {
     categoryId: detail.categoryId,
     name: detail.name,
     subtitle: detail.subtitle ?? '',
+    searchKeywords: detail.searchKeywords ?? '',
     mainImage: detail.mainImage ?? '',
     detail: detail.detail ?? '',
     price: detail.price,
@@ -365,6 +367,12 @@ function categoryName(id: number): string {
         </el-form-item>
         <el-form-item label="副标题">
           <el-input v-model="form.subtitle" />
+        </el-form-item>
+        <el-form-item label="搜索关键词">
+          <el-input
+            v-model="form.searchKeywords"
+            placeholder="用户会搜、但商品名里没有的品类词，英文逗号分隔，如：手机,智能手机,苹果手机"
+          />
         </el-form-item>
         <el-form-item label="商品主图">
           <div class="image-picker">

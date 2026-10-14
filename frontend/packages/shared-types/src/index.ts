@@ -85,6 +85,8 @@ export interface ProductDetail {
   categoryName?: string | null
   name: string
   subtitle?: string | null
+  /** 搜索补充关键词（英文逗号分隔），用户会搜但商品名里没有的品类词/别名。 */
+  searchKeywords?: string | null
   mainImage?: string | null
   detail?: string | null
   price: number

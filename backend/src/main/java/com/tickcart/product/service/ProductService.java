@@ -143,11 +143,15 @@ public class ProductService {
     /**
      * 组装筛选条件（关键字 / 分类 / 状态），常规分页与随机分页共用。
      *
-     * <p><b>关键字匹配「商品名 + 副标题」两个字段。</b>
+     * <p><b>关键字匹配「商品名 + 副标题 + 搜索关键词」三个字段。</b>
      * 副标题放的是卖点/属性（「柔软亲肤，简约百搭」「120Hz 高刷，快充 67W」），
      * 用户搜的往往正是这些词，而它们几乎不会出现在商品名里 —— 只搜 name 时
      * 「亲肤」「百搭」「通勤」「快充」这类词一律搜不到（实测 30 个常见词里 7 个命中 0）。
      * 副标题提供了与商品名相当的可搜文本量（本库 647 字 vs 583 字），不纳入等于白丢一半。</p>
+     *
+     * <p>前两个字段都是「商品自带的文本」，覆盖不到**品类词**：搜「裤子」不会命中
+     * 「高腰直筒牛仔裤」，搜「运动」也不会命中同分类的「轻量跳绳」。所以再加
+     * {@code search_keywords} 一路人工维护的召回词（见 V15 迁移）。</p>
      *
      * <p><b>关键字必须转义通配符。</b> {@code LambdaQueryWrapper.like()} 只做
      * {@code '%' + 值 + '%'} 拼接，不会处理用户输入里的 {@code %} 与 {@code _} ——
@@ -181,10 +185,16 @@ public class ProductService {
 
     /**
      * 关键字条件：把关键词按同义词展开成若干「展开词」，逐词 OR；每个词都同时匹配
-     * 「商品名 + 副标题」两个字段；整组用一层括号包住，避免与分类/状态条件的 AND 抢优先级。
+     * 「商品名 + 副标题 + 搜索关键词」三个字段；整组用一层括号包住，
+     * 避免与分类/状态条件的 AND 抢优先级。
      *
      * <p>展开词由 {@link SynonymService} 提供；无同义词时只含原关键词，SQL 与引入同义词前一致。
      * 每个展开词都要独立转义 LIKE 通配符（见 {@link #escapeLike}）。</p>
+     *
+     * <p><b>{@code search_keywords} 这一路是「品类词召回」。</b>只搜 name + subtitle 时，
+     * 搜「裤子」永远 0 结果（库里只有「高腰直筒牛仔裤」，没有哪个商品名含「裤子」），
+     * 搜「运动」也搜不到同分类的跳绳/篮球 —— 因为分类名不参与匹配。该列存的就是
+     * 「用户会搜、但商品名里没有」的品类词与别名，见 V15 迁移。</p>
      */
     private void applyKeyword(LambdaQueryWrapper<Product> wrapper, String keyword) {
         List<String> terms = synonymService.expand(keyword);
@@ -193,18 +203,20 @@ public class ProductService {
         }
 
         StringBuilder sql = new StringBuilder("(");
-        Object[] args = new Object[terms.size() * 2];
+        Object[] args = new Object[terms.size() * 3];
         for (int i = 0; i < terms.size(); i++) {
             if (i > 0) {
                 sql.append(" OR ");
             }
-            int a = i * 2;
+            int a = i * 3;
             sql.append("(name LIKE {").append(a).append("} ESCAPE '").append(LIKE_ESCAPE)
                     .append("' OR subtitle LIKE {").append(a + 1).append("} ESCAPE '")
-                    .append(LIKE_ESCAPE).append("')");
+                    .append(LIKE_ESCAPE).append("' OR search_keywords LIKE {").append(a + 2)
+                    .append("} ESCAPE '").append(LIKE_ESCAPE).append("')");
             String pattern = "%" + escapeLike(terms.get(i)) + "%";
             args[a] = pattern;
             args[a + 1] = pattern;
+            args[a + 2] = pattern;
         }
         sql.append(")");
         wrapper.apply(sql.toString(), args);
@@ -248,6 +260,7 @@ public class ProductService {
         product.setCategoryId(req.getCategoryId());
         product.setName(req.getName());
         product.setSubtitle(req.getSubtitle());
+        product.setSearchKeywords(req.getSearchKeywords());
         product.setMainImage(req.getMainImage());
         product.setDetail(req.getDetail());
         product.setPrice(req.getPrice());
@@ -273,6 +286,7 @@ public class ProductService {
         product.setCategoryId(req.getCategoryId());
         product.setName(req.getName());
         product.setSubtitle(req.getSubtitle());
+        product.setSearchKeywords(req.getSearchKeywords());
         product.setMainImage(req.getMainImage());
         product.setDetail(req.getDetail());
         product.setPrice(req.getPrice());

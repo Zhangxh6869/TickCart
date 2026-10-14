@@ -442,30 +442,42 @@ class ProductServiceTest {
     }
 
     @Test
-    @DisplayName("商品名与副标题两个字段都参与匹配")
-    void subtitleIsAlsoSearched() {
+    @DisplayName("商品名、副标题、搜索关键词三个字段都参与匹配")
+    void subtitleAndSearchKeywordsAreAlsoSearched() {
         LambdaQueryWrapper<Product> wrapper = captureListWrapper("亲肤");
 
         assertThat(wrapper.getSqlSegment())
                 .contains("name LIKE")
                 .contains("subtitle LIKE")
-                // 两个字段都要显式 ESCAPE，别只给 name 加
+                .contains("search_keywords LIKE")
+                // 三个字段都要显式 ESCAPE，别只给 name 加
                 .contains("ESCAPE '!'");
         assertThat(wrapper.getSqlSegment()).contains(" OR ");
 
-        // 两个字段共用同一份 pattern（两个占位符，值相同）
+        // 三个字段共用同一份 pattern（三个占位符，值相同）
         assertThat(capturedParams(wrapper).stream().filter("%亲肤%"::equals).count())
-                .isEqualTo(2);
+                .isEqualTo(3);
     }
 
     @Test
-    @DisplayName("副标题同样受通配符转义保护")
-    void subtitleIsAlsoEscaped() {
+    @DisplayName("副标题与搜索关键词同样受通配符转义保护")
+    void subtitleAndKeywordsAreAlsoEscaped() {
         LambdaQueryWrapper<Product> wrapper = captureListWrapper("%");
 
-        // name 与 subtitle 两个占位符都必须是转义后的 pattern，不能有一个漏掉
+        // name / subtitle / search_keywords 三个占位符都必须是转义后的 pattern，不能有一个漏掉
         assertThat(capturedParams(wrapper).stream().filter("%!%%"::equals).count())
-                .isEqualTo(2);
+                .isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("品类词召回：搜索关键词列让「裤子」这类词能命中商品")
+    void searchKeywordsColumnParticipatesInRecall() {
+        // 「裤子」在库里没有任何商品名/副标题含这两个字（只有「高腰直筒牛仔裤」），
+        // 全靠 product.search_keywords 里人工维护的「裤子」召回（见 V15 迁移）
+        LambdaQueryWrapper<Product> wrapper = captureListWrapper("裤子");
+
+        assertThat(wrapper.getSqlSegment()).contains("search_keywords LIKE");
+        assertThat(capturedParams(wrapper)).contains("%裤子%");
     }
 
     @Test
@@ -535,7 +547,61 @@ class ProductServiceTest {
 
         LambdaQueryWrapper<Product> wrapper = captureListWrapper("手机");
 
-        assertThat(capturedParams(wrapper).stream().filter("%手机%"::equals).count()).isEqualTo(2);
+        assertThat(capturedParams(wrapper).stream().filter("%手机%"::equals).count()).isEqualTo(3);
         assertThat(capturedParams(wrapper)).noneMatch("%iPhone%"::equals);
+    }
+
+    // -------------------------------------------------------------------------
+    // 搜索关键词（product.search_keywords）
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("新增商品：搜索关键词落库")
+    void createSavesSearchKeywords() {
+        categoryExists();
+        ProductSaveRequest req = productReq(List.of(sku(10)));
+        req.setSearchKeywords("手机,智能手机,苹果手机");
+        when(productMapper.insert(any(Product.class))).thenAnswer(inv -> {
+            assertThat(((Product) inv.getArgument(0)).getSearchKeywords()).isEqualTo("手机,智能手机,苹果手机");
+            return 1;
+        });
+        when(skuMapper.insert(any(ProductSku.class))).thenReturn(1);
+
+        productService.create(req);
+    }
+
+    @Test
+    @DisplayName("编辑商品：搜索关键词覆盖为绝对值")
+    void updateAppliesSearchKeywords() {
+        Product product = new Product();
+        product.setId(1L);
+        product.setPrice(new BigDecimal("99.00"));
+        product.setSearchKeywords("旧词");
+        when(productMapper.selectById(1L)).thenReturn(product);
+        categoryExists();
+        ProductSaveRequest req = productReq(null);
+        req.setSearchKeywords("裤子,长裤");
+        when(productMapper.updateById(any(Product.class))).thenReturn(1);
+
+        productService.update(1L, req);
+
+        assertThat(product.getSearchKeywords()).isEqualTo("裤子,长裤");
+    }
+
+    @Test
+    @DisplayName("详情返回搜索关键词（后台编辑表单要回填）")
+    void detailReturnsSearchKeywords() {
+        Product p = new Product();
+        p.setId(1L);
+        p.setCategoryId(1L);
+        p.setName("高腰直筒牛仔裤");
+        p.setSearchKeywords("衣服,服装,服饰,裤子,长裤");
+        when(productMapper.selectById(1L)).thenReturn(p);
+        when(skuMapper.selectList(any())).thenReturn(List.of());
+        when(imageMapper.selectList(any())).thenReturn(List.of());
+
+        ProductDetail detail = productService.detail(1L);
+
+        assertThat(detail.getSearchKeywords()).isEqualTo("衣服,服装,服饰,裤子,长裤");
     }
 }

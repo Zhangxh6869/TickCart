@@ -25,6 +25,15 @@ public class Product {
 
     private String subtitle;
 
+    /**
+     * 搜索补充关键词，英文逗号分隔（如 {@code 手机,智能手机,苹果手机}）。
+     *
+     * <p>存的是「该商品还应该被哪些词搜到」——用户会搜、但商品名/副标题里没有的
+     * 品类词与别名（见 V15 迁移）。搜索时与 {@code name} / {@code subtitle} 一起 OR 匹配，
+     * 见 {@code ProductService#applyKeyword}。</p>
+     */
+    private String searchKeywords;
+
     private String mainImage;
 
     private String detail;
@@ -83,6 +92,14 @@ public class Product {
 
     public void setSubtitle(String subtitle) {
         this.subtitle = subtitle;
+    }
+
+    public String getSearchKeywords() {
+        return searchKeywords;
+    }
+
+    public void setSearchKeywords(String searchKeywords) {
+        this.searchKeywords = searchKeywords;
     }
 
     public String getMainImage() {

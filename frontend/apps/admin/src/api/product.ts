@@ -6,6 +6,12 @@ export interface ProductPayload {
   categoryId: number
   name: string
   subtitle?: string
+  /**
+   * 搜索补充关键词，英文逗号分隔（如 `手机,智能手机,苹果手机`）。
+   *
+   * <p>用户会搜、但商品名/副标题里没有的品类词与别名。搜索时与商品名、副标题一起参与匹配。</p>
+   */
+  searchKeywords?: string
   mainImage?: string
   detail?: string
   price: number

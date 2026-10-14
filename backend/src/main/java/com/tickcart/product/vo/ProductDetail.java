@@ -29,6 +29,9 @@ public class ProductDetail {
     @Schema(description = "副标题")
     private String subtitle;
 
+    @Schema(description = "搜索补充关键词（英文逗号分隔，后台编辑用）")
+    private String searchKeywords;
+
     @Schema(description = "主图URL")
     private String mainImage;
 
@@ -62,6 +65,7 @@ public class ProductDetail {
         vo.categoryId = p.getCategoryId();
         vo.name = p.getName();
         vo.subtitle = p.getSubtitle();
+        vo.searchKeywords = p.getSearchKeywords();
         vo.mainImage = p.getMainImage();
         vo.detail = p.getDetail();
         vo.price = p.getPrice();
@@ -96,6 +100,10 @@ public class ProductDetail {
 
     public String getSubtitle() {
         return subtitle;
+    }
+
+    public String getSearchKeywords() {
+        return searchKeywords;
     }
 
     public String getMainImage() {

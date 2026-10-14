@@ -73,10 +73,24 @@ public interface SearchLogMapper extends BaseMapper<SearchLog> {
 
     /**
      * 全局热门搜索词：按出现次数降序。
+     *
+     * <p><b>热搜词是「可点的建议」，必须点了就有结果</b>，所以这里做两道过滤
+     * （前台 {@code /api/search/hot} 直接把它们渲染成 chip，点一下就是一次搜索）：</p>
+     * <ul>
+     *   <li>{@code CHAR_LENGTH >= 2}：单字词噪音大（与 {@link #relatedKeywords} 同一口径）；</li>
+     *   <li>{@code HAVING MAX(result_count) > 0}：该词**至少成功搜到过一次**商品。
+     *       否则会出现「热搜词点进去 0 结果」的死链 —— 踩过：验证脚本用 {@code _} / {@code %}
+     *       当探针打接口，这些符号词被记进日志后直接挤进了热搜榜。</li>
+     * </ul>
+     *
+     * <p>注意「搜不到的词」并没有被丢掉：它们仍完整保留在 {@code search_log} 里，
+     * 供后台「搜索分析」的无结果词榜使用，只是不作为前台建议词。</p>
      */
     @Select("""
             SELECT keyword FROM search_log
+            WHERE CHAR_LENGTH(keyword) >= 2
             GROUP BY keyword
+            HAVING MAX(result_count) > 0
             ORDER BY COUNT(*) DESC
             LIMIT #{limit}
             """)
