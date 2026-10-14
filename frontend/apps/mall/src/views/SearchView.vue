@@ -257,7 +257,7 @@ onMounted(async () => {
               ×
             </button>
           </span>
-          <!-- 展开/收起箭头：历史超过折叠上限才出现，落在最后一枚 chip 后面 -->
+          <!-- 展开/收起箭头：历史超过折叠上限才出现，贴齐历史词区域的右下角 -->
           <button
             v-if="hasMoreHistory"
             class="chip chip--more"
@@ -465,6 +465,12 @@ onMounted(async () => {
  *
  * 沿用 .chip 的底色与圆角，让它落在 chip 流里而不突兀，但**只留一个图标的宽度**
  * （`.chip` 是 5px 10px 的内边距，图标按钮用不上，故这里收窄）。
+ *
+ * ★ `margin-left: auto` 让它**贴齐容器右边**，也就是历史词区域的「右下角」：
+ *   flex 布局里 auto 外边距会吃掉本行的剩余空间，所以不管它最终落在哪一行，
+ *   都会被推到那一行的最右端；本行塞不下时会先换行、再贴到新行的最右端。
+ *   （只写 `margin-left: auto` 就够，不用 `justify-content` —— 后者会影响所有 chip。）
+ *
  * ★ 类名 `chip--more` 是回归脚本的选择器契约：`search-verify.mjs` 用
  *   `.chip:not(.chip--hot):not(.chip--more)` 取「真正的历史词」，改类名要同步改它。
  */
@@ -473,6 +479,7 @@ onMounted(async () => {
   padding: 5px 8px;
   color: #646566;
   line-height: 1;
+  margin-left: auto;
 }
 .chip--more:active {
   background: #e6e7e9;
