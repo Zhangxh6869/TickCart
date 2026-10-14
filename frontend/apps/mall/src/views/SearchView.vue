@@ -58,7 +58,6 @@ const KEYWORD_MAX = 30
 const inputText = ref('')
 /** 已提交的关键词。空串 = 空态。与 inputText 分开，避免边打字边重查。 */
 const keyword = ref('')
-const total = ref(0)
 const history = ref<string[]>(readHistory())
 /** 历史是否已展开（仅影响展示，不改存储） */
 const historyExpanded = ref(false)
@@ -228,10 +227,14 @@ function submit(word?: string) {
   router.replace({ name: 'search', query: { keyword: text } })
 }
 
-/** 清空输入框（小叉或退格删空）→ 回到空态并摘掉 URL 上的 keyword */
+/**
+ * 清空输入框（小叉或退格删空）→ 回到空态并摘掉 URL 上的 keyword。
+ *
+ * 不用手动清结果：`keyword` 一空，ProductFeed 就被 `v-else` 卸载，
+ * 它自己的分页 / 总数状态随之销毁，下次搜索是全新实例。
+ */
 function resetToIdle() {
   keyword.value = ''
-  total.value = 0
   router.replace({ name: 'search' })
 }
 
@@ -424,30 +427,32 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- ── 结果态：已提交关键词 ───────────────────────────────────── -->
-    <ProductFeed
-      v-else
-      v-model:total="total"
-      :keyword="keyword"
-      empty-text="没有找到相关商品"
-    >
+    <ProductFeed v-else :keyword="keyword" empty-text="没有找到相关商品">
       <template #summary>
-        <div v-if="total > 0" class="search__count">为你找到 {{ total }} 件商品</div>
-        <!-- 相关搜索：基于当前关键词，数据来自真实搜索日志（不足时用命中商品高频词兜底） -->
-        <section v-if="related.length" class="block block--related">
-          <div class="block__head">
-            <span class="block__title">相关搜索</span>
-          </div>
-          <div class="chips">
-            <span
-              v-for="word in related"
-              :key="word"
-              class="chip chip--hot"
-              @click="submit(word)"
-            >
-              {{ word }}
-            </span>
-          </div>
-        </section>
+        <!--
+          排序栏与商品网格之间的这一块。
+          ★ 外面这层 .feed-summary 恒定渲染，负责给网格留出上边距 ——
+            原先这个间距是「为你找到 N 件商品」那行文案撑出来的，文案按用户要求去掉后，
+            没有相关搜索词时网格会直接贴到排序栏上。
+          ★ 相关搜索：基于当前关键词，数据来自真实搜索日志（不足时用命中商品高频词兜底）。
+        -->
+        <div class="feed-summary">
+          <section v-if="related.length" class="block block--related">
+            <div class="block__head">
+              <span class="block__title">相关搜索</span>
+            </div>
+            <div class="chips">
+              <span
+                v-for="word in related"
+                :key="word"
+                class="chip chip--hot"
+                @click="submit(word)"
+              >
+                {{ word }}
+              </span>
+            </div>
+          </section>
+        </div>
       </template>
       <template #empty>
         <span class="search__empty-tip">换个关键词试试</span>
@@ -629,14 +634,18 @@ onBeforeUnmount(() => {
 }
 
 /* ── 结果态 ─────────────────────────────────────────────────────── */
-.search__count {
-  padding: 10px 12px 0;
-  font-size: 12px;
-  color: #969799;
-}
-/* 相关搜索区：紧跟在「为你找到 N 件商品」下方，与网格之间留一点距离 */
-.block--related {
+/**
+ * summary 插槽的外层：恒定渲染，给下面的商品网格留出与排序栏之间的间距。
+ *
+ * 这个间距原本是「为你找到 N 件商品」那行文案撑出来的（约 27px），
+ * 文案去掉后没有相关搜索词时网格会直接贴到排序栏上，所以改由这层兜底。
+ */
+.feed-summary {
   padding-top: 10px;
+}
+/* 相关搜索区：上间距已由 .feed-summary 提供，这里只管与网格之间的距离 */
+.block--related {
+  padding-top: 0;
   padding-bottom: 6px;
 }
 .search__empty-tip {
