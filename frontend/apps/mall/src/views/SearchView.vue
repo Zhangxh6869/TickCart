@@ -14,7 +14,7 @@
  *   相关词 → GET /api/search/related?keyword=…（真实日志相关词 + 命中商品高频词兜底）
  *   历史   → localStorage，只存本机
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showConfirmDialog } from 'vant'
 import { fetchHotSearches, fetchRelatedSearches } from '@/api/search'
@@ -27,13 +27,19 @@ const router = useRouter()
 const HISTORY_KEY = 'tickcart.search.history'
 const HISTORY_MAX = 10
 /**
- * 历史折叠时展示的条数。
+ * 历史折叠时保留的行数。
  *
- * 超出这个条数就在末尾给一个箭头，点开看全部（见 {@link historyExpanded}）。
- * 为什么折叠：历史攒满 10 条会占掉两三行，把下面的「热门搜索」挤出首屏 ——
+ * 超出这两行的历史词隐藏起来，末尾给一个箭头点开看全部（见 {@link historyExpanded}）。
+ * 为什么折叠：历史攒满 10 条会占掉三四行，把下面的「热门搜索」挤出首屏 ——
  * 而空态里用户更常点的是热搜词。
+ *
+ * ★ 这里只写「几行」而不是「几条」：chip 宽度随文字长短变化，同样是 7 条，
+ *   窄屏会占 3 行、宽屏可能只占 2 行，写死条数没法保证「刚好两行」。
+ *   实际能放几条由 {@link measureFoldCapacity} 量出来。
  */
-const HISTORY_COLLAPSED = 7
+const HISTORY_FOLD_ROWS = 2
+/** 量不到行间距时的兜底值，与 `.chips` 的 gap 保持一致 */
+const CHIP_GAP_FALLBACK = 8
 /** 热门搜索展示的个数 */
 const HOT_MAX = 8
 /** 相关搜索展示的个数 */
@@ -48,17 +54,104 @@ const total = ref(0)
 const history = ref<string[]>(readHistory())
 /** 历史是否已展开（仅影响展示，不改存储） */
 const historyExpanded = ref(false)
+/** 历史词容器（要拿它量行高 / 行宽，见 measureFoldCapacity） */
+const chipsRef = ref<HTMLElement | null>(null)
 /**
- * 实际渲染的历史词：折叠时只取前 {@link HISTORY_COLLAPSED} 条。
+ * 折叠时能显示的条数 —— 由 {@link measureFoldCapacity} 实测「两行」得出。
  *
- * 用 `computed` 而不是在 `pushHistory` 里截断 —— 存储始终是完整的 10 条，
- * 折叠只是展示层的切分，删掉一条后下一条会自动补上来。
+ * 放得下全部时会被设成 `history.length`，此时不折叠、也不显示箭头。
+ */
+const foldCapacity = ref(Number.MAX_SAFE_INTEGER)
+/**
+ * 首次实测是否完成。
+ *
+ * 实测要先把全部历史词渲染出来量一遍，所以首帧会短暂是「全部展开」的样子；
+ * 用这个标记在实测完成前把 chips 容器设成 `visibility: hidden`，
+ * 避免用户看到一帧「先全展开、再收起来」的跳动。
+ * （实测与收紧都发生在同一个 microtask 批次里，正常情况下根本不会绘制到屏幕。）
+ */
+const foldReady = ref(false)
+
+/**
+ * 实际渲染的历史词。
+ *
+ * 折叠时只取前 {@link foldCapacity} 条。用 `computed` 而不是在 `pushHistory` 里截断 ——
+ * 存储始终是完整的 10 条，折叠只是展示层的切分，删掉一条后下一条会自动补上来。
  */
 const visibleHistory = computed(() =>
-  historyExpanded.value ? history.value : history.value.slice(0, HISTORY_COLLAPSED)
+  historyExpanded.value || !foldReady.value
+    ? history.value
+    : history.value.slice(0, foldCapacity.value)
 )
-/** 是否需要那个展开箭头（历史条数超过折叠上限时才出现） */
-const hasMoreHistory = computed(() => history.value.length > HISTORY_COLLAPSED)
+
+/**
+ * 是否显示「展开/收起」箭头。
+ *
+ * 实测期间（`!foldReady`）也要渲染出来 —— 量第 2 行还剩多少位置给箭头时需要它的宽度。
+ */
+const showFoldArrow = computed(
+  () => history.value.length > 0 && (!foldReady.value || history.value.length > foldCapacity.value)
+)
+
+/**
+ * 实测「折叠两行能放下几枚历史词」。
+ *
+ * 步骤：① 先把全部历史词渲染出来；② 按 `offsetTop` 把 chip 分到第 1 / 第 2 行；
+ * ③ 若两行装得下全部 → 不折叠；④ 否则从第 2 行末尾往前让位，
+ * 直到「最后一枚 chip 右缘 + 间距 + 箭头宽」不超容器宽 —— 这样箭头才落在第 2 行内。
+ *
+ * ★ 为什么必须量而不能算：chip 宽度取决于文字长度，且容器宽度随视口变化。
+ * ★ 让位只需要做算术，不用反复渲染：从末尾拿掉 chip 不会改变它前面那些 chip 的位置。
+ */
+async function measureFoldCapacity() {
+  const el = chipsRef.value
+  if (!el || !history.value.length) {
+    foldReady.value = true
+    return
+  }
+
+  // ① 全部渲染出来量一遍（此时容器是 hidden 的，用户看不到）
+  foldReady.value = false
+  await nextTick()
+
+  const chips = [...el.querySelectorAll<HTMLElement>('.chip--history')]
+  if (!chips.length) {
+    foldReady.value = true
+    return
+  }
+
+  const gap = Number.parseFloat(getComputedStyle(el).rowGap) || CHIP_GAP_FALLBACK
+  const firstTop = chips[0].offsetTop
+  const rowHeight = chips[0].offsetHeight + gap
+  const secondRowBottom = firstTop + HISTORY_FOLD_ROWS * rowHeight
+
+  const row1 = chips.filter((c) => c.offsetTop < firstTop + rowHeight / 2)
+  const row2 = chips.filter(
+    (c) => c.offsetTop >= firstTop + rowHeight / 2 && c.offsetTop < secondRowBottom
+  )
+
+  // ③ 两行就装得下全部 → 不需要折叠，也不显示箭头
+  if (row1.length + row2.length === chips.length) {
+    foldCapacity.value = chips.length
+    foldReady.value = true
+    return
+  }
+
+  // ④ 给箭头腾位置
+  const arrow = el.querySelector<HTMLElement>('.chip--more')
+  const arrowWidth = arrow ? arrow.offsetWidth : 0
+  const box = el.getBoundingClientRect()
+  let keepInRow2 = row2.length
+  while (keepInRow2 > 0) {
+    const used = row2[keepInRow2 - 1].getBoundingClientRect().right - box.left
+    if (used + gap + arrowWidth <= box.width + 0.5) break
+    keepInRow2 -= 1
+  }
+
+  foldCapacity.value = row1.length + keepInRow2
+  foldReady.value = true
+}
+
 const hotWords = ref<string[]>([])
 /** 与当前关键词相关的搜索词（结果态展示） */
 const related = ref<string[]>([])
@@ -96,9 +189,9 @@ function pushHistory(word: string) {
 
 function removeHistory(word: string) {
   history.value = history.value.filter((w) => w !== word)
-  // 删到不再超上限时箭头会消失，此时必须把展开态复位，
-  // 否则下次历史又攒超上限、箭头重新出现时，会莫名其妙已经是「展开」状态
-  if (!hasMoreHistory.value) historyExpanded.value = false
+  // 删到两行就装得下时箭头会消失，此时必须把展开态复位，
+  // 否则下次历史又攒多了、箭头重新出现时，会莫名其妙已经是「展开」状态
+  if (history.value.length <= foldCapacity.value) historyExpanded.value = false
   persistHistory()
 }
 
@@ -201,6 +294,31 @@ onMounted(async () => {
 
   await loadHotWords()
 })
+
+// ── 折叠两行的实测时机 ───────────────────────────────────────────────
+// ① 历史区块刚挂载（从结果态清空输入回空态时会出现）
+watch(
+  chipsRef,
+  (el) => {
+    if (el) measureFoldCapacity()
+  },
+  { flush: 'post' }
+)
+// ② 历史增删（`flush: 'post'` 保证量的是更新后的 DOM）
+watch(history, () => measureFoldCapacity(), { flush: 'post' })
+
+// ③ 视口变化 —— chip 宽度不变，但一行能放几枚会变。
+//    防抖：resize 期间连续触发，每次都要读布局，不防抖会拖慢窗口缩放。
+let resizeTimer: ReturnType<typeof setTimeout> | undefined
+function onWindowResize() {
+  clearTimeout(resizeTimer)
+  resizeTimer = setTimeout(() => measureFoldCapacity(), 150)
+}
+onMounted(() => window.addEventListener('resize', onWindowResize))
+onBeforeUnmount(() => {
+  clearTimeout(resizeTimer)
+  window.removeEventListener('resize', onWindowResize)
+})
 </script>
 
 <template>
@@ -245,8 +363,18 @@ onMounted(async () => {
           <span class="block__title">搜索历史</span>
           <button class="block__action" type="button" @click="clearHistory">清空</button>
         </div>
-        <div class="chips">
-          <span v-for="word in visibleHistory" :key="word" class="chip" @click="submit(word)">
+        <!-- visibility 由 foldReady 控制：实测「两行能放几枚」期间先不显示，避免闪一下 -->
+        <div
+          ref="chipsRef"
+          class="chips"
+          :style="{ visibility: foldReady ? undefined : 'hidden' }"
+        >
+          <span
+            v-for="word in visibleHistory"
+            :key="word"
+            class="chip chip--history"
+            @click="submit(word)"
+          >
             {{ word }}
             <button
               class="chip__close"
@@ -257,9 +385,9 @@ onMounted(async () => {
               ×
             </button>
           </span>
-          <!-- 展开/收起箭头：历史超过折叠上限才出现，贴齐历史词区域的右下角 -->
+          <!-- 展开/收起箭头：超出两行的历史被折叠时才出现，落在第 2 行的右下角 -->
           <button
-            v-if="hasMoreHistory"
+            v-if="showFoldArrow"
             class="chip chip--more"
             type="button"
             :aria-label="historyExpanded ? '收起搜索历史' : '展开全部搜索历史'"
