@@ -14,7 +14,7 @@
  *   相关词 → GET /api/search/related?keyword=…（真实日志相关词 + 命中商品高频词兜底）
  *   历史   → localStorage，只存本机
  */
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showConfirmDialog } from 'vant'
 import { fetchHotSearches, fetchRelatedSearches } from '@/api/search'
@@ -26,6 +26,14 @@ const router = useRouter()
 /** 搜索历史在本机的存储键与上限 */
 const HISTORY_KEY = 'tickcart.search.history'
 const HISTORY_MAX = 10
+/**
+ * 历史折叠时展示的条数。
+ *
+ * 超出这个条数就在末尾给一个箭头，点开看全部（见 {@link historyExpanded}）。
+ * 为什么折叠：历史攒满 10 条会占掉两三行，把下面的「热门搜索」挤出首屏 ——
+ * 而空态里用户更常点的是热搜词。
+ */
+const HISTORY_COLLAPSED = 7
 /** 热门搜索展示的个数 */
 const HOT_MAX = 8
 /** 相关搜索展示的个数 */
@@ -38,6 +46,19 @@ const inputText = ref('')
 const keyword = ref('')
 const total = ref(0)
 const history = ref<string[]>(readHistory())
+/** 历史是否已展开（仅影响展示，不改存储） */
+const historyExpanded = ref(false)
+/**
+ * 实际渲染的历史词：折叠时只取前 {@link HISTORY_COLLAPSED} 条。
+ *
+ * 用 `computed` 而不是在 `pushHistory` 里截断 —— 存储始终是完整的 10 条，
+ * 折叠只是展示层的切分，删掉一条后下一条会自动补上来。
+ */
+const visibleHistory = computed(() =>
+  historyExpanded.value ? history.value : history.value.slice(0, HISTORY_COLLAPSED)
+)
+/** 是否需要那个展开箭头（历史条数超过折叠上限时才出现） */
+const hasMoreHistory = computed(() => history.value.length > HISTORY_COLLAPSED)
 const hotWords = ref<string[]>([])
 /** 与当前关键词相关的搜索词（结果态展示） */
 const related = ref<string[]>([])
@@ -75,6 +96,9 @@ function pushHistory(word: string) {
 
 function removeHistory(word: string) {
   history.value = history.value.filter((w) => w !== word)
+  // 删到不再超上限时箭头会消失，此时必须把展开态复位，
+  // 否则下次历史又攒超上限、箭头重新出现时，会莫名其妙已经是「展开」状态
+  if (!hasMoreHistory.value) historyExpanded.value = false
   persistHistory()
 }
 
@@ -85,6 +109,7 @@ async function clearHistory() {
     return // 点了取消
   }
   history.value = []
+  historyExpanded.value = false
   persistHistory()
 }
 
@@ -221,7 +246,7 @@ onMounted(async () => {
           <button class="block__action" type="button" @click="clearHistory">清空</button>
         </div>
         <div class="chips">
-          <span v-for="word in history" :key="word" class="chip" @click="submit(word)">
+          <span v-for="word in visibleHistory" :key="word" class="chip" @click="submit(word)">
             {{ word }}
             <button
               class="chip__close"
@@ -232,6 +257,16 @@ onMounted(async () => {
               ×
             </button>
           </span>
+          <!-- 展开/收起箭头：历史超过折叠上限才出现，落在最后一枚 chip 后面 -->
+          <button
+            v-if="hasMoreHistory"
+            class="chip chip--more"
+            type="button"
+            :aria-label="historyExpanded ? '收起搜索历史' : '展开全部搜索历史'"
+            @click="historyExpanded = !historyExpanded"
+          >
+            <van-icon :name="historyExpanded ? 'arrow-up' : 'arrow-down'" size="14" />
+          </button>
         </div>
       </section>
 
@@ -424,6 +459,23 @@ onMounted(async () => {
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
+}
+/**
+ * 历史「展开/收起」箭头。
+ *
+ * 沿用 .chip 的底色与圆角，让它落在 chip 流里而不突兀，但**只留一个图标的宽度**
+ * （`.chip` 是 5px 10px 的内边距，图标按钮用不上，故这里收窄）。
+ * ★ 类名 `chip--more` 是回归脚本的选择器契约：`search-verify.mjs` 用
+ *   `.chip:not(.chip--hot):not(.chip--more)` 取「真正的历史词」，改类名要同步改它。
+ */
+.chip--more {
+  border: none;
+  padding: 5px 8px;
+  color: #646566;
+  line-height: 1;
+}
+.chip--more:active {
+  background: #e6e7e9;
 }
 
 /* ── 结果态 ─────────────────────────────────────────────────────── */
