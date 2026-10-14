@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.tickcart.search.dto.KeywordCount;
 import com.tickcart.search.dto.KeywordStat;
 import com.tickcart.search.entity.SearchLog;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -101,4 +102,12 @@ public interface SearchLogMapper extends BaseMapper<SearchLog> {
     List<String> relatedKeywords(@Param("kw") String kw,
                                  @Param("like") String like,
                                  @Param("limit") int limit);
+
+    /**
+     * 删除早于 {@code cutoff} 的搜索日志（保留策略，见 {@code SearchLogCleanupTask}）。
+     *
+     * @return 实际删除行数
+     */
+    @Delete("DELETE FROM search_log WHERE created_at < #{cutoff}")
+    int deleteBefore(@Param("cutoff") LocalDateTime cutoff);
 }

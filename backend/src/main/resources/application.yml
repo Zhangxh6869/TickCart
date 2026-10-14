@@ -113,6 +113,12 @@ tickcart:
   static:
     # 演示图片目录，以 /img/** 对外提供；默认 ../imgs 指仓库根目录 imgs/
     imgs-dir: ${IMGS_DIR:../imgs}
+  # 搜索
+  search:
+    # search_log 保留天数：早于「今天 - N 天」的搜索日志会被定时清理；<=0 表示不清理
+    log-retention-days: ${SEARCH_LOG_RETENTION_DAYS:90}
+    # 清理任务 cron（Spring 6 段式：秒 分 时 日 月 周），默认每天 03:00
+    log-cleanup-cron: ${SEARCH_LOG_CLEANUP_CRON:0 0 3 * * ?}
 
 # -----------------------------------------------------------------------------
 # MyBatis-Plus 配置
