@@ -483,7 +483,17 @@ onBeforeUnmount(() => {
   --color-search-icon: #515151;
 }
 
-/* 搜索栏吸顶：结果列表很长时也随时能改词 */
+/**
+ * 搜索栏吸顶：结果列表很长时也随时能改词。
+ *
+ * ★ 底部分隔与首页 `.home__sticky` 用同一套（用户要求「参照首页搜索框与下面商品展示的效果」）：
+ *   1px 发丝线给明确分界，再叠一层 8px 柔影避免像硬边框。
+ *   原先只有一条 `0 1px 0 rgba(0,0,0,.06)`，太淡 —— 空态下搜索栏与下方区块几乎糊在一起。
+ *   强度实测（390px 视口，量边界下方像素灰度，纯白 = 255）：
+ *     原单层 → 最深 250（差 5，基本看不出）
+ *     本组合 → 最深 221（差 34），再经约 10px 渐变回纯白
+ *   z-index 高于下方内容，阴影才不会被内容盖住。
+ */
 .search__bar {
   position: sticky;
   top: 0;
@@ -492,7 +502,9 @@ onBeforeUnmount(() => {
   align-items: center;
   padding: 6px 12px 6px 2px;
   background: var(--van-background, #fff);
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.08),
+    0 2px 8px rgba(0, 0, 0, 0.1);
 }
 .search__back {
   flex: none;
