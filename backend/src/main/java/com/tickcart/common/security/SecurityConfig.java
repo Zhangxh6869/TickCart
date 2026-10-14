@@ -67,6 +67,9 @@ public class SecurityConfig {
                         // 前台公开商品读接口（浏览无需登录）
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/products/**", "/api/categories/**").permitAll()
+                        // 前台公开搜索建议（热门搜索 / 相关搜索）
+                        .requestMatchers(org.springframework.http.HttpMethod.GET,
+                                "/api/search/**").permitAll()
                         // 上传图片的静态访问：<img src> 不会携带 Authorization 头，必须放行
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/files/**").permitAll()

@@ -69,4 +69,36 @@ public interface SearchLogMapper extends BaseMapper<SearchLog> {
             WHERE (#{since} IS NULL OR created_at >= #{since})
             """)
     int distinctKeywords(@Param("since") LocalDateTime since);
+
+    /**
+     * 全局热门搜索词：按出现次数降序。
+     */
+    @Select("""
+            SELECT keyword FROM search_log
+            GROUP BY keyword
+            ORDER BY COUNT(*) DESC
+            LIMIT #{limit}
+            """)
+    List<String> hotKeywords(@Param("limit") int limit);
+
+    /**
+     * 与关键词相关的搜索词：另一条搜索词与本关键词存在「包含」关系（双向）。
+     *
+     * <p>用 {@code LOCATE(keyword, kw) > 0} 判断「本关键词包含历史词」——避免对
+     * keyword 列做动态转义；用 {@code keyword LIKE %kw%}（kw 已转义）判断反向包含。
+     * 单字历史词噪音大，用 {@code CHAR_LENGTH >= 2} 过滤。</p>
+     */
+    @Select("""
+            SELECT keyword FROM search_log
+            WHERE keyword <> #{kw}
+              AND CHAR_LENGTH(keyword) >= 2
+              AND (keyword LIKE CONCAT('%', #{like}, '%') ESCAPE '!'
+                   OR LOCATE(keyword, #{kw}) > 0)
+            GROUP BY keyword
+            ORDER BY COUNT(*) DESC
+            LIMIT #{limit}
+            """)
+    List<String> relatedKeywords(@Param("kw") String kw,
+                                 @Param("like") String like,
+                                 @Param("limit") int limit);
 }

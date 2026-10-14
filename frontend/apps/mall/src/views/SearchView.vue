@@ -8,15 +8,16 @@
  * 不必来回跳转，也不会在返回栈里堆一串记录。URL 仍用 `router.replace` 同步 keyword，
  * 因此结果页可刷新、可直接分享。
  *
- * 数据来源全部是既有接口，本页没有新增后端能力：
+ * 数据来源：
  *   搜索   → GET /api/products?keyword=…
- *   热搜   → GET /api/categories（取前 8 个分类名）
+ *   热搜   → GET /api/search/hot（真实搜索词频，后端无数据时兜底热销商品名）
+ *   相关词 → GET /api/search/related?keyword=…（真实日志相关词 + 命中商品高频词兜底）
  *   历史   → localStorage，只存本机
  */
 import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showConfirmDialog } from 'vant'
-import { fetchProducts } from '@/api/product'
+import { fetchHotSearches, fetchRelatedSearches } from '@/api/search'
 import ProductFeed from '@/components/ProductFeed.vue'
 
 const route = useRoute()
@@ -27,8 +28,8 @@ const HISTORY_KEY = 'tickcart.search.history'
 const HISTORY_MAX = 10
 /** 热门搜索展示的个数 */
 const HOT_MAX = 8
-/** 算热搜词时取多少条热销商品（去重前的候选池，留足余量） */
-const HOT_POOL = 20
+/** 相关搜索展示的个数 */
+const RELATED_MAX = 8
 /** 关键词长度上限。后端对该字段没有长度约束，先在前端收口。 */
 const KEYWORD_MAX = 30
 
@@ -38,6 +39,8 @@ const keyword = ref('')
 const total = ref(0)
 const history = ref<string[]>(readHistory())
 const hotWords = ref<string[]>([])
+/** 与当前关键词相关的搜索词（结果态展示） */
+const related = ref<string[]>([])
 
 /**
  * 读取本机搜索历史。
@@ -118,6 +121,12 @@ watch(inputText, (val) => {
   if (!val.trim() && keyword.value) resetToIdle()
 })
 
+/** 关键词变化 → 重新拉相关搜索词（清空关键词即清空相关词） */
+watch(keyword, (kw) => {
+  if (kw) loadRelated(kw)
+  else related.value = []
+})
+
 /** 无上一页时（直接打开 /search）兜底回首页，避免返回箭头点了没反应 */
 function goBack() {
   if (window.history.state?.back) {
@@ -130,28 +139,29 @@ function goBack() {
 /**
  * 拉热门搜索词。
  *
- * ★★ 用「热销商品名的首段」而不是分类名 —— 这是踩过的坑：
- * 后端搜索只匹配商品名 `name`（见 ProductService.filterWrapper），而分类名
- * （「手机数码」「鞋类」…）几乎不可能出现在任何商品名里，拿它当关键词点进去
- * **必然**是「没有找到相关商品」。实测 8 个分类名热搜词命中 0/8，
- * 用户点第一下就会以为「搜索坏了」。
- *
- * 取热销商品名的首段（去掉规格/颜色后缀，如「全面屏智能手机 8+256G 赤焰红」→
- * 「全面屏智能手机」）既能保证每个词都搜得到东西，也天然对应「热门」。
- * 更好的做法是接一张搜索词统计表（二期，见方案 §2.3）。
+ * 数据来自真实搜索日志（`search_log`，见 V13）；后端在日志为空时会兜底
+ * 「热销商品名的首段」。★ 兜底为什么不用分类名：后端搜索只匹配商品名/副标题，
+ * 分类名（「手机数码」「鞋类」…）几乎不会出现在商品文本里，点进去**必然** 0 结果
+ * （实测 8 个分类名命中 0/8）—— 这条坑已在后端兜底里守住。
  */
 async function loadHotWords() {
   try {
-    const res = await fetchProducts({ page: 1, size: HOT_POOL, sortBy: 'sales', order: 'desc' })
-    const words: string[] = []
-    for (const p of res.records) {
-      const head = p.name.trim().split(/\s+/)[0]
-      if (head && !words.includes(head)) words.push(head)
-      if (words.length >= HOT_MAX) break
-    }
-    hotWords.value = words
+    hotWords.value = await fetchHotSearches(HOT_MAX)
   } catch {
     // 热搜拉不到就不显示该区块，不影响搜索本身
+  }
+}
+
+/**
+ * 拉「相关搜索」词：与当前关键词相关，结果态展示在商品网格上方。
+ * 拉不到就清空、不显示该区块，不影响搜索本身。
+ */
+async function loadRelated(kw: string) {
+  related.value = []
+  try {
+    related.value = await fetchRelatedSearches(kw, RELATED_MAX)
+  } catch {
+    related.value = []
   }
 }
 
@@ -251,6 +261,22 @@ onMounted(async () => {
     >
       <template #summary>
         <div v-if="total > 0" class="search__count">为你找到 {{ total }} 件商品</div>
+        <!-- 相关搜索：基于当前关键词，数据来自真实搜索日志（不足时用命中商品高频词兜底） -->
+        <section v-if="related.length" class="block block--related">
+          <div class="block__head">
+            <span class="block__title">相关搜索</span>
+          </div>
+          <div class="chips">
+            <span
+              v-for="word in related"
+              :key="word"
+              class="chip chip--hot"
+              @click="submit(word)"
+            >
+              {{ word }}
+            </span>
+          </div>
+        </section>
       </template>
       <template #empty>
         <span class="search__empty-tip">换个关键词试试</span>
@@ -405,6 +431,11 @@ onMounted(async () => {
   padding: 10px 12px 0;
   font-size: 12px;
   color: #969799;
+}
+/* 相关搜索区：紧跟在「为你找到 N 件商品」下方，与网格之间留一点距离 */
+.block--related {
+  padding-top: 10px;
+  padding-bottom: 6px;
 }
 .search__empty-tip {
   display: block;
