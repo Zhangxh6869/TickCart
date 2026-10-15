@@ -358,13 +358,59 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="home">
-    <!-- 下拉刷新：滚到顶部（scrollY = 0）后继续下拉即刷新商品，包住吸顶区 + 商品区。
-         ★ 包的是这两块、不含 BackToTop —— 刷新时 track 会被 translate3d 下移，
-           transform 祖先会把内部 position: fixed 后代的包含块从视口换成它自己，
-           固定在右下角的「回到顶部」会被一起拖下去（详见模板末尾那条注释）。
+    <!-- 吸顶区：搜索栏 + 分类栏作为整体钉在页面顶部，纵向滚动时保持不动。
+         ★ 必须留在 van-pull-refresh **之外**：下拉刷新的指示条是 Vant 渲染在 track 上方的，
+           包住吸顶区的话指示条会跑到搜索栏上面；只包商品区，它才正好落在分类条下方。 -->
+    <div class="home__sticky">
+      <van-search
+        placeholder="搜索商品"
+        readonly
+        show-action
+        @click="goSearch"
+      >
+        <template #left-icon>
+          <svg
+            class="search-icon"
+            viewBox="0 0 1024 1024"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M932.571429 493.714286C932.571429 261.485714 744.228571 73.142857 512 73.142857S91.428571 261.485714 91.428571 493.714286s188.342857 420.571429 420.571429 420.571428c89.6 0 171.885714-27.428571 239.542857-74.971428l111.542857 111.542857 51.2-51.2-106.057143-106.057143c76.8-76.8 124.342857-182.857143 124.342858-299.885714zM164.571429 493.714286C164.571429 301.714286 320 146.285714 512 146.285714s347.428571 155.428571 347.428571 347.428572-155.428571 347.428571-347.428571 347.428571S164.571429 685.714286 164.571429 493.714286z"
+              fill="currentColor"
+            />
+          </svg>
+        </template>
+        <template #action>
+          <button class="search-btn" type="button" @click.stop="goSearch">搜索</button>
+        </template>
+      </van-search>
 
-         头部文案用 Vant 的默认中文（下拉即可刷新 / 释放即可刷新 / 加载中）；
-         成功态不加提示（用户先不做），刷新完成头部直接收起。 -->
+      <!-- 分类栏：搜索栏下方一行；「全部」钉在左侧不动，其余分类横向滑动，点击后原地切换下方商品 -->
+      <div ref="catBarRef" class="cat-bar">
+        <div
+          v-for="tab in categoryTabs"
+          :key="tab.id ?? 'all'"
+          class="cat-bar__item"
+          :class="{
+            'is-active': activeCategoryId === tab.id,
+            'cat-bar__item--pinned': tab.id === null,
+          }"
+          @click="selectCategory(tab.id)"
+        >
+          <span class="cat-bar__name">{{ tab.name }}</span>
+          <span class="cat-bar__bar" />
+        </div>
+      </div>
+    </div>
+
+    <!-- 下拉刷新：滚到顶部（scrollY = 0）后继续下拉即刷新商品。
+         ★ 只包商品区（.section）—— 指示条才会落在分类条下方（见上面吸顶区那条注释）。
+         ★ 也不含 BackToTop：刷新时 track 会被 translate3d 下移，transform 祖先会把内部
+           position: fixed 后代的包含块从视口换成它自己，按钮会被一起拖下去。
+         ★ 包裹层要撑满「吸顶区以下」的剩余视口（见样式里 .van-pull-refresh 的 flex 说明），
+           否则列表短、或落到「暂无商品」空态时，下方一大片区域接不到手势。
+         头部文案用 Vant 的默认中文；成功态不加提示（用户先不做），刷新完成头部直接收起。 -->
     <van-pull-refresh
       v-model="refreshing"
       pulling-text="下拉可以刷新"
@@ -372,50 +418,6 @@ onBeforeUnmount(() => {
       loading-text="正在刷新..."
       @refresh="onRefresh"
     >
-      <!-- 吸顶区：搜索栏 + 分类栏作为整体钉在页面顶部，纵向滚动时保持不动 -->
-      <div class="home__sticky">
-        <van-search
-          placeholder="搜索商品"
-          readonly
-          show-action
-          @click="goSearch"
-        >
-          <template #left-icon>
-            <svg
-              class="search-icon"
-              viewBox="0 0 1024 1024"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden="true"
-            >
-              <path
-                d="M932.571429 493.714286C932.571429 261.485714 744.228571 73.142857 512 73.142857S91.428571 261.485714 91.428571 493.714286s188.342857 420.571429 420.571429 420.571428c89.6 0 171.885714-27.428571 239.542857-74.971428l111.542857 111.542857 51.2-51.2-106.057143-106.057143c76.8-76.8 124.342857-182.857143 124.342858-299.885714zM164.571429 493.714286C164.571429 301.714286 320 146.285714 512 146.285714s347.428571 155.428571 347.428571 347.428572-155.428571 347.428571-347.428571 347.428571S164.571429 685.714286 164.571429 493.714286z"
-                fill="currentColor"
-              />
-            </svg>
-          </template>
-          <template #action>
-            <button class="search-btn" type="button" @click.stop="goSearch">搜索</button>
-          </template>
-        </van-search>
-
-        <!-- 分类栏：搜索栏下方一行；「全部」钉在左侧不动，其余分类横向滑动，点击后原地切换下方商品 -->
-        <div ref="catBarRef" class="cat-bar">
-          <div
-            v-for="tab in categoryTabs"
-            :key="tab.id ?? 'all'"
-            class="cat-bar__item"
-            :class="{
-              'is-active': activeCategoryId === tab.id,
-              'cat-bar__item--pinned': tab.id === null,
-            }"
-            @click="selectCategory(tab.id)"
-          >
-            <span class="cat-bar__name">{{ tab.name }}</span>
-            <span class="cat-bar__bar" />
-          </div>
-        </div>
-      </div>
-
       <div
         ref="sectionRef"
         class="section"
@@ -498,6 +500,15 @@ onBeforeUnmount(() => {
      （写成 min-height: 100vh 会凭空多出 50px 滚动条，别照抄 .cart 的历史写法。） */
   min-height: calc(100vh - 50px);
   background: var(--van-background, #fff);
+
+  /* ── 纵向 flex 只为一件事：让下拉刷新的包裹层撑满「吸顶区以下」的剩余视口 ──
+     包裹层只包商品区（这样指示条才落在分类条下方），而它的高度若随内容走，
+     列表短、或落到「暂无商品」空态时，下方一大片区域就接不到下拉手势。
+     ★ 包裹层用 flex: 1 0 auto，不是 flex: 1（= 1 1 0%）：grow 负责填满剩余空间，
+       basis 取 auto、且不许收缩，内容比视口高时高度仍由内容撑开。
+       写成 flex: 1 会把它压进剩余空间里，而包裹层带 overflow: clip，商品会被裁掉。 */
+  display: flex;
+  flex-direction: column;
 }
 /* ── 下拉刷新的包裹层：必须把 Vant 自带的 overflow: hidden 改成 clip（★ 别删）──────
    `.van-pull-refresh { overflow: hidden }` 是 Vant 自己的样式，本意是裁掉静止时藏在
@@ -512,6 +523,9 @@ onBeforeUnmount(() => {
    也照样把 window 认成滚动容器，下拉刷新的「滚到顶部」判定与 van-list 的分页都不受影响。
    实测：覆盖后滚到中部，`.home__sticky` 的 rect.top 仍是 0（见 cdp/home-pull-refresh-verify.mjs）。 */
 .home :deep(.van-pull-refresh) {
+  /* 撑满吸顶区以下的剩余视口，让手势区始终覆盖整屏（详见 .home 里那段 flex 注释）。
+     flex: 1 0 auto 而不是 flex: 1 —— 后者会把商品区压进剩余空间、被下面的 clip 裁掉。 */
+  flex: 1 0 auto;
   overflow: clip;
 }
 /* 吸顶区：搜索栏 + 分类栏作为整体钉在页面顶部，纵向滚动时保持不动。
@@ -521,6 +535,8 @@ onBeforeUnmount(() => {
   position: sticky;
   top: 0;
   z-index: 2;
+  /* 作为 .home 的 flex 项：高度按内容走、不参与拉伸（拉伸会改变吸顶区的实际高度） */
+  flex: 0 0 auto;
   /* 吸顶后本区即页面最顶部，原本 .home 上的 12px 顶部留白挪到这里：
      静止时版面与改动前逐像素一致（搜索栏 bottom 54、分类栏 54~98、商品区 top 110）。
      仍用 padding 而非给搜索框加 margin-top——margin 会塌陷穿透出去凭空多出 12px 高度 */
