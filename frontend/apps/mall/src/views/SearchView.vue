@@ -488,28 +488,28 @@ onBeforeUnmount(() => {
         <template #summary>
           <!--
             排序栏与商品网格之间的这一块。
-            ★ 外面这层 .feed-summary 恒定渲染，负责给网格留出上边距 ——
-              原先这个间距是「为你找到 N 件商品」那行文案撑出来的，文案按用户要求去掉后，
-              没有相关搜索词时网格会直接贴到排序栏上。
+            ★ 这里**不再**套一层恒定渲染的占位 div：那层原来给网格撑 10px 上边距，
+              但用户看到的就是「排序栏与商品之间多了个空盒子」，且没有相关搜索词时
+              它就是纯空白（网格自身已有 12px 内边距兜底）。现在没有相关词时这一格
+              什么都不渲染，网格直接接在排序栏下方。
             ★ 相关搜索：基于当前关键词，数据来自真实搜索日志（不足时用命中商品高频词兜底）。
+              它自带 10px 上边距（见 .block--related），紧贴排序栏时不会糊在一起。
           -->
-          <div class="feed-summary">
-            <section v-if="related.length" class="block block--related">
-              <div class="block__head">
-                <span class="block__title">相关搜索</span>
-              </div>
-              <div class="chips">
-                <span
-                  v-for="word in related"
-                  :key="word"
-                  class="chip chip--hot"
-                  @click="submit(word)"
-                >
-                  {{ word }}
-                </span>
-              </div>
-            </section>
-          </div>
+          <section v-if="related.length" class="block block--related">
+            <div class="block__head">
+              <span class="block__title">相关搜索</span>
+            </div>
+            <div class="chips">
+              <span
+                v-for="word in related"
+                :key="word"
+                class="chip chip--hot"
+                @click="submit(word)"
+              >
+                {{ word }}
+              </span>
+            </div>
+          </section>
         </template>
         <template #empty>
           <span class="search__empty-tip">换个关键词试试</span>
@@ -750,18 +750,15 @@ onBeforeUnmount(() => {
 
 /* ── 结果态 ─────────────────────────────────────────────────────── */
 /**
- * summary 插槽的外层：恒定渲染，给下面的商品网格留出与排序栏之间的间距。
+ * 相关搜索区（排序栏与商品网格之间）。
  *
- * 这个间距原本是「为你找到 N 件商品」那行文案撑出来的（约 27px），
- * 文案去掉后没有相关搜索词时网格会直接贴到排序栏上，所以改由这层兜底。
+ * ★ 上边距 10px 原本由外面那层 `.feed-summary` 占位 div 提供，那层已删 ——
+ *   没有相关搜索词时它就是个纯空白盒子，用户明确要求去掉（网格自身有 12px 内边距兜底）。
+ *   间距挪到这里，有相关词时的观感与之前逐像素一致；没有相关词时这一格完全不渲染。
+ * ★ 左右 12px 与 `.block` 一致，底 6px 是与网格之间的距离。
  */
-.feed-summary {
-  padding-top: 10px;
-}
-/* 相关搜索区：上间距已由 .feed-summary 提供，这里只管与网格之间的距离 */
 .block--related {
-  padding-top: 0;
-  padding-bottom: 6px;
+  padding: 10px 12px 6px;
 }
 .search__empty-tip {
   display: block;
