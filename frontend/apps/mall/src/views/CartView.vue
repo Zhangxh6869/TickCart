@@ -353,14 +353,13 @@ function goLogin() {
 .cart__empty-btn {
   width: 120px;
 }
-/* 未登录空态的主按钮（「去登录」）：底色与底部 tabbar 的选中色**同源** ——
-   取 App.vue 在 :root 覆盖过的 Vant 选中色变量，改那一个变量时两处一起变，
-   不用在这里再抄一份色值。
-   覆盖的是 Vant primary 按钮自己的两个变量（默认取 --van-primary-color = #1989fa，
-   和 tabbar 的选中色并不是同一个值）；文字色保持 Vant 默认的白，不用动。 */
+/* 未登录空态的主按钮（「去登录」）：底色用品牌浅蓝 rgb(107,163,200)，
+   与「去逛逛」「退出登录」「结算」保持同一品牌色（不再跟 tabbar 选中色同源）。
+   覆盖的是 Vant primary 按钮自己的两个变量（默认取 --van-primary-color = #1989fa）；
+   文字色保持 Vant 默认的白，字重保持普通按钮的 400，都不用动。 */
 .cart__empty-btn--accent {
-  --van-button-primary-background: var(--van-tabbar-item-active-color, rgb(59, 130, 246));
-  --van-button-primary-border-color: var(--van-tabbar-item-active-color, rgb(59, 130, 246));
+  --van-button-primary-background: rgb(107, 163, 200);
+  --van-button-primary-border-color: rgb(107, 163, 200);
 }
 /* 已登录空态的主按钮（「去逛逛」）：底色与字体样式对齐「我的」页的「退出登录」按钮 ——
    即品牌浅蓝 rgb(107,163,200)（与购物车底部「结算」按钮同色）+ 白字 + 字重 600。
