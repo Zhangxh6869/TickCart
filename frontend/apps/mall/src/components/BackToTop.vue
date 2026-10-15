@@ -25,7 +25,7 @@ const props = withDefaults(
  *
  * 只保留 viewBox 与 path —— 源文件里的 `t` / `p-id` / `class` / DOCTYPE 都是导出工具
  * 留下的元数据，对渲染无意义；`fill` 从源文件的 `#2c2c2c` 改成 `currentColor`，
- * 跟随按钮的文字色（A 方案 = 品牌蓝），与 TabBarIcon / 详情页分享图标同一套做法。
+ * 跟随按钮的文字色（用户指定为黑色，见样式里的 color），与 TabBarIcon / 详情页分享图标同一套做法。
  *
  * ★ viewBox 是**收紧过**的，不是文件自带的 `0 0 1024 1024`：图形只占原画布的
  *   69%×64%（居中，但偏小），沿用原画布会让它在 40px 圆钮里明显小一圈。
@@ -100,9 +100,9 @@ onBeforeUnmount(() => window.removeEventListener('scroll', sync))
   padding: 0;
   border: none;
   border-radius: 50%;
-  /* A 方案：白底 + 品牌蓝箭头。色值与首页 / 搜索页搜索框描边同源（rgb(107,163,200)） */
+  /* 白底 + 黑色图标（用户指定；图标 path 走 currentColor，改这里的 color 即可换色） */
   background: #fff;
-  color: rgb(107, 163, 200);
+  color: #000;
   /* 轻投影：按钮常悬在商品卡片之上，没影子会直接糊进卡片里 */
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   cursor: pointer;
