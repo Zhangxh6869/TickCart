@@ -527,6 +527,15 @@ onBeforeUnmount(() => {
      flex: 1 0 auto 而不是 flex: 1 —— 后者会把商品区压进剩余空间、被下面的 clip 裁掉。 */
   flex: 1 0 auto;
   overflow: clip;
+  /* ★ 包裹层自己也要是纵向 flex：让 track 撑满它。
+     track 自带 `height: 100%`，而包裹层的高度是**flex grow 出来的**（不是确定高度），
+     百分比高度解析不出来会退化成内容高度 —— 于是「列表很短」时 track 只有那么点高，
+     下方整片区域都接不到手势（空态同理）。改成 flex grow 就与百分比解析无关了。 */
+  display: flex;
+  flex-direction: column;
+}
+.home :deep(.van-pull-refresh__track) {
+  flex: 1 0 auto;
 }
 /* 吸顶区：搜索栏 + 分类栏作为整体钉在页面顶部，纵向滚动时保持不动。
    背景必须是不透明实底，否则下方商品会从吸顶区后面透出来；

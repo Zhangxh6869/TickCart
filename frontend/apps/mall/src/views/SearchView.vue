@@ -16,7 +16,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { showConfirmDialog } from 'vant'
+import { showConfirmDialog, showToast } from 'vant'
 import { fetchHotSearches, fetchRelatedSearches } from '@/api/search'
 import BackToTop from '@/components/BackToTop.vue'
 import ProductFeed from '@/components/ProductFeed.vue'
@@ -55,6 +55,17 @@ const HOT_MAX = 8
 const RELATED_MAX = 8
 /** 关键词长度上限。后端对该字段没有长度约束，先在前端收口。 */
 const KEYWORD_MAX = 30
+
+/**
+ * 下拉刷新的最短展示时长（ms）。与首页 HomeView 的 MIN_REFRESH_MS 同一思路：
+ * 本机接口 ~10ms 就返回，不兜下限的话头部指示会「闪一下就没了」，像没刷新。
+ */
+const MIN_REFRESH_MS = 500
+
+/** van-pull-refresh 的刷新态（由组件 v-model 驱动） */
+const refreshing = ref(false)
+/** 结果态的子组件实例：下拉刷新要调它的 reload() 重跑当前查询 */
+const feedRef = ref<InstanceType<typeof ProductFeed> | null>(null)
 
 const inputText = ref('')
 /** 已提交的关键词。空串 = 空态。与 inputText 分开，避免边打字边重查。 */
@@ -274,11 +285,13 @@ function goBack() {
  * 分类名（「手机数码」「鞋类」…）几乎不会出现在商品文本里，点进去**必然** 0 结果
  * （实测 8 个分类名命中 0/8）—— 这条坑已在后端兜底里守住。
  */
-async function loadHotWords() {
+async function loadHotWords(): Promise<boolean> {
   try {
     hotWords.value = await fetchHotSearches(HOT_MAX)
+    return true
   } catch {
     // 热搜拉不到就不显示该区块，不影响搜索本身
+    return false
   }
 }
 
@@ -286,13 +299,40 @@ async function loadHotWords() {
  * 拉「相关搜索」词：与当前关键词相关，结果态展示在商品网格上方。
  * 拉不到就清空、不显示该区块，不影响搜索本身。
  */
-async function loadRelated(kw: string) {
+async function loadRelated(kw: string): Promise<boolean> {
   related.value = []
   try {
     related.value = await fetchRelatedSearches(kw, RELATED_MAX)
+    return true
   } catch {
     related.value = []
+    return false
   }
+}
+
+/**
+ * 下拉刷新：按当前状态重跑「这一屏」的数据。
+ *   结果态 → 重跑当前关键词 + 当前排序的搜索（ProductFeed.refresh），并重拉相关搜索词
+ *   空态   → 重拉热门搜索（历史存在本机，没有可刷的东西）
+ *
+ * 不动输入框与 URL：刷新是「同一屏再拉一次」，不是换词 —— 换词走 submit()。
+ * 与首页一样，商品列表由子组件原子替换，刷新期间不会先清空再填。
+ */
+async function onRefresh() {
+  const startedAt = Date.now()
+  const jobs: Promise<boolean>[] = []
+  if (keyword.value) {
+    jobs.push(feedRef.value ? feedRef.value.refresh() : Promise.resolve(true))
+    jobs.push(loadRelated(keyword.value))
+  } else {
+    jobs.push(loadHotWords())
+  }
+  const results = await Promise.all(jobs).catch(() => [false])
+  // 兜满最短时长：接口再快也让头部指示完整展示一次
+  const rest = MIN_REFRESH_MS - (Date.now() - startedAt)
+  if (rest > 0) await new Promise((resolve) => setTimeout(resolve, rest))
+  if (results.some((ok) => ok === false)) showToast('刷新失败')
+  refreshing.value = false
 }
 
 onMounted(async () => {
@@ -368,108 +408,125 @@ onBeforeUnmount(() => {
       </van-search>
     </div>
 
-    <!-- ── 空态：未提交关键词 ─────────────────────────────────────── -->
-    <div v-if="!keyword" class="search__body">
-      <section v-if="history.length" class="block">
-        <div class="block__head">
-          <span class="block__title">搜索历史</span>
-          <button class="block__action" type="button" @click="clearHistory">清空</button>
-        </div>
-        <!-- visibility 由 foldReady 控制：实测「两行能放几枚」期间先不显示，避免闪一下 -->
-        <div
-          ref="chipsRef"
-          class="chips"
-          :style="{ visibility: foldReady ? undefined : 'hidden' }"
-        >
-          <span
-            v-for="word in visibleHistory"
-            :key="word"
-            class="chip chip--history"
-            @click="submit(word)"
+    <!-- 下拉刷新：滚到顶部（scrollY = 0）后继续下拉，重跑当前这一屏的数据。
+         ★ 只包「搜索栏以下的内容区」—— 指示条是 Vant 渲染在 track 上方的，
+           包住搜索栏的话它会跑到搜索栏上面去；只包内容区，它就落在搜索栏下方
+           （与首页「指示条在分类条下方」同一处理）。
+         ★ 也不含 BackToTop：刷新时 track 会被 translate3d 下移，transform 祖先会把内部
+           position: fixed 后代的包含块从视口换成它自己，按钮会被一起拖下去。
+         ★ 包裹层要撑满搜索栏以下的剩余视口（见样式里 .van-pull-refresh 的 flex 说明），
+           否则空态（只有历史 + 热搜）时下方一大片区域接不到手势。
+         头部文案用 Vant 的默认中文；成功态不加提示，刷新完成头部直接收起。 -->
+    <van-pull-refresh
+      v-model="refreshing"
+      pulling-text="下拉可以刷新"
+      loosing-text="松开立即刷新"
+      loading-text="正在刷新..."
+      @refresh="onRefresh"
+    >
+      <!-- ── 空态：未提交关键词 ─────────────────────────────────────── -->
+      <div v-if="!keyword" class="search__body">
+        <section v-if="history.length" class="block">
+          <div class="block__head">
+            <span class="block__title">搜索历史</span>
+            <button class="block__action" type="button" @click="clearHistory">清空</button>
+          </div>
+          <!-- visibility 由 foldReady 控制：实测「两行能放几枚」期间先不显示，避免闪一下 -->
+          <div
+            ref="chipsRef"
+            class="chips"
+            :style="{ visibility: foldReady ? undefined : 'hidden' }"
           >
-            {{ word }}
-            <button
-              class="chip__close"
-              type="button"
-              :aria-label="`删除历史记录 ${word}`"
-              @click.stop="removeHistory(word)"
+            <span
+              v-for="word in visibleHistory"
+              :key="word"
+              class="chip chip--history"
+              @click="submit(word)"
             >
-              ×
-            </button>
-          </span>
-          <!-- 展开/收起箭头：超出两行的历史被折叠时才出现，落在第 2 行的右下角 -->
-          <button
-            v-if="showFoldArrow"
-            class="chip chip--more"
-            type="button"
-            :aria-label="historyExpanded ? '收起搜索历史' : '展开全部搜索历史'"
-            @click="historyExpanded = !historyExpanded"
-          >
-            <van-icon :name="historyExpanded ? 'arrow-up' : 'arrow-down'" size="14" />
-          </button>
-        </div>
-      </section>
-
-      <section v-if="hotWords.length" class="block">
-        <div class="block__head">
-          <span class="block__title">热门搜索</span>
-        </div>
-        <div class="chips">
-          <span
-            v-for="word in hotWords"
-            :key="word"
-            class="chip chip--hot"
-            @click="submit(word)"
-          >
-            {{ word }}
-          </span>
-        </div>
-      </section>
-    </div>
-
-    <!-- ── 结果态：已提交关键词 ───────────────────────────────────── -->
-    <ProductFeed v-else :keyword="keyword" empty-text="没有找到相关商品">
-      <template #summary>
-        <!--
-          排序栏与商品网格之间的这一块。
-          ★ 外面这层 .feed-summary 恒定渲染，负责给网格留出上边距 ——
-            原先这个间距是「为你找到 N 件商品」那行文案撑出来的，文案按用户要求去掉后，
-            没有相关搜索词时网格会直接贴到排序栏上。
-          ★ 相关搜索：基于当前关键词，数据来自真实搜索日志（不足时用命中商品高频词兜底）。
-        -->
-        <div class="feed-summary">
-          <section v-if="related.length" class="block block--related">
-            <div class="block__head">
-              <span class="block__title">相关搜索</span>
-            </div>
-            <div class="chips">
-              <span
-                v-for="word in related"
-                :key="word"
-                class="chip chip--hot"
-                @click="submit(word)"
+              {{ word }}
+              <button
+                class="chip__close"
+                type="button"
+                :aria-label="`删除历史记录 ${word}`"
+                @click.stop="removeHistory(word)"
               >
-                {{ word }}
-              </span>
-            </div>
-          </section>
-        </div>
-      </template>
-      <template #empty>
-        <span class="search__empty-tip">换个关键词试试</span>
-        <!-- 搜不到时给一组「一定搜得到」的热门词，别让用户困在空结果里 -->
-        <div v-if="hotWords.length" class="chips chips--center">
-          <span
-            v-for="word in hotWords"
-            :key="word"
-            class="chip chip--hot"
-            @click="submit(word)"
-          >
-            {{ word }}
-          </span>
-        </div>
-      </template>
-    </ProductFeed>
+                ×
+              </button>
+            </span>
+            <!-- 展开/收起箭头：超出两行的历史被折叠时才出现，落在第 2 行的右下角 -->
+            <button
+              v-if="showFoldArrow"
+              class="chip chip--more"
+              type="button"
+              :aria-label="historyExpanded ? '收起搜索历史' : '展开全部搜索历史'"
+              @click="historyExpanded = !historyExpanded"
+            >
+              <van-icon :name="historyExpanded ? 'arrow-up' : 'arrow-down'" size="14" />
+            </button>
+          </div>
+        </section>
+
+        <section v-if="hotWords.length" class="block">
+          <div class="block__head">
+            <span class="block__title">热门搜索</span>
+          </div>
+          <div class="chips">
+            <span
+              v-for="word in hotWords"
+              :key="word"
+              class="chip chip--hot"
+              @click="submit(word)"
+            >
+              {{ word }}
+            </span>
+          </div>
+        </section>
+      </div>
+
+      <!-- ── 结果态：已提交关键词 ───────────────────────────────────── -->
+      <ProductFeed v-else ref="feedRef" :keyword="keyword" empty-text="没有找到相关商品">
+        <template #summary>
+          <!--
+            排序栏与商品网格之间的这一块。
+            ★ 外面这层 .feed-summary 恒定渲染，负责给网格留出上边距 ——
+              原先这个间距是「为你找到 N 件商品」那行文案撑出来的，文案按用户要求去掉后，
+              没有相关搜索词时网格会直接贴到排序栏上。
+            ★ 相关搜索：基于当前关键词，数据来自真实搜索日志（不足时用命中商品高频词兜底）。
+          -->
+          <div class="feed-summary">
+            <section v-if="related.length" class="block block--related">
+              <div class="block__head">
+                <span class="block__title">相关搜索</span>
+              </div>
+              <div class="chips">
+                <span
+                  v-for="word in related"
+                  :key="word"
+                  class="chip chip--hot"
+                  @click="submit(word)"
+                >
+                  {{ word }}
+                </span>
+              </div>
+            </section>
+          </div>
+        </template>
+        <template #empty>
+          <span class="search__empty-tip">换个关键词试试</span>
+          <!-- 搜不到时给一组「一定搜得到」的热门词，别让用户困在空结果里 -->
+          <div v-if="hotWords.length" class="chips chips--center">
+            <span
+              v-for="word in hotWords"
+              :key="word"
+              class="chip chip--hot"
+              @click="submit(word)"
+            >
+              {{ word }}
+            </span>
+          </div>
+        </template>
+      </ProductFeed>
+    </van-pull-refresh>
 
     <!-- 回到顶部：搜索页在 FULLSCREEN_ROUTES 里、无 tabbar，所以贴视口 16px。
          结果列表（空态的历史 + 热搜也可能）滚过一屏后出现。 -->
@@ -486,6 +543,41 @@ onBeforeUnmount(() => {
   /* 品牌色与首页搜索框同源；首页那套是局部变量，这里给同样的默认值兜底 */
   --color-brand: rgb(107, 163, 200);
   --color-search-icon: #515151;
+
+  /* ── 纵向 flex 只为一件事：让下拉刷新的包裹层撑满搜索栏以下的剩余视口 ──
+     包裹层只包内容区（这样指示条才落在搜索栏下方），而它的高度若随内容走，
+     空态（只有历史 + 热搜）时下方一大片区域就接不到下拉手势。
+     ★ 包裹层用 flex: 1 0 auto，不是 flex: 1（= 1 1 0%）：grow 负责填满剩余空间，
+       basis 取 auto、且不许收缩，内容比视口高时高度仍由内容撑开。
+       写成 flex: 1 会把它压进剩余空间里，而包裹层带 overflow: clip，内容会被裁掉。 */
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 下拉刷新的包裹层：必须把 Vant 自带的 overflow: hidden 改成 clip（★ 别删）──────
+   `.van-pull-refresh { overflow: hidden }` 是 Vant 自己的样式（本意是裁掉静止时藏在 track
+   上方 -50px 处的头部指示），但 `hidden` 会**创建滚动容器**，而 sticky 的定位基准是
+   「最近的滚动容器」—— 搜索栏的最近 scrollport 会从视口变成这个包裹层（它自己不滚动），
+   吸顶直接失效，搜索栏会跟着页面滚走。同一条坑在 TabBarLayout（overflow-x）与首页
+   HomeView 里都踩过，那边用的也是 clip。
+   `clip` 的裁剪效果与 hidden 一致，但不创建滚动容器：sticky 仍以视口为基准，
+   Vant 的 getScrollParent（正则只认 scroll|auto|overlay）也照样把 window 认成滚动容器，
+   下拉刷新的「滚到顶部」判定与 ProductFeed 的分页都不受影响。
+   实测：覆盖后滚到中部，`.search__bar` 的 rect.top 仍是 0（见 cdp/search-pull-refresh-verify.mjs）。 */
+.search :deep(.van-pull-refresh) {
+  /* 撑满搜索栏以下的剩余视口，让手势区覆盖整屏（详见 .search 里那段 flex 注释）。
+     flex: 1 0 auto 而不是 flex: 1 —— 后者会把内容压进剩余空间、被下面的 clip 裁掉。 */
+  flex: 1 0 auto;
+  overflow: clip;
+  /* ★ 包裹层自己也要是纵向 flex：让 track 撑满它。
+     track 自带 `height: 100%`，而包裹层的高度是**flex grow 出来的**（不是确定高度），
+     百分比高度解析不出来会退化成内容高度 —— 空态（只有历史 + 热搜，约 108px 高）时
+     track 就只有那么高，下方整片区域都接不到手势（实测踩到过：空态下拉完全没反应）。 */
+  display: flex;
+  flex-direction: column;
+}
+.search :deep(.van-pull-refresh__track) {
+  flex: 1 0 auto;
 }
 
 /**
@@ -503,6 +595,8 @@ onBeforeUnmount(() => {
   position: sticky;
   top: 0;
   z-index: 2;
+  /* 作为 .search 的 flex 项：高度按内容走、不参与拉伸（拉伸会改变搜索栏的实际高度） */
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   /* 定高 60px（含上下 padding）。全局 `* { box-sizing: border-box }`，

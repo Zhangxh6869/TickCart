@@ -81,30 +81,44 @@ let requesting = false
 /** 请求代号：换查询条件时自增，用来丢弃过期响应，避免慢请求覆盖新结果 */
 let generation = 0
 
-async function load() {
-  if (requesting || finished.value) return
+/** 查一页数据（条件全部取自 props 与当前排序） */
+function queryPage(pageNo: number) {
+  return fetchProducts({
+    page: pageNo,
+    size: props.size,
+    keyword: props.keyword || undefined,
+    categoryId: props.categoryId ?? undefined,
+    sortBy: sortBy.value,
+    order: order.value,
+  })
+}
+
+/**
+ * 加载下一页。
+ *
+ * 返回值只服务于「下拉刷新」：`true` = 这次请求成功（也含「被更新的查询取代」与
+ * 「本来就无事可做」两种无需报错的情况），`false` = 请求失败。
+ * 分页流程本身不看返回值 —— 失败仍由 `error` + van-list 的「加载失败，点击重试」兜住。
+ */
+async function load(): Promise<boolean> {
+  if (requesting || finished.value) return true
   requesting = true
   const gen = generation
   loading.value = true
   try {
-    const res = await fetchProducts({
-      page: page.value,
-      size: props.size,
-      keyword: props.keyword || undefined,
-      categoryId: props.categoryId ?? undefined,
-      sortBy: sortBy.value,
-      order: order.value,
-    })
-    if (gen !== generation) return // 已被更新的查询取代，丢弃这批结果
+    const res = await queryPage(page.value)
+    if (gen !== generation) return true // 已被更新的查询取代，丢弃这批结果（不算失败）
     products.value.push(...res.records)
     total.value = res.total
     error.value = false
     finished.value = page.value >= res.pages
     page.value += 1
+    return true
   } catch {
     // 失败只置 error，不动 products/finished：已加载的内容留在页面上，
     // van-list 会在列表底部显示「加载失败，点击重试」。
     if (gen === generation) error.value = true
+    return false
   } finally {
     if (gen === generation) {
       loading.value = false
@@ -114,7 +128,7 @@ async function load() {
 }
 
 /** 回到第一页重新查询（换关键词 / 换分类 / 换排序都走这里） */
-async function reload() {
+async function reload(): Promise<boolean> {
   generation += 1
   requesting = false // 放开锁，否则会被上一个未完成的请求挡住
   page.value = 1
@@ -122,8 +136,50 @@ async function reload() {
   total.value = 0
   error.value = false
   finished.value = false
-  await load()
+  return load()
 }
+
+/**
+ * 下拉刷新：重跑「当前关键词 + 当前排序」的查询，**但不先清空列表**。
+ *
+ * 与 reload() 的差别就是这一点：reload 要清空（换条件了，旧结果不该留着），
+ * 刷新是「同一屏再拉一次」，清空会让列表在刷新期间整块消失、页面高度塌一下，
+ * 观感就是「一拉商品全没了，然后才冒出来」——首页 HomeView.onRefresh 也是原子替换。
+ *
+ * `generation += 1` 作废在途的分页请求；被作废的那次不会走到 load() 的 finally
+ * （它判 gen 相等才复位），所以这里的 finally 必须自己把 loading / requesting 复位，
+ * 否则 van-list 会永久停在「加载中」。
+ */
+async function refresh(): Promise<boolean> {
+  generation += 1
+  requesting = false
+  const gen = generation
+  loading.value = true
+  try {
+    const res = await queryPage(1)
+    if (gen !== generation) return true
+    products.value = res.records
+    total.value = res.total
+    error.value = false
+    finished.value = res.pages <= 1
+    page.value = 2
+    return true
+  } catch {
+    if (gen === generation) error.value = true
+    return false
+  } finally {
+    if (gen === generation) {
+      loading.value = false
+      requesting = false
+    }
+  }
+}
+
+/**
+ * 暴露给父组件（搜索页的下拉刷新）：`refresh()` 原子替换地重跑当前查询，
+ * await 它即可知道这次刷新成功没有，用来决定要不要提示「刷新失败」。
+ */
+defineExpose({ refresh })
 
 function selectSort(opt: (typeof sortOptions)[number]) {
   if (sortBy.value === opt.value && order.value === opt.order) return
