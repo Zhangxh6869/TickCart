@@ -37,6 +37,15 @@ const CACHED_VIEWS = ['HomeView', 'CartView', 'MemberView', 'CheckoutView']
   box-sizing: border-box;
 }
 
+/* 关掉视口级的 overscroll 链：移动端浏览器（Android Chrome / 微信 webview）自带的下拉刷新
+   会和首页的 van-pull-refresh 叠着动 —— 页面被拉下来、松手又被浏览器弹回去，两层动画打架。
+   contain 只切断「滚到边界后继续拖拽交给浏览器」这一层，桌面端与内部滚动容器（分类栏横滑、
+   分享面板等）都不受影响。 */
+html,
+body {
+  overscroll-behavior-y: contain;
+}
+
 :root {
   /* 页面背景色：同步覆盖 Vant 的页面背景变量，避免 van-image 等组件仍用旧的灰色底 */
   --van-background: rgb(255, 255, 255);

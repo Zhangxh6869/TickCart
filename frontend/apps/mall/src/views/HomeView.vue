@@ -33,6 +33,15 @@ const PAGE_SIZE = 10
  */
 const MIN_LOADING_MS = 800
 
+/**
+ * 下拉刷新的最短展示时长（ms）。与翻页的 MIN_LOADING_MS 同一思路：
+ * 本机接口 ~10ms 就返回，不兜下限的话头部指示会「闪一下就没了」，像没刷新。
+ */
+const MIN_REFRESH_MS = 500
+
+/** van-pull-refresh 的刷新态（由组件 v-model 驱动） */
+const refreshing = ref(false)
+
 /** van-list 的加载态（由组件 v-model 驱动） */
 const listLoading = ref(false)
 
@@ -212,7 +221,12 @@ async function loadMore() {
 
 /** 翻页加载若快于 MIN_LOADING_MS，补齐差额，保证圆环至少完整展示一次。 */
 function waitMinLoading(startedAt: number): Promise<void> {
-  const rest = MIN_LOADING_MS - (Date.now() - startedAt)
+  return waitMin(startedAt, MIN_LOADING_MS)
+}
+
+/** 本次加载若快于 minMs，补齐差额，让动画/指示至少完整展示一次。 */
+function waitMin(startedAt: number, minMs: number): Promise<void> {
+  const rest = minMs - (Date.now() - startedAt)
   return rest > 0 ? new Promise((resolve) => setTimeout(resolve, rest)) : Promise.resolve()
 }
 
@@ -233,6 +247,60 @@ function resetList() {
   seed.value = newSeed()
   listLoading.value = true
   loadMore()
+}
+
+/**
+ * 下拉刷新：换一个新的随机种子重拉商品第一页，顺带刷新分类栏。
+ *
+ * 与切分类（resetList）的差别是**原子替换**：不先清空 products，等新数据回来再整体换掉。
+ * 清空再 push 的话，刷新期间商品区会整块消失、文档高度跟着塌掉（`.section` 没有内容撑着），
+ * 观感就是「一拉商品全没了，然后才冒出来」。
+ *
+ * 不动 activeCategoryId —— 刷新是「重拉当前这一屏」，不是换分类；
+ * 改了它会连带换掉 panelKey，触发一次本不该有的左右滑动过渡。
+ */
+async function onRefresh() {
+  // 刷新优先于在途的翻页 / 切分类请求：自增序号即作废它们（被作废的请求不再更新任何状态）
+  const seq = ++requestSeq
+  const startedAt = Date.now()
+  const nextSeed = newSeed()
+  listError.value = false
+  try {
+    const [cats, page] = await Promise.all([
+      // 分类拉不到不该让整次刷新失败：失败就沿用现有分类栏
+      fetchCategories().catch(() => null),
+      fetchProducts({
+        page: 1,
+        size: PAGE_SIZE,
+        categoryId: activeCategoryId.value ?? undefined,
+        seed: nextSeed,
+      }),
+    ])
+    if (seq !== requestSeq) return
+    await waitMin(startedAt, MIN_REFRESH_MS)
+    if (seq !== requestSeq) return
+    if (cats) categories.value = cats
+    seed.value = nextSeed
+    products.value = page.records
+    pageNo.value = 2
+    listFinished.value = page.records.length >= page.total || page.records.length === 0
+  } catch {
+    if (seq !== requestSeq) return
+    // 失败也要兜满最短时长，否则提示一闪而过；原列表原样留着，不清空
+    await waitMin(startedAt, MIN_REFRESH_MS)
+    if (seq === requestSeq) showToast('刷新失败')
+  } finally {
+    if (seq === requestSeq) {
+      refreshing.value = false
+      // ★ 下面三句不能省：上面自增 requestSeq 之后，被作废的那个请求不会走到 loadMore
+      //   的 finally 分支（它判 seq 相等才复位），这些状态就会永远停在「加载中」：
+      //   listLoading 卡 true → van-list 再也不加载下一页；loadingFirstPage 卡 true →
+      //   翻页圆环永远不渲染；sectionMinHeight 卡住 → 切分类时锁定的高度再也解不开。
+      listLoading.value = false
+      loadingFirstPage.value = false
+      sectionMinHeight.value = 0
+    }
+  }
 }
 
 /** 切换分类：商品区按分类的左右顺序左右滑动、原地刷新商品，并把选中的分类滚到屏幕中间。 */
@@ -290,101 +358,118 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="home">
-    <!-- 吸顶区：搜索栏 + 分类栏作为整体钉在页面顶部，纵向滚动时保持不动 -->
-    <div class="home__sticky">
-      <van-search
-        placeholder="搜索商品"
-        readonly
-        show-action
-        @click="goSearch"
-      >
-        <template #left-icon>
-          <svg
-            class="search-icon"
-            viewBox="0 0 1024 1024"
-            xmlns="http://www.w3.org/2000/svg"
-            aria-hidden="true"
-          >
-            <path
-              d="M932.571429 493.714286C932.571429 261.485714 744.228571 73.142857 512 73.142857S91.428571 261.485714 91.428571 493.714286s188.342857 420.571429 420.571429 420.571428c89.6 0 171.885714-27.428571 239.542857-74.971428l111.542857 111.542857 51.2-51.2-106.057143-106.057143c76.8-76.8 124.342857-182.857143 124.342858-299.885714zM164.571429 493.714286C164.571429 301.714286 320 146.285714 512 146.285714s347.428571 155.428571 347.428571 347.428572-155.428571 347.428571-347.428571 347.428571S164.571429 685.714286 164.571429 493.714286z"
-              fill="currentColor"
-            />
-          </svg>
-        </template>
-        <template #action>
-          <button class="search-btn" type="button" @click.stop="goSearch">搜索</button>
-        </template>
-      </van-search>
+    <!-- 下拉刷新：滚到顶部（scrollY = 0）后继续下拉即刷新商品，包住吸顶区 + 商品区。
+         ★ 包的是这两块、不含 BackToTop —— 刷新时 track 会被 translate3d 下移，
+           transform 祖先会把内部 position: fixed 后代的包含块从视口换成它自己，
+           固定在右下角的「回到顶部」会被一起拖下去（详见模板末尾那条注释）。
 
-      <!-- 分类栏：搜索栏下方一行；「全部」钉在左侧不动，其余分类横向滑动，点击后原地切换下方商品 -->
-      <div ref="catBarRef" class="cat-bar">
-        <div
-          v-for="tab in categoryTabs"
-          :key="tab.id ?? 'all'"
-          class="cat-bar__item"
-          :class="{
-            'is-active': activeCategoryId === tab.id,
-            'cat-bar__item--pinned': tab.id === null,
-          }"
-          @click="selectCategory(tab.id)"
+         头部文案用 Vant 的默认中文（下拉即可刷新 / 释放即可刷新 / 加载中）；
+         成功态不加提示（用户先不做），刷新完成头部直接收起。 -->
+    <van-pull-refresh
+      v-model="refreshing"
+      pulling-text="下拉可以刷新"
+      loosing-text="松开立即刷新"
+      loading-text="正在刷新..."
+      @refresh="onRefresh"
+    >
+      <!-- 吸顶区：搜索栏 + 分类栏作为整体钉在页面顶部，纵向滚动时保持不动 -->
+      <div class="home__sticky">
+        <van-search
+          placeholder="搜索商品"
+          readonly
+          show-action
+          @click="goSearch"
         >
-          <span class="cat-bar__name">{{ tab.name }}</span>
-          <span class="cat-bar__bar" />
+          <template #left-icon>
+            <svg
+              class="search-icon"
+              viewBox="0 0 1024 1024"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M932.571429 493.714286C932.571429 261.485714 744.228571 73.142857 512 73.142857S91.428571 261.485714 91.428571 493.714286s188.342857 420.571429 420.571429 420.571428c89.6 0 171.885714-27.428571 239.542857-74.971428l111.542857 111.542857 51.2-51.2-106.057143-106.057143c76.8-76.8 124.342857-182.857143 124.342858-299.885714zM164.571429 493.714286C164.571429 301.714286 320 146.285714 512 146.285714s347.428571 155.428571 347.428571 347.428572-155.428571 347.428571-347.428571 347.428571S164.571429 685.714286 164.571429 493.714286z"
+                fill="currentColor"
+              />
+            </svg>
+          </template>
+          <template #action>
+            <button class="search-btn" type="button" @click.stop="goSearch">搜索</button>
+          </template>
+        </van-search>
+
+        <!-- 分类栏：搜索栏下方一行；「全部」钉在左侧不动，其余分类横向滑动，点击后原地切换下方商品 -->
+        <div ref="catBarRef" class="cat-bar">
+          <div
+            v-for="tab in categoryTabs"
+            :key="tab.id ?? 'all'"
+            class="cat-bar__item"
+            :class="{
+              'is-active': activeCategoryId === tab.id,
+              'cat-bar__item--pinned': tab.id === null,
+            }"
+            @click="selectCategory(tab.id)"
+          >
+            <span class="cat-bar__name">{{ tab.name }}</span>
+            <span class="cat-bar__bar" />
+          </div>
         </div>
       </div>
-    </div>
 
-    <div
-      ref="sectionRef"
-      class="section"
-      :style="{ minHeight: sectionMinHeight ? `${sectionMinHeight}px` : '' }"
-    >
-      <!-- 分类切换：整块商品区左右滑动。用 key 换面板，旧面板绝对定位滑出、
-           新面板留在文档流里滑入 —— 新面板留在流里，.section 的高度才始终有人撑着，
-           滚动位置不会因为文档骤然变矮被夹掉。方向由 selectCategory 里的下标比较决定。
-           面板包一层 div 是必须的：<Transition> 要求子节点单一，而 van-list 的
-           finished / error 文案和 #loading 插槽都挂在它内部。 -->
-      <Transition :name="catTransition">
-        <div :key="panelKey" class="cat-panel">
-          <!-- 商品列表：触底自动加载下一页交给 van-list 托管。
-               它的挂载检查（immediate-check 默认开启）会在列表为空时自动 emit 一次 load，
-               所以首屏 10 个商品不用在 onMounted 里手动拉 —— 见 script 里的说明。
-               finished / error 的提示文案也由组件负责，我们只在 @load 里取数据。
-               切换分类会重建这个 van-list，但 loading 在 resetList 里已先置 true，
-               重建时的挂载检查会被它挡住，不会白打一次接口。 -->
-          <van-list
-            v-model:loading="listLoading"
-            v-model:error="listError"
-            :finished="listFinished"
-            finished-text="没有更多了"
-            error-text="加载失败，点击重试"
-            @load="loadMore"
-          >
-            <div class="product-grid">
-              <ProductCard v-for="p in products" :key="p.id" :product="p" />
-            </div>
-            <!-- 空态只在「确实没有数据」时出现：加载中列表本来就空，不能误判成暂无商品 -->
-            <van-empty
-              v-if="listFinished && products.length === 0"
-              description="暂无商品"
-            />
-            <!-- 触底加载动画：列表末尾留白里居中转的一个空心圆环。
-                 放在文档流内而不是做浮层 —— 浮层会盖住商品、也和 tabbar 抢位置；
-                 放这里才符合「拉到最下边，在留白区域转圈」的预期。
-                 第一页（首次进入 / 切换分类）不渲染它：那时列表里还没有商品，
-                 要的是「直接展示」，不是先看一圈动画。 -->
-            <template #loading>
-              <div v-if="!loadingFirstPage" class="list-loading">
-                <van-loading class="list-loading__spinner" size="20" />
+      <div
+        ref="sectionRef"
+        class="section"
+        :style="{ minHeight: sectionMinHeight ? `${sectionMinHeight}px` : '' }"
+      >
+        <!-- 分类切换：整块商品区左右滑动。用 key 换面板，旧面板绝对定位滑出、
+             新面板留在文档流里滑入 —— 新面板留在流里，.section 的高度才始终有人撑着，
+             滚动位置不会因为文档骤然变矮被夹掉。方向由 selectCategory 里的下标比较决定。
+             面板包一层 div 是必须的：<Transition> 要求子节点单一，而 van-list 的
+             finished / error 文案和 #loading 插槽都挂在它内部。 -->
+        <Transition :name="catTransition">
+          <div :key="panelKey" class="cat-panel">
+            <!-- 商品列表：触底自动加载下一页交给 van-list 托管。
+                 它的挂载检查（immediate-check 默认开启）会在列表为空时自动 emit 一次 load，
+                 所以首屏 10 个商品不用在 onMounted 里手动拉 —— 见 script 里的说明。
+                 finished / error 的提示文案也由组件负责，我们只在 @load 里取数据。
+                 切换分类会重建这个 van-list，但 loading 在 resetList 里已先置 true，
+                 重建时的挂载检查会被它挡住，不会白打一次接口。 -->
+            <van-list
+              v-model:loading="listLoading"
+              v-model:error="listError"
+              :finished="listFinished"
+              finished-text="没有更多了"
+              error-text="加载失败，点击重试"
+              @load="loadMore"
+            >
+              <div class="product-grid">
+                <ProductCard v-for="p in products" :key="p.id" :product="p" />
               </div>
-            </template>
-          </van-list>
-        </div>
-      </Transition>
-    </div>
+              <!-- 空态只在「确实没有数据」时出现：加载中列表本来就空，不能误判成暂无商品 -->
+              <van-empty
+                v-if="listFinished && products.length === 0"
+                description="暂无商品"
+              />
+              <!-- 触底加载动画：列表末尾留白里居中转的一个空心圆环。
+                   放在文档流内而不是做浮层 —— 浮层会盖住商品、也和 tabbar 抢位置；
+                   放这里才符合「拉到最下边，在留白区域转圈」的预期。
+                   第一页（首次进入 / 切换分类）不渲染它：那时列表里还没有商品，
+                   要的是「直接展示」，不是先看一圈动画。 -->
+              <template #loading>
+                <div v-if="!loadingFirstPage" class="list-loading">
+                  <van-loading class="list-loading__spinner" size="20" />
+                </div>
+              </template>
+            </van-list>
+          </div>
+        </Transition>
+      </div>
+    </van-pull-refresh>
 
     <!-- 回到顶部：滚过一屏后出现在右下角。
-         ★ 必须是 .home 的直接子元素、不能放进 .section —— .section 带 overflow: clip 会把它裁掉。
+         ★ 必须是 .home 的直接子元素：① 放进 .section 会被它的 overflow: clip 裁掉；
+         ② 放进上面的 <van-pull-refresh> 会被下拉时 track 的 transform 拖走 ——
+         transform 祖先会把 fixed 后代的包含块从视口换成它自己，按钮会跟着内容一起下移。
          ★ bottom 默认 62px = 50px tabbar + 12px，悬在 tabbar 上方，不与底部导航抢点击。 -->
     <BackToTop />
   </div>
@@ -413,6 +498,21 @@ onBeforeUnmount(() => {
      （写成 min-height: 100vh 会凭空多出 50px 滚动条，别照抄 .cart 的历史写法。） */
   min-height: calc(100vh - 50px);
   background: var(--van-background, #fff);
+}
+/* ── 下拉刷新的包裹层：必须把 Vant 自带的 overflow: hidden 改成 clip（★ 别删）──────
+   `.van-pull-refresh { overflow: hidden }` 是 Vant 自己的样式，本意是裁掉静止时藏在
+   track 上方 -50px 处的头部指示。但 `hidden` 会**创建滚动容器**，而 sticky 元素的定位基准
+   是「最近的滚动容器」——于是 `.home__sticky` 的最近 scrollport 从视口变成了这个包裹层
+   （它自己不滚动），吸顶直接失效，整条搜索栏 + 分类栏会跟着页面滚走。
+   （同一坑在 TabBarLayout 里踩过：`overflow-x: hidden` 会把 `overflow-y` 计算成 auto，
+   一样创建滚动容器；那边用的是 clip。）
+
+   `clip` 的裁剪效果与 `hidden` 完全一致（头部照样藏住），但不创建滚动容器 ——
+   sticky 仍以视口为基准，Vant 的 getScrollParent（正则只认 scroll|auto|overlay）
+   也照样把 window 认成滚动容器，下拉刷新的「滚到顶部」判定与 van-list 的分页都不受影响。
+   实测：覆盖后滚到中部，`.home__sticky` 的 rect.top 仍是 0（见 cdp/home-pull-refresh-verify.mjs）。 */
+.home :deep(.van-pull-refresh) {
+  overflow: clip;
 }
 /* 吸顶区：搜索栏 + 分类栏作为整体钉在页面顶部，纵向滚动时保持不动。
    背景必须是不透明实底，否则下方商品会从吸顶区后面透出来；
