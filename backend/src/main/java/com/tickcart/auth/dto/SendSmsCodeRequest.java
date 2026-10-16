@@ -2,6 +2,7 @@ package com.tickcart.auth.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 
 /**
@@ -15,8 +16,12 @@ public class SendSmsCodeRequest {
     @Pattern(regexp = "^1[3-9]\\d{9}$", message = "手机号格式不正确")
     private String phone;
 
+    // ★ 必须是 @NotNull 不是 @NotBlank —— @NotBlank 只适用于 CharSequence，
+    //   标在 Integer 上会让 Hibernate Validator 抛 UnexpectedTypeException（HV000030），
+    //   接口直接 500（踩过：本接口曾对所有场景都返回 500，注册/登录的「获取验证码」全不可用）。
+    //   取值范围（1~3）由 AuthService.sendSmsCode 校验。
     @Schema(description = "场景 1注册 2登录 3重置密码", example = "1")
-    @NotBlank(message = "场景不能为空")
+    @NotNull(message = "场景不能为空")
     private Integer scene;
 
     public String getPhone() {
