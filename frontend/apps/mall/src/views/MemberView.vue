@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onActivated, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showConfirmDialog } from 'vant'
+import type { OrderStatusCount } from '@tickcart/shared-types'
 import { useUserStore } from '@/stores/user'
+import { fetchAddresses } from '@/api/address'
+import { fetchFavorites } from '@/api/favorite'
+import { fetchOrderCount } from '@/api/order'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -36,6 +40,92 @@ async function onLogout() {
   await userStore.logout()
   // 不跳转：登录态一变，头部自动回到「点击登录」，页面其余部分保持不变
 }
+
+// ---------------- 订单宫格 ----------------
+
+/**
+ * 宫格上的四个状态，status 与订单列表页的 tab、后端 OrderStatus 一一对应。
+ * 已取消 / 已超时关闭是终态、不需要提醒，不放进来。
+ */
+const ORDER_ENTRIES = [
+  { label: '待付款', status: 0, icon: 'pending-payment' },
+  { label: '待发货', status: 1, icon: 'tosend' },
+  { label: '待收货', status: 2, icon: 'send-gift-o' },
+  { label: '已完成', status: 3, icon: 'completed' },
+] as const
+
+/** 状态码 → OrderStatusCount 上的字段名，避免用下标去猜字段顺序 */
+const COUNT_KEY: Record<number, keyof OrderStatusCount> = {
+  0: 'pendingPayment',
+  1: 'pendingShipment',
+  2: 'pendingReceipt',
+  3: 'completed',
+}
+
+const orderCount = ref<OrderStatusCount | null>(null)
+const favoriteCount = ref<number | null>(null)
+const addressCount = ref<number | null>(null)
+
+/** 某状态的订单数；未登录或还没拉到数据时返回 0（0 不渲染角标） */
+function countOf(status: number): number {
+  const count = orderCount.value
+  const key = COUNT_KEY[status]
+  return count && key ? count[key] : 0
+}
+
+/** 角标文案：超过两位数统一收敛成 99+，否则角标会把图标顶宽 */
+function badgeText(count: number): string {
+  return count > 99 ? '99+' : String(count)
+}
+
+const favoriteText = computed(() => (favoriteCount.value === null ? '' : `${favoriteCount.value} 件`))
+const addressText = computed(() => (addressCount.value === null ? '' : `${addressCount.value} 个`))
+
+/**
+ * 拉取页面上的三处数字。
+ *
+ * 三个请求互不依赖，用 allSettled 让任一失败都不影响另外两个 ——
+ * 少一个数字比整页报错好（失败时该项保持 null，界面上就是不显示）。
+ */
+async function loadOverview() {
+  if (!isLoggedIn.value) {
+    orderCount.value = null
+    favoriteCount.value = null
+    addressCount.value = null
+    return
+  }
+
+  const [orders, favorites, addresses] = await Promise.allSettled([
+    fetchOrderCount(),
+    // 只要总数：size 取 1，不把收藏的商品也拉回来
+    fetchFavorites({ page: 1, size: 1 }),
+    fetchAddresses(),
+  ])
+
+  if (orders.status === 'fulfilled') orderCount.value = orders.value
+  if (favorites.status === 'fulfilled') favoriteCount.value = favorites.value.total
+  if (addresses.status === 'fulfilled') addressCount.value = addresses.value.length
+}
+
+/**
+ * 进入本页时刷新数字。
+ *
+ * 用 onActivated 而不是 onMounted：本页在 App.vue 的 CACHED_VIEWS 里被 KeepAlive 缓存，
+ * onMounted 一辈子只跑一次，那样「下完单回到我的」角标还是旧的。
+ * （KeepAlive 内的组件首次挂载时 onActivated 同样会触发，所以首屏也有数据。）
+ */
+onActivated(loadOverview)
+
+/** 登录态变化：登录成功补拉数字，退出登录立刻清空角标 */
+watch(isLoggedIn, loadOverview)
+
+/** 跳订单列表：带状态就直达对应 tab（见 OrderListView 的 initialTab） */
+function goOrders(status?: number) {
+  router.push({
+    name: 'orders',
+    query: status === undefined ? {} : { status: String(status) },
+  })
+}
 </script>
 
 <template>
@@ -60,19 +150,70 @@ async function onLogout() {
         <div class="member__sub">{{ subText }}</div>
       </div>
 
+      <!-- 未登录：整块可点，给一个「能进去」的箭头提示 -->
       <van-icon v-if="!isLoggedIn" name="arrow" class="member__arrow" />
+      <!-- 已登录：右上角进个人信息。stop 是为了不触发头部那层的 onHeaderClick -->
+      <van-icon
+        v-else
+        name="setting-o"
+        class="member__setting"
+        @click.stop="router.push({ name: 'profile' })"
+      />
     </div>
 
-    <!-- 菜单与登录态无关，始终展示；未登录时点进去由路由守卫拦到登录页并带 redirect -->
-    <van-cell-group inset class="member__cells">
-      <van-cell title="我的订单" is-link @click="router.push({ name: 'orders' })" />
-      <van-cell title="收货地址" is-link @click="router.push({ name: 'address' })" />
-      <van-cell title="我的收藏" is-link @click="router.push({ name: 'favorites' })" />
-      <van-cell title="个人信息" is-link @click="router.push({ name: 'profile' })" />
-    </van-cell-group>
+    <!-- 订单中心卡：负 margin 上移叠压头部，把「我的订单」提到首屏
+         （这是「我的」页访问量最大的一块，不该再点一层才看得到） -->
+    <div class="member__body">
+      <section class="member__card">
+        <div class="member__card-head">
+          <span class="member__card-title">我的订单</span>
+          <button class="member__more" type="button" @click="goOrders()">
+            全部订单<van-icon name="arrow" />
+          </button>
+        </div>
 
-    <div v-if="isLoggedIn" class="member__logout">
-      <van-button round block type="danger" @click="onLogout">退出登录</van-button>
+        <div class="member__grid">
+          <button
+            v-for="entry in ORDER_ENTRIES"
+            :key="entry.label"
+            class="member__entry"
+            type="button"
+            @click="goOrders(entry.status)"
+          >
+            <span class="member__entry-icon">
+              <van-icon :name="entry.icon" size="22" />
+              <span v-if="countOf(entry.status) > 0" class="member__badge">
+                {{ badgeText(countOf(entry.status)) }}
+              </span>
+            </span>
+            <span class="member__entry-label">{{ entry.label }}</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- 菜单与登录态无关，始终展示；未登录时点进去由路由守卫拦到登录页并带 redirect。
+           数字在未登录时不请求，右侧留空（不显示 0 件这种误导性文案）。 -->
+      <van-cell-group inset class="member__cells">
+        <van-cell
+          title="我的收藏"
+          is-link
+          :value="favoriteText"
+          @click="router.push({ name: 'favorites' })"
+        />
+        <van-cell
+          title="收货地址"
+          is-link
+          :value="addressText"
+          @click="router.push({ name: 'address' })"
+        />
+        <van-cell title="个人信息" is-link @click="router.push({ name: 'profile' })" />
+      </van-cell-group>
+
+      <!-- 退出登录降级成文字行：它是低频且不可逆的操作，
+           原先那块彩色按钮（品牌浅蓝、与购物车「结算」同色）在首屏里比订单还抢眼。 -->
+      <button v-if="isLoggedIn" class="member__logout" type="button" @click="onLogout">
+        退出登录
+      </button>
     </div>
   </div>
 </template>
@@ -86,14 +227,17 @@ async function onLogout() {
    下 .layout 的内容盒正好是 100vh - 50px），正好一屏、不产生多余滚动条。 */
 .member {
   min-height: calc(100vh - 50px);
-  background: var(--van-background, #fff);
+  /* 浅灰底衬托白卡（与「个人信息」页同色），卡片叠压头部才看得出层次 */
+  background: #f7f8fa;
 }
 
 .member__header {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 24px 20px;
+  /* 底部留 44px：下面的订单卡要上移 26px 叠压进来，
+     不留出这段空间的话卡片顶部会压到头像上（头像底 84px，卡片顶 102px）。 */
+  padding: 24px 20px 44px;
   /* 头部底色：同族蓝色由深到浅的三段渐变（左深右浅），
      左端 rgb(46,107,138) 是比品牌色更深的一档，右端提亮到 rgb(184,212,232)。 */
   background: linear-gradient(
@@ -140,27 +284,113 @@ async function onLogout() {
   font-size: 16px;
   opacity: 0.9;
 }
+/* 已登录时的设置入口，与箭头同位同尺寸，登录态切换不会引起头部跳动 */
+.member__setting {
+  flex-shrink: 0;
+  font-size: 20px;
+  opacity: 0.95;
+  cursor: pointer;
+}
+
+.member__body {
+  position: relative;
+  margin-top: -26px;
+}
+
+.member__card {
+  margin: 0 16px;
+  padding: 13px 8px 10px;
+  background: var(--van-background-2, #fff);
+  border-radius: 12px;
+  /* 极轻的投影只为把卡片从渐变头上「托起来」，重了会显脏 */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.member__card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px 10px;
+  border-bottom: 0.5px solid var(--van-border-color, #ebedf0);
+}
+.member__card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--van-text-color, #323233);
+}
+/* 「全部订单」是次要入口，用 Vant 的次级文字色，不与左侧标题抢层级 */
+.member__more {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--van-text-color-2, #969799);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.member__grid {
+  display: flex;
+  padding-top: 12px;
+}
+.member__entry {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  font: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+/* 图标相对定位，给角标当参照物 */
+.member__entry-icon {
+  position: relative;
+  display: flex;
+  color: rgb(107, 163, 200);
+}
+.member__entry-label {
+  font-size: 12px;
+  color: var(--van-text-color-2, #646566);
+}
+
+/* 角标：贴图标右上角。红点是电商通用语言，用 Vant 的 danger 色，
+   注意它和品牌浅蓝不是一套色，别改成蓝色。 */
+.member__badge {
+  position: absolute;
+  top: -6px;
+  right: -12px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: #fff;
+  text-align: center;
+  background: var(--van-danger-color, #ee0a24);
+  border-radius: 8px;
+}
 
 .member__cells {
   margin-top: 12px;
 }
+
 .member__logout {
-  margin: 24px 16px;
-  /* 「退出登录」按钮底色：与购物车底部「结算」按钮**同色** ——
-     就是品牌浅蓝 rgb(107,163,200)，与首页搜索框描边/搜索按钮、本页头部渐变的中点同源。
-     按钮仍保持 type="danger"（语义不变，只改配色），所以覆盖的是 Vant danger 的两个变量
-     （Vant 4.10 里 .van-button--danger 取 --van-button-danger-background / -border-color，
-     默认落到 --van-danger-color = #ee0a24 红）。文字色不用动，danger 默认就是白。
-     注意：这不是 tabbar 的选中色 rgb(59,130,246)，两者不是同一个蓝，别混。 */
-  --van-button-danger-background: rgb(107, 163, 200);
-  --van-button-danger-border-color: rgb(107, 163, 200);
-}
-/* 文字也要与「结算」按钮一致：那一个（.van-submit-bar__button）带
-   `font-weight: var(--van-font-bold)`，量出来是 600；普通 van-button 默认只有 400。
-   其余文字属性（字体栈 / 字号 14px / 行高 16.8px / 颜色白 / 对齐居中）两边本来就相同，
-   实测逐项比对过，只有这一项有差，所以只补这一条。
-   用 Vant 自己的变量而不是写死 600 —— 以后改 --van-font-bold 两处会一起变。 */
-.member__logout :deep(.van-button) {
-  font-weight: var(--van-font-bold, 600);
+  display: block;
+  width: calc(100% - 32px);
+  margin: 20px 16px 0;
+  padding: 13px 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--van-text-color-2, #969799);
+  text-align: center;
+  background: none;
+  border: none;
+  cursor: pointer;
 }
 </style>

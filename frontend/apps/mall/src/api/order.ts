@@ -5,6 +5,7 @@ import type {
   OrderCreateResult,
   OrderDetail,
   OrderQuery,
+  OrderStatusCount,
   OrderSummary,
   PageResult,
 } from '@tickcart/shared-types'
@@ -22,6 +23,16 @@ export function createBuyNowOrder(payload: OrderBuyNowRequest): Promise<OrderCre
 /** 订单列表，可按状态筛选。 */
 export function fetchOrders(query: OrderQuery = {}): Promise<PageResult<OrderSummary>> {
   return request.get('/orders', { params: query })
+}
+
+/**
+ * 各状态订单数量，「我的」页订单宫格用它渲染角标。
+ *
+ * 路径是字面量 `/count`，不会与 `fetchOrderDetail` 的 `/orders/{orderNo}` 冲突
+ * （后端那边字面量路由优先于路径变量）。
+ */
+export function fetchOrderCount(): Promise<OrderStatusCount> {
+  return request.get('/orders/count')
 }
 
 /** 订单详情。 */

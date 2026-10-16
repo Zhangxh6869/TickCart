@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
 import type { OrderSummary } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import { cancelOrder, confirmOrder, fetchOrders } from '@/api/order'
 import { formatCountdown, remainMsOf, useNow } from '@/composables/usePayCountdown'
 
+const route = useRoute()
 const router = useRouter()
 
 /** 状态 tab：status 为 null 表示不筛选 */
@@ -19,7 +20,20 @@ const tabs: { label: string; status: number | null }[] = [
   { label: '已取消', status: 4 },
 ]
 
-const activeTab = ref(0)
+/**
+ * 首屏定位到哪个 tab。
+ *
+ * 「我的」页的订单宫格会带 `?status=0/1/2/3` 进来，直接落到对应状态；
+ * 其它入口（以及 status 缺失、非法、为数组时）一律回到「全部」。
+ * 本页不在 App.vue 的 KeepAlive 名单里，每次进入都是新实例，读一次 query 就够。
+ */
+function initialTab(): number {
+  const status = Number(route.query.status)
+  const index = tabs.findIndex((tab) => tab.status === status)
+  return index < 0 ? 0 : index
+}
+
+const activeTab = ref(initialTab())
 const orders = ref<OrderSummary[]>([])
 const loading = ref(false)
 

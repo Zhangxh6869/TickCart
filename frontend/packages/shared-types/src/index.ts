@@ -289,6 +289,19 @@ export interface OrderQuery {
   size?: number
 }
 
+/**
+ * 各状态订单数量，「我的」页订单宫格用它渲染角标。
+ *
+ * 只含宫格上的四个状态；已取消 / 已超时关闭是终态、不做提醒，后端不返回。
+ * 数量恒为数字（没有订单时是 0），前端不需要为 null 兜底。
+ */
+export interface OrderStatusCount {
+  pendingPayment: number
+  pendingShipment: number
+  pendingReceipt: number
+  completed: number
+}
+
 /** 支付渠道：1微信 2支付宝（0为模拟，前端不直接使用） */
 export type PaymentChannel = 1 | 2
 
