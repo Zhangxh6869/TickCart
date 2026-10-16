@@ -290,6 +290,35 @@ body {
   top: calc(100% - var(--page-scroll-y, 0px));
 }
 
+/* ── 零过渡替换（page-slide-none）────────────────────────────────────────
+   用于「换页但不做位移动画」的场景：登录页 → 找回密码。
+   用户要求「点开即出现，和登录页里点立即注册一样」，所以 duration 为 0、不写位移。
+
+   【为什么还需要一套规则，不能直接让 router 返回 空串】
+   Vue 的 <Transition> 是按 name 挂类的：name 为空串时类名会退化成 `-enter-from`
+   / `-enter-active`（首尾没有名字），而且两页会在 DOM 里共存一两帧。
+   此时两页都没被 fixed、都留在文档流里 → 新页被排到旧页下方。
+   实测（390×844，逐帧量 .forgot 的 rectTop）：
+     t=0   login l0 t0  | forgot l0 t844   ← 新页跑到第二屏，文档 height 翻到 1688
+     t+1  login 卸载    | forgot l0 t0
+   也就是「看似没有动画，其实有一帧整页跳动 + 滚动条闪一下」。
+   所以仍然需要一个具名过渡，只把两页 fixed 钉在视口里、不给任何位移：
+   替换在原点发生，文档高度不变。
+
+   【必须同时固定进入页和离开页】
+   只固定进入页的话，它的 `-enter-active` 一被移除就退回 position: relative
+   重新回到文档流，而旧页的 leave 还要晚一两帧才结束 —— 又会堆成两屏。
+   两页都 fixed：窗口内文档高度由内容塌到接近 0，但本类场景只用于
+   「一屏高整页 ↔ 一屏高整页」（scrollY 恒为 0），塌一下没有可感知的副作用；
+   旧页卸载后新页回到 position: relative，文档高度恢复一屏。
+   （这与 page-slide-left/right 那两条同时固定两页是同一套思路。） */
+:root[data-page-dir='none'] :is(.page-slide-none-enter-active, .page-slide-none-leave-active) {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
 /* 收货地址页自带一条 position: fixed 的底部按钮条（「新增收货地址」）。
    fixed 元素的包含块是**视口**，不会跟着祖先一起位移 —— 页面整体上滑 / 下滑时，
    按钮条会死死钉在视口底部不动，看起来像被"甩"在原地。

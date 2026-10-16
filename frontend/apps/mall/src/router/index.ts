@@ -20,6 +20,8 @@ import { useUserStore } from '@/stores/user'
  */
 export type PageTransition =
   | ''
+  /** 零过渡：仍是「换页」，但**不做位移动画**（登录页 → 找回密码，用户要求点开即出现） */
+  | 'page-slide-none'
   | 'page-slide-left'
   | 'page-slide-right'
   | 'page-slide-tab-left'
@@ -47,6 +49,7 @@ export const pageTransition = ref<PageTransition>('')
  */
 const PAGE_DIR: Record<PageTransition, string> = {
   '': '',
+  'page-slide-none': 'none',
   'page-slide-left': 'forward',
   'page-slide-right': 'back',
   'page-slide-tab-left': 'tab-left',
@@ -97,12 +100,12 @@ function resolvePageTransition(
   const toName = nameOf(to)
   const fromName = nameOf(from)
 
-  // 忘记密码是**登录页的下一层**：横向推进 —— 新页从右侧滑入，返回时向右滑出。
-  // ★ 这两条必须排在下面 login 那两条之前：登录页的规则是「from 是 login 就向下滑走」，
-  //   从登录页进忘记密码会命中它，被当成「离开全屏层」而向下滑，方向正好反了。
-  //   （单看 depth 3↔4 本来也是「前进 / 后退」，方向一致，问题只出在那条 login 规则会先拦截。）
-  if (toName === 'forgot-password' && fromName === 'login') return 'page-slide-left'
-  if (toName === 'login' && fromName === 'forgot-password') return 'page-slide-right'
+  // 忘记密码是**登录页的下一层**，但**不做过渡动画** —— 点开即整体替换，
+  // 与登录页内部点「立即注册」换表单是同一个观感（用户 2026-10-16 要求；
+  // 这版之前先做成底部滑入、又改成横向推进，方向都不对）。
+  // ★ 必须排在下面 login 那两条之前：「from 是 login 就向下滑走」会命中
+  //   「从登录页进找回密码」，那样会变成有动画的、方向也不对。
+  if (toName === 'forgot-password' || fromName === 'forgot-password') return 'page-slide-none'
 
   // 登录页是一个**全屏层**，跟其它页面之间没有「层级深浅」可言（购物车、商品详情、
   // 「我的」页都能进），所以必须在 depth 判断之前拦掉，否则会出现
@@ -172,13 +175,13 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '登录', depth: 3 },
   },
   {
-    // 找回密码（忘记密码）。由登录页的「忘记密码？」进入，是登录页的下一层：
-    // 横向推进 —— 新页从右滑入、返回时向右滑出（page-slide-left / right），
-    // 配对规则见 resolvePageTransition。
-    // ★ 它**不是**全屏层（不走 up/down），所以页面根类名 `.forgot` 不在 App.vue 的
-    //   `:is(.login, .address)` 那组里 —— 那组只服务 up/down 过渡。
-    //   但 `.forgot` 仍要留在常驻 `position: relative; z-index: 10` 规则里，
-    //   否则过渡结束后它退化成普通块级元素，会被还在 leave 中的登录页反盖一下。
+    // 找回密码（忘记密码）。由登录页的「忘记密码？」进入，是登录页的下一层。
+    // ★ **不做过渡动画** —— 点开即整体替换，与登录页内部点「立即注册」换表单
+    //   同一个观感（用户 2026-10-16 要求）。配对规则见 resolvePageTransition。
+    // ★ 页面根类名 `.forgot` 不在 App.vue 的 `:is(.login, .address)` 那组里 ——
+    //   那组只服务 up/down 全屏层过渡，本页不走那套。
+    //   但 `.forgot` 要留在常驻 `position: relative; z-index: 10` 规则里：
+    //   登录页自己带 z-index: 10，本页没有的话无动画替换的那一两帧里会被它压住。
     // depth 取 4（比登录页深一层）：直接打开该 URL 这类没有 from 的场景按它兜底判方向。
     path: '/forgot-password',
     name: 'forgot-password',
