@@ -1,6 +1,7 @@
 package com.tickcart.trade.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tickcart.cart.service.CartService;
@@ -28,6 +29,7 @@ import com.tickcart.trade.mapper.OrderItemMapper;
 import com.tickcart.trade.mapper.OrderMapper;
 import com.tickcart.trade.mapper.PaymentRecordMapper;
 import com.tickcart.trade.vo.AdminOrderListItemVO;
+import com.tickcart.trade.vo.OrderCountVO;
 import com.tickcart.trade.vo.OrderDetailVO;
 import com.tickcart.trade.vo.OrderItemVO;
 import com.tickcart.trade.vo.OrderListItemVO;
@@ -187,6 +189,57 @@ public class OrderService {
             records.add(toListItemVO(order));
         }
         return new PageResult<>(records, page.getTotal(), page.getCurrent(), page.getSize(), page.getPages());
+    }
+
+    /**
+     * 统计当前用户各状态订单数量，供「我的」页订单宫格展示角标。
+     *
+     * <p>一次 GROUP BY 拿全，避免为四个角标各发一次分页查询。数量为 0 的状态
+     * 不会出现在结果集里，VO 上保持默认 0。</p>
+     *
+     * <p>只认宫格上的四个状态（待付款 / 待发货 / 待收货 / 已完成）；
+     * 已取消、已超时关闭是终态、不需要提醒，直接忽略。</p>
+     */
+    public OrderCountVO countByStatus(Long userId) {
+        List<Map<String, Object>> rows = orderMapper.selectMaps(new QueryWrapper<Order>()
+                .select("status", "COUNT(*) AS cnt")
+                .eq("user_id", userId)
+                .groupBy("status"));
+
+        OrderCountVO vo = new OrderCountVO();
+        for (Map<String, Object> row : rows) {
+            int status = (int) numberValue(row, "status");
+            long count = numberValue(row, "cnt");
+            if (status == OrderStatus.PENDING_PAYMENT.getCode()) {
+                vo.setPendingPayment(count);
+            } else if (status == OrderStatus.PENDING_SHIPMENT.getCode()) {
+                vo.setPendingShipment(count);
+            } else if (status == OrderStatus.PENDING_RECEIPT.getCode()) {
+                vo.setPendingReceipt(count);
+            } else if (status == OrderStatus.COMPLETED.getCode()) {
+                vo.setCompleted(count);
+            }
+        }
+        return vo;
+    }
+
+    /**
+     * 从 {@code selectMaps} 的一行里取数值列。
+     *
+     * <p>列名按大小写无关匹配：结果集的 key 由驱动按别名原样给出，
+     * 不同驱动/配置下大小写可能不一致，写死小写会静默取到 0。</p>
+     */
+    private static long numberValue(Map<String, Object> row, String column) {
+        Object value = row.get(column);
+        if (value == null) {
+            for (Map.Entry<String, Object> entry : row.entrySet()) {
+                if (entry.getKey().equalsIgnoreCase(column)) {
+                    value = entry.getValue();
+                    break;
+                }
+            }
+        }
+        return value instanceof Number number ? number.longValue() : 0L;
     }
 
     /**

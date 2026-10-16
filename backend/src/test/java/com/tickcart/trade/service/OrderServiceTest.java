@@ -3,6 +3,7 @@ package com.tickcart.trade.service;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
@@ -31,6 +32,7 @@ import com.tickcart.trade.mapper.OrderItemMapper;
 import com.tickcart.trade.mapper.OrderMapper;
 import com.tickcart.trade.mapper.PaymentRecordMapper;
 import com.tickcart.trade.vo.AdminOrderListItemVO;
+import com.tickcart.trade.vo.OrderCountVO;
 import com.tickcart.trade.vo.OrderDetailVO;
 import com.tickcart.trade.vo.OrderVO;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -46,7 +48,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -876,5 +880,75 @@ class OrderServiceTest {
         // 空白关键字不产生任何 like 条件
         assertThat(captor.getValue().getSqlSegment()).doesNotContain("order_no");
         assertThat(captor.getValue().getParamNameValuePairs()).isEmpty();
+    }
+
+    // ---------------- 各状态订单数量（「我的」页宫格角标） ----------------
+
+    /** 构造一行 GROUP BY 结果：列名与 Service 里的 SQL 别名保持一致。 */
+    private Map<String, Object> countRow(OrderStatus status, long count) {
+        Map<String, Object> row = new HashMap<>();
+        row.put("status", status.getCode());
+        row.put("cnt", count);
+        return row;
+    }
+
+    @Test
+    @DisplayName("各状态数量：分组结果映射到四个状态，终态被忽略")
+    void countByStatusMapsGroupedRows() {
+        when(orderMapper.selectMaps(ArgumentMatchers.<Wrapper<Order>>any())).thenReturn(List.of(
+                countRow(OrderStatus.PENDING_PAYMENT, 2),
+                countRow(OrderStatus.PENDING_RECEIPT, 1),
+                countRow(OrderStatus.COMPLETED, 9),
+                countRow(OrderStatus.CANCELLED, 4),
+                countRow(OrderStatus.TIMEOUT_CLOSED, 1)));
+
+        OrderCountVO vo = orderService.countByStatus(UID);
+
+        assertThat(vo.getPendingPayment()).isEqualTo(2);
+        // 分组结果里没有待发货，VO 上保持 0，前端不会出现 null 角标
+        assertThat(vo.getPendingShipment()).isZero();
+        assertThat(vo.getPendingReceipt()).isEqualTo(1);
+        assertThat(vo.getCompleted()).isEqualTo(9);
+    }
+
+    @Test
+    @DisplayName("各状态数量：没有订单时四项全为 0")
+    void countByStatusReturnsZerosWhenNoOrder() {
+        when(orderMapper.selectMaps(ArgumentMatchers.<Wrapper<Order>>any())).thenReturn(List.of());
+
+        OrderCountVO vo = orderService.countByStatus(UID);
+
+        assertThat(vo.getPendingPayment()).isZero();
+        assertThat(vo.getPendingShipment()).isZero();
+        assertThat(vo.getPendingReceipt()).isZero();
+        assertThat(vo.getCompleted()).isZero();
+    }
+
+    @Test
+    @DisplayName("各状态数量：只统计当前用户，一次分组查询拿全")
+    void countByStatusScopesToCurrentUser() {
+        when(orderMapper.selectMaps(ArgumentMatchers.<Wrapper<Order>>any())).thenReturn(List.of());
+
+        orderService.countByStatus(UID);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<QueryWrapper<Order>> captor = ArgumentCaptor.forClass(QueryWrapper.class);
+        // verify 默认就是「恰好一次」：既断言只查了一次，也顺带排除「四个角标各查一次」
+        verify(orderMapper).selectMaps(captor.capture());
+        QueryWrapper<Order> wrapper = captor.getValue();
+        // 先取 SQL 片段把占位符实体化，再断言参数值（eq 的参数是惰性写入的）
+        assertThat(wrapper.getSqlSegment()).contains("user_id").contains("GROUP BY");
+        assertThat(wrapper.getParamNameValuePairs().values()).contains(UID);
+    }
+
+    @Test
+    @DisplayName("各状态数量：结果集列名大小写不一致时仍能取到值")
+    void countByStatusIsCaseInsensitiveOnColumnNames() {
+        Map<String, Object> row = new HashMap<>();
+        row.put("STATUS", OrderStatus.PENDING_SHIPMENT.getCode());
+        row.put("CNT", 3L);
+        when(orderMapper.selectMaps(ArgumentMatchers.<Wrapper<Order>>any())).thenReturn(List.of(row));
+
+        assertThat(orderService.countByStatus(UID).getPendingShipment()).isEqualTo(3);
     }
 }

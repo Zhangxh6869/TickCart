@@ -8,6 +8,7 @@ import com.tickcart.trade.dto.OrderBuyNowRequest;
 import com.tickcart.trade.dto.OrderCreateRequest;
 import com.tickcart.trade.dto.OrderQuery;
 import com.tickcart.trade.service.OrderService;
+import com.tickcart.trade.vo.OrderCountVO;
 import com.tickcart.trade.vo.OrderDetailVO;
 import com.tickcart.trade.vo.OrderListItemVO;
 import com.tickcart.trade.vo.OrderVO;
@@ -52,6 +53,19 @@ public class OrderController {
     @GetMapping
     public R<PageResult<OrderListItemVO>> list(OrderQuery query) {
         return R.ok(orderService.page(currentUserId(), query));
+    }
+
+    /**
+     * 各状态订单数量，供「我的」页订单宫格展示角标。
+     *
+     * <p>路径是字面量 {@code /count}，与下面的 {@code /{orderNo}} 同层级 ——
+     * Spring 的路径匹配中字面量优先于路径变量，因此本方法不会被
+     * 「把 count 当成订单号」的详情接口抢走。</p>
+     */
+    @Operation(summary = "各状态订单数量", description = "供「我的」页订单宫格展示角标")
+    @GetMapping("/count")
+    public R<OrderCountVO> count() {
+        return R.ok(orderService.countByStatus(currentUserId()));
     }
 
     @Operation(summary = "订单详情")
