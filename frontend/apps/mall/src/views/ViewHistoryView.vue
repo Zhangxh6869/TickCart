@@ -5,6 +5,7 @@ import { showConfirmDialog, showToast } from 'vant'
 import type { ViewHistoryItem } from '@tickcart/shared-types'
 import ProductCard from '@/components/ProductCard.vue'
 import PageNavBar from '@/components/PageNavBar.vue'
+import ClearIcon from '@/components/ClearIcon.vue'
 import { clearViewHistory, fetchViewHistory, removeViewHistory } from '@/api/view-history'
 
 const router = useRouter()
@@ -123,13 +124,23 @@ const groups = computed(() => {
 
 <template>
   <div class="view-history">
-    <!-- 「清空」只在有记录时出现：空态给一个点了没反应的按钮不如不给 -->
-    <PageNavBar
-      title="浏览记录"
-      :right-text="list.length ? '清空' : ''"
-      @click-left="router.back()"
-      @click-right="onClear"
-    />
+    <!-- 「清空」只在有记录时出现：空态给一个点了没反应的按钮不如不给。
+         设计稿交付的是**图标**（垃圾桶）而不是文字，所以走 #right 插槽自己渲染按钮。
+         ★ `@click.stop`：右侧容器本身会 emit click-right，不拦住的话
+           将来一旦有人给 PageNavBar 绑了 @click-right，一次点击会清空两次。 -->
+    <PageNavBar title="浏览记录" @click-left="router.back()">
+      <template #right>
+        <button
+          v-if="list.length"
+          class="view-history__clear"
+          type="button"
+          aria-label="清空"
+          @click.stop="onClear"
+        >
+          <ClearIcon />
+        </button>
+      </template>
+    </PageNavBar>
 
     <van-empty
       v-if="finished && list.length === 0"
@@ -173,6 +184,26 @@ const groups = computed(() => {
 }
 .view-history__empty {
   margin-top: 60px;
+}
+/* 右上角「清空」：设计稿交付的是垃圾桶**图标**（不是文字）。
+   40px 热区把 20px 图标包住，点击区够大又不会撑高导航条。 */
+.view-history__clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  /* 深灰取设计稿 SVG 自带的 #2c2c2c（图标本身是 currentColor 填充，见 ClearIcon） */
+  color: #2c2c2c;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+/* 与左侧返回箭头左右对称：40px 热区 + 2px 内边距 → 图标中心距边缘 22px。
+   PageNavBar 已把左侧改成这一套、右侧没动，所以在本页局部覆盖。 */
+.view-history :deep(.van-nav-bar__right) {
+  padding-right: 2px;
 }
 .view-history__list {
   padding: 10px 12px;

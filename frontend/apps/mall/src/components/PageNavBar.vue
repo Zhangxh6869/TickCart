@@ -18,7 +18,11 @@
  * <p>用法与 van-nav-bar 完全一致：`title` / `right-text` / `@click-left` / `@click-right`
  * 都靠属性透传落到根节点的 van-nav-bar 上。</p>
  *
- * <pre>&lt;PageNavBar title="我的订单" @click-left="router.back()" /&gt;</pre>
+ * <p>右侧要放**图标**（而不是文字）时用 `#right` 插槽：</p>
+ *
+ * <pre>&lt;PageNavBar title="浏览记录" @click-left="router.back()"&gt;
+ *   &lt;template #right&gt;&lt;button …&gt;&lt;ClearIcon /&gt;&lt;/button&gt;&lt;/template&gt;
+ * &lt;/PageNavBar&gt;</pre>
  */
 </script>
 
@@ -28,6 +32,12 @@
       <button class="page-nav__back" type="button" aria-label="返回">
         <van-icon name="arrow-left" size="20" />
       </button>
+    </template>
+    <!-- 右侧插槽**条件透传**：只有调用方真的传了 #right 才提供。
+         ★ 不能无条件提供 —— 一旦提供了 right 插槽，van-nav-bar 的默认内容
+         （`{{ rightText }}`）就不再渲染，`right-text` 属性会静默失效。 -->
+    <template v-if="$slots.right" #right>
+      <slot name="right" />
     </template>
   </van-nav-bar>
 </template>
