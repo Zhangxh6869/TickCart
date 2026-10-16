@@ -5,6 +5,7 @@ import { showConfirmDialog, showToast } from 'vant'
 import type { OrderSummary } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import { cancelOrder, confirmOrder, fetchOrders } from '@/api/order'
+import PageNavBar from '@/components/PageNavBar.vue'
 import { formatCountdown, remainMsOf, useNow } from '@/composables/usePayCountdown'
 
 const route = useRoute()
@@ -109,7 +110,7 @@ onMounted(load)
 
 <template>
   <div class="orders">
-    <van-nav-bar title="我的订单" left-arrow @click-left="router.back()" />
+    <PageNavBar title="我的订单" @click-left="router.back()" />
 
     <van-tabs v-model:active="activeTab" sticky @change="load">
       <van-tab v-for="tab in tabs" :key="tab.label" :title="tab.label" />

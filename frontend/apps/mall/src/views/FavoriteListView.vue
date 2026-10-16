@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import type { ProductListItem } from '@tickcart/shared-types'
 import ProductCard from '@/components/ProductCard.vue'
+import PageNavBar from '@/components/PageNavBar.vue'
 import { fetchFavorites, removeFavorite } from '@/api/favorite'
 
 const router = useRouter()
@@ -48,7 +49,7 @@ async function onRemove(item: ProductListItem) {
 
 <template>
   <div class="favorites">
-    <van-nav-bar title="我的收藏" left-arrow @click-left="router.back()" />
+    <PageNavBar title="我的收藏" @click-left="router.back()" />
 
     <van-empty
       v-if="finished && list.length === 0"

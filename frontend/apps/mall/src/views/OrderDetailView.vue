@@ -5,6 +5,7 @@ import { showConfirmDialog, showToast } from 'vant'
 import type { OrderDetail } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import { cancelOrder, confirmOrder, fetchOrderDetail } from '@/api/order'
+import PageNavBar from '@/components/PageNavBar.vue'
 import { usePayCountdown } from '@/composables/usePayCountdown'
 import { ORDER_ORIGIN_BUY_NOW, ORDER_ORIGIN_CART, parseOrderOrigin } from '@/utils/checkout-route'
 
@@ -146,7 +147,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="detail">
-    <van-nav-bar title="订单详情" left-arrow @click-left="onBack" />
+    <PageNavBar title="订单详情" @click-left="onBack" />
 
     <template v-if="order">
       <div class="banner">

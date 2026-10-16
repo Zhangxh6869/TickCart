@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import PageNavBar from '@/components/PageNavBar.vue'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
@@ -20,7 +21,7 @@ const roleText = computed(() => (info.value?.role === 1 ? '管理员' : '普通�
 
 <template>
   <div class="profile">
-    <van-nav-bar title="个人信息" left-arrow @click-left="router.back()" />
+    <PageNavBar title="个人信息" @click-left="router.back()" />
 
     <!-- 头部：头像 + 昵称，与「我的」页同一套视觉语言 -->
     <div class="profile__header">

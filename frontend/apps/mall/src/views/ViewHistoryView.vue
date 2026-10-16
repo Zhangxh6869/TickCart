@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
 import type { ViewHistoryItem } from '@tickcart/shared-types'
 import ProductCard from '@/components/ProductCard.vue'
+import PageNavBar from '@/components/PageNavBar.vue'
 import { clearViewHistory, fetchViewHistory, removeViewHistory } from '@/api/view-history'
 
 const router = useRouter()
@@ -123,9 +124,8 @@ const groups = computed(() => {
 <template>
   <div class="view-history">
     <!-- 「清空」只在有记录时出现：空态给一个点了没反应的按钮不如不给 -->
-    <van-nav-bar
+    <PageNavBar
       title="浏览记录"
-      left-arrow
       :right-text="list.length ? '清空' : ''"
       @click-left="router.back()"
       @click-right="onClear"

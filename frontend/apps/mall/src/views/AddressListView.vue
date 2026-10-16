@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
 import type { UserAddress } from '@tickcart/shared-types'
+import PageNavBar from '@/components/PageNavBar.vue'
 import * as addressApi from '@/api/address'
 
 const router = useRouter()
@@ -153,7 +154,7 @@ onMounted(load)
 
 <template>
   <div class="address">
-    <van-nav-bar title="收货地址" left-arrow @click-left="router.back()" />
+    <PageNavBar title="收货地址" @click-left="router.back()" />
 
     <van-empty v-if="!loading && list.length === 0" description="还没有收货地址" />
 
