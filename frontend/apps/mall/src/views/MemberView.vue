@@ -49,12 +49,16 @@ async function onLogout() {
  * 已取消 / 已超时关闭是终态、不需要提醒，不放进来。
  *
  * icon 取设计稿交付的 4 个 SVG（见 OrderStatusIcon），不再用 Vant 图标字体。
+ *
+ * badge 控制该状态是否显示数量红点：「已完成」是终态、不需要用户再做什么，
+ * 红点没有行动指引意义，还会让「我的」页永远挂着一个去不掉的红点，所以关掉。
+ * 数量本身仍然从接口拿（不额外判断），只是不渲染。
  */
 const ORDER_ENTRIES = [
-  { label: '待付款', status: 0, icon: 'pending-payment' },
-  { label: '待发货', status: 1, icon: 'pending-shipment' },
-  { label: '待收货', status: 2, icon: 'pending-receipt' },
-  { label: '已完成', status: 3, icon: 'completed' },
+  { label: '待付款', status: 0, icon: 'pending-payment', badge: true },
+  { label: '待发货', status: 1, icon: 'pending-shipment', badge: true },
+  { label: '待收货', status: 2, icon: 'pending-receipt', badge: true },
+  { label: '已完成', status: 3, icon: 'completed', badge: false },
 ] as const
 
 /** 状态码 → OrderStatusCount 上的字段名，避免用下标去猜字段顺序 */
@@ -185,7 +189,7 @@ function goOrders(status?: number) {
           >
             <span class="member__entry-icon">
               <OrderStatusIcon :name="entry.icon" />
-              <span v-if="countOf(entry.status) > 0" class="member__badge">
+              <span v-if="entry.badge && countOf(entry.status) > 0" class="member__badge">
                 {{ badgeText(countOf(entry.status)) }}
               </span>
             </span>
@@ -362,7 +366,9 @@ function goOrders(status?: number) {
 }
 .member__entry-label {
   font-size: 12px;
-  color: var(--van-text-color-2, #646566);
+  /* 黑色（与图标同为 #2c2c2c）：这四个是入口而不是说明文字，
+     用次要灰会显得像禁用态、可点性弱。 */
+  color: #2c2c2c;
 }
 
 /* 角标：贴图标右上角。红点是电商通用语言，用 Vant 的 danger 色，
@@ -375,6 +381,9 @@ function goOrders(status?: number) {
   height: 16px;
   padding: 0 4px;
   font-size: 11px;
+  /* 数字加粗：11px 的小字在白底红点上本来就偏细，加粗后更好认。
+     角标宽度是自适应的（min-width 16px + right 定位），加粗变宽不会挤到图标。 */
+  font-weight: 600;
   line-height: 16px;
   color: #fff;
   text-align: center;
