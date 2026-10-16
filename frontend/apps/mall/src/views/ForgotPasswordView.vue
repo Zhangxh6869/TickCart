@@ -147,10 +147,12 @@ async function submit() {
 </template>
 
 <style scoped>
-/* 与登录页同属「全屏层」：必须「不透明 + 至少一屏高」——
-   从底部升起来时要盖住下面的登录页，半透明或不够高都会透出背后的内容。
-   页面根类名 .forgot 已登记进 App.vue 的全屏层过渡选择器（:is(.login, .address, .forgot)），
-   改类名必须同步改那一处，否则上滑/下滑过渡会失效。 */
+/* 页面根：必须「不透明 + 至少一屏高」—— 从右侧推入时要完整盖住下面的登录页，
+   半透明或不够高都会透出背后的内容。
+   ★ 页面根类名 `.forgot` 在 App.vue 的常驻 `position: relative; z-index: 10` 规则里
+   （横向推进同样需要它，否则过渡结束后会退化成普通块级元素，被还在 leave 中的登录页反盖）。
+   ★ 但 `.forgot` **不在** App.vue 的 `:is(.login, .address)` 那组里 —— 那组只服务
+     up/down 全屏层过渡；本页走 page-slide-left / right，改类名记得同步这两处。 */
 .forgot {
   min-height: 100vh;
   padding: 16px 26px 24px;

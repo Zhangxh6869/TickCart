@@ -97,11 +97,12 @@ function resolvePageTransition(
   const toName = nameOf(to)
   const fromName = nameOf(from)
 
-  // 忘记密码是**登录页的下一层**，与登录页之间同样是「全屏层」关系（升起一层 / 收走一层）。
-  // ★ 这两条必须排在下面 login 那两条之前：登录页的规则是「from 是 login 就往下滑走」，
+  // 忘记密码是**登录页的下一层**：横向推进 —— 新页从右侧滑入，返回时向右滑出。
+  // ★ 这两条必须排在下面 login 那两条之前：登录页的规则是「from 是 login 就向下滑走」，
   //   从登录页进忘记密码会命中它，被当成「离开全屏层」而向下滑，方向正好反了。
-  if (toName === 'forgot-password') return 'page-slide-up'
-  if (fromName === 'forgot-password') return 'page-slide-down'
+  //   （单看 depth 3↔4 本来也是「前进 / 后退」，方向一致，问题只出在那条 login 规则会先拦截。）
+  if (toName === 'forgot-password' && fromName === 'login') return 'page-slide-left'
+  if (toName === 'login' && fromName === 'forgot-password') return 'page-slide-right'
 
   // 登录页是一个**全屏层**，跟其它页面之间没有「层级深浅」可言（购物车、商品详情、
   // 「我的」页都能进），所以必须在 depth 判断之前拦掉，否则会出现
@@ -171,9 +172,14 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '登录', depth: 3 },
   },
   {
-    // 找回密码（忘记密码）。由登录页的「忘记密码？」进入，是**登录页的下一层全屏层**：
-    // 进入/离开走 page-slide-up / down（与登录页同一套），配对规则见 resolvePageTransition。
-    // depth 取 4（比登录页深一层）只是给「直接打开该 URL」这类没有 from 的场景一个兜底。
+    // 找回密码（忘记密码）。由登录页的「忘记密码？」进入，是登录页的下一层：
+    // 横向推进 —— 新页从右滑入、返回时向右滑出（page-slide-left / right），
+    // 配对规则见 resolvePageTransition。
+    // ★ 它**不是**全屏层（不走 up/down），所以页面根类名 `.forgot` 不在 App.vue 的
+    //   `:is(.login, .address)` 那组里 —— 那组只服务 up/down 过渡。
+    //   但 `.forgot` 仍要留在常驻 `position: relative; z-index: 10` 规则里，
+    //   否则过渡结束后它退化成普通块级元素，会被还在 leave 中的登录页反盖一下。
+    // depth 取 4（比登录页深一层）：直接打开该 URL 这类没有 from 的场景按它兜底判方向。
     path: '/forgot-password',
     name: 'forgot-password',
     component: () => import('@/views/ForgotPasswordView.vue'),
