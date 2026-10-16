@@ -218,6 +218,15 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '我的收藏', requiresAuth: true, depth: 2 },
   },
   {
+    // 浏览记录：与收藏页同构（同一层级的二级页、同样的列表与单条移除）。
+    // depth 与收藏一致，因此「我的 → 浏览记录」天然判为前进（右滑）、返回为后退，
+    // 不需要在 resolvePageTransition 里加配对规则。
+    path: '/view-history',
+    name: 'view-history',
+    component: () => import('@/views/ViewHistoryView.vue'),
+    meta: { title: '浏览记录', requiresAuth: true, depth: 2 },
+  },
+  {
     path: '/profile',
     name: 'profile',
     component: () => import('@/views/ProfileView.vue'),

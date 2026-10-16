@@ -71,6 +71,7 @@ const FULLSCREEN_ROUTES = [
   'address',
   'orders',
   'favorites',
+  'view-history',
   'profile',
   'order-detail',
   'pay',

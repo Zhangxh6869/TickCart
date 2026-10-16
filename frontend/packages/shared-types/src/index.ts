@@ -59,6 +59,21 @@ export interface ProductListItem {
   createdAt?: string
 }
 
+/**
+ * 浏览记录列表项 = 商品列表项 + 最近一次浏览时间。
+ *
+ * 刻意做成**扁平结构**（不是嵌套 `product` 对象），这样可以直接交给 `ProductCard` 渲染，
+ * 浏览记录页不必单独维护一套商品卡片。
+ */
+export interface ViewHistoryItem extends ProductListItem {
+  /**
+   * 最近一次浏览时间（ISO 8601 本地时间串，形如 `2026-10-16T22:18:56`）。
+   * 列表按它倒序；前端取前 10 位（日期部分）做「今天 / 昨天 / 日期」分组，
+   * ★ 不要用 `new Date()` 解析后再取日期，时区换算会把「今天」算成「昨天」。
+   */
+  viewTime: string
+}
+
 /** 商品 SKU。 */
 export interface ProductSku {
   id: number

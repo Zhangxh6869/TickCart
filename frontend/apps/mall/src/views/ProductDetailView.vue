@@ -7,6 +7,7 @@ import { formatCount, formatPrice } from '@tickcart/shared-utils'
 import ShareSheet from '@/components/ShareSheet.vue'
 import { fetchProductDetail } from '@/api/product'
 import { addFavorite, fetchFavoriteStatus, removeFavorite } from '@/api/favorite'
+import { reportViewHistory } from '@/api/view-history'
 import { useCartStore } from '@/stores/cart'
 import { useUserStore } from '@/stores/user'
 import { buildBuyNowQuery } from '@/utils/checkout-route'
@@ -157,11 +158,14 @@ watch(selectedSku, () => {
 onMounted(load)
 
 async function load() {
+  const productId = Number(route.params.id)
   try {
-    const data = await fetchProductDetail(Number(route.params.id))
+    const data = await fetchProductDetail(productId)
     detail.value = data
     // 默认选中第一个有货规格；全部无货时退回首个，保证价格区仍有值可展示
     selectedSku.value = data.skus.find((sku) => sku.stock > 0) ?? data.skus[0] ?? null
+    // 详情拿到之后才记浏览：商品不存在（走 catch）时不该留痕
+    reportView(productId)
   } catch {
     // 具体错误文案由请求拦截器统一提示，这里只结束 loading，避免页面一直转圈
     detail.value = null
@@ -171,6 +175,20 @@ async function load() {
   await nextTick()
   measureTitle()
   await loadFavoriteStatus()
+}
+
+/**
+ * 记录浏览（「我的 → 浏览记录」的数据来源）。
+ *
+ * ★ 未登录**不上报**：该接口需要登录，未登录发请求只会拿到 401，而拦截器在 401 时
+ *   会清空本地令牌并提示「登录已过期」—— 对一个只是路过看商品的游客是纯误伤。
+ * ★ 不 await：埋点是旁路，不能拖慢首屏。失败静默（api 层已带 `silent` 标记不弹提示），
+ *   这里再 catch 一次兜底，避免未处理的 rejection 进控制台。
+ * ★ 同一商品来回进出会重复上报，由后端唯一键 upsert 收敛为一条，前端不做防抖抑制。
+ */
+function reportView(productId: number) {
+  if (!userStore.isLoggedIn) return
+  reportViewHistory(productId).catch(() => {})
 }
 
 /**
