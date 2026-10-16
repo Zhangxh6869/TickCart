@@ -7,6 +7,7 @@ import { useUserStore } from '@/stores/user'
 import { fetchAddresses } from '@/api/address'
 import { fetchFavorites } from '@/api/favorite'
 import { fetchOrderCount } from '@/api/order'
+import OrderStatusIcon from '@/components/OrderStatusIcon.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -46,11 +47,13 @@ async function onLogout() {
 /**
  * 宫格上的四个状态，status 与订单列表页的 tab、后端 OrderStatus 一一对应。
  * 已取消 / 已超时关闭是终态、不需要提醒，不放进来。
+ *
+ * icon 取设计稿交付的 4 个 SVG（见 OrderStatusIcon），不再用 Vant 图标字体。
  */
 const ORDER_ENTRIES = [
   { label: '待付款', status: 0, icon: 'pending-payment' },
-  { label: '待发货', status: 1, icon: 'tosend' },
-  { label: '待收货', status: 2, icon: 'send-gift-o' },
+  { label: '待发货', status: 1, icon: 'pending-shipment' },
+  { label: '待收货', status: 2, icon: 'pending-receipt' },
   { label: '已完成', status: 3, icon: 'completed' },
 ] as const
 
@@ -181,7 +184,7 @@ function goOrders(status?: number) {
             @click="goOrders(entry.status)"
           >
             <span class="member__entry-icon">
-              <van-icon :name="entry.icon" size="22" />
+              <OrderStatusIcon :name="entry.icon" />
               <span v-if="countOf(entry.status) > 0" class="member__badge">
                 {{ badgeText(countOf(entry.status)) }}
               </span>
@@ -348,11 +351,14 @@ function goOrders(status?: number) {
   border: none;
   cursor: pointer;
 }
-/* 图标相对定位，给角标当参照物 */
+/* 图标相对定位，给角标当参照物。
+   颜色取设计稿 SVG 自带的 #2c2c2c（图标本身是 currentColor 填充，见 OrderStatusIcon）——
+   深灰在白卡上对比度约 13:1，比原先的品牌浅蓝（约 2.6:1）清楚得多。
+   想换回品牌色只改这一行。 */
 .member__entry-icon {
   position: relative;
   display: flex;
-  color: rgb(107, 163, 200);
+  color: #2c2c2c;
 }
 .member__entry-label {
   font-size: 12px;
