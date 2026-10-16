@@ -231,11 +231,21 @@ function goOrders(status?: number) {
         <van-cell title="个人信息" is-link @click="router.push({ name: 'profile' })" />
       </van-cell-group>
 
-      <!-- 退出登录降级成文字行：它是低频且不可逆的操作，
-           原先那块彩色按钮（品牌浅蓝、与购物车「结算」同色）在首屏里比订单还抢眼。 -->
-      <button v-if="isLoggedIn" class="member__logout" type="button" @click="onLogout">
+      <!-- 退出登录：低频且不可逆，但保留整行按钮形态（不做成文字行，
+           否则在浅灰底上会看起来像一行说明文字，不像可点的操作）。
+           配色与购物车空态「去逛逛」(.cart__empty-btn--brand) 保持一致。
+           类挂在 <van-button> 本身（而不是外层 div）—— 这样 .member__logout
+           始终是「那个按钮」，验证脚本点它就能触发 onLogout。 -->
+      <van-button
+        v-if="isLoggedIn"
+        round
+        block
+        type="primary"
+        class="member__logout"
+        @click="onLogout"
+      >
         退出登录
-      </button>
+      </van-button>
     </div>
   </div>
 </template>
@@ -410,17 +420,20 @@ function goOrders(status?: number) {
   margin-top: 12px;
 }
 
+/* 退出登录：通栏按钮，左右各留 16px。
+   与购物车空态「去逛逛」(.cart__empty-btn--brand) 同款配色：
+   品牌浅蓝 rgb(107,163,200) 底 + Vant 默认白字 + font-weight 600。
+   本类直接写在 <van-button> 标签上（= 子组件根节点本身），普通选择器即可命中；
+   若挂在父级包裹 div 上则必须用 :deep(.van-button)。
+   覆盖的是 Vant primary 按钮自己的两个变量（默认取 --van-primary-color = #1989fa），
+   字重也用 Vant 变量而非写死 600，以后改 --van-font-bold 两处会一起变。
+   宽度必须显式算：van-button--block 自带 width:100%，margin 不会把 100% 挤小，
+   不写 calc 会左右各溢出 16px。 */
 .member__logout {
-  display: block;
   width: calc(100% - 32px);
   margin: 20px 16px 0;
-  padding: 13px 0;
-  font: inherit;
-  font-size: 13px;
-  color: var(--van-text-color-2, #969799);
-  text-align: center;
-  background: none;
-  border: none;
-  cursor: pointer;
+  --van-button-primary-background: rgb(107, 163, 200);
+  --van-button-primary-border-color: rgb(107, 163, 200);
+  font-weight: var(--van-font-bold, 600);
 }
 </style>
