@@ -3,7 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { useUserStore } from '@/stores/user'
-import { sendSmsCode } from '@/api/auth'
+import { SMS_SCENE, sendSmsCode } from '@/api/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -50,7 +50,8 @@ async function sendCode() {
     showToast('请输入正确的手机号')
     return
   }
-  await sendSmsCode(form.phone, mode.value === 'register' ? 1 : 2)
+  // 场景必须与后端校验时一致（1=注册 / 2=登录），否则拿注册的码去登录会被拒
+  await sendSmsCode(form.phone, mode.value === 'register' ? SMS_SCENE.REGISTER : SMS_SCENE.LOGIN)
   showToast('验证码已发送（开发环境固定 123456）')
 }
 
@@ -166,6 +167,15 @@ async function submit() {
       <div v-if="showMethodSwitch" class="login__switch">
         <button class="login__switch-btn" type="button" @click="toggleMethod">
           用{{ method === 'password' ? '验证码' : '账号密码' }}登录
+        </button>
+        <!-- 「忘记密码」只在账密登录时出现：验证码登录本来就不需要它 -->
+        <button
+          v-if="method === 'password'"
+          class="login__switch-btn login__switch-btn--accent"
+          type="button"
+          @click="router.push({ name: 'forgot-password' })"
+        >
+          忘记密码？
         </button>
       </div>
 
@@ -319,8 +329,12 @@ async function submit() {
   cursor: pointer;
 }
 
-/* ── 登录方式切换：一行文字链，取代原先表单下方的蓝色按钮式链接 ────── */
+/* ── 登录方式切换 / 忘记密码：一行两端 ──────────────────────────────── */
 .login__switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-top: 18px;
 }
 .login__switch-btn {
@@ -331,6 +345,10 @@ async function submit() {
   font-size: 12px;
   color: #646566;
   cursor: pointer;
+}
+/* 「忘记密码？」用品牌深蓝，与左侧的「用验证码登录」拉开主次 */
+.login__switch-btn--accent {
+  color: rgb(46, 107, 138);
 }
 
 /* ── 主按钮 ──────────────────────────────────────────────────────────── */

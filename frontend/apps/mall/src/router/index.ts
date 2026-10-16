@@ -97,6 +97,12 @@ function resolvePageTransition(
   const toName = nameOf(to)
   const fromName = nameOf(from)
 
+  // 忘记密码是**登录页的下一层**，与登录页之间同样是「全屏层」关系（升起一层 / 收走一层）。
+  // ★ 这两条必须排在下面 login 那两条之前：登录页的规则是「from 是 login 就往下滑走」，
+  //   从登录页进忘记密码会命中它，被当成「离开全屏层」而向下滑，方向正好反了。
+  if (toName === 'forgot-password') return 'page-slide-up'
+  if (fromName === 'forgot-password') return 'page-slide-down'
+
   // 登录页是一个**全屏层**，跟其它页面之间没有「层级深浅」可言（购物车、商品详情、
   // 「我的」页都能进），所以必须在 depth 判断之前拦掉，否则会出现
   // 「从购物车进是右滑、从详情页进是硬切」的割裂感 —— 这正是本次要修的问题。
@@ -163,6 +169,15 @@ const routes: RouteRecordRaw[] = [
     name: 'login',
     component: () => import('@/views/LoginView.vue'),
     meta: { title: '登录', depth: 3 },
+  },
+  {
+    // 找回密码（忘记密码）。由登录页的「忘记密码？」进入，是**登录页的下一层全屏层**：
+    // 进入/离开走 page-slide-up / down（与登录页同一套），配对规则见 resolvePageTransition。
+    // depth 取 4（比登录页深一层）只是给「直接打开该 URL」这类没有 from 的场景一个兜底。
+    path: '/forgot-password',
+    name: 'forgot-password',
+    component: () => import('@/views/ForgotPasswordView.vue'),
+    meta: { title: '找回密码', depth: 4 },
   },
   {
     // 需要登录的页面统一在此挂 meta.requiresAuth。

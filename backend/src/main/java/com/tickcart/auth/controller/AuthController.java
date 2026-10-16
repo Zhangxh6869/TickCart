@@ -3,6 +3,7 @@ package com.tickcart.auth.controller;
 import com.tickcart.auth.dto.LoginRequest;
 import com.tickcart.auth.dto.RefreshRequest;
 import com.tickcart.auth.dto.RegisterRequest;
+import com.tickcart.auth.dto.ResetPasswordRequest;
 import com.tickcart.auth.dto.SendSmsCodeRequest;
 import com.tickcart.auth.dto.SmsLoginRequest;
 import com.tickcart.auth.dto.SmsRegisterRequest;
@@ -63,6 +64,13 @@ public class AuthController {
     @PostMapping("/login/sms")
     public R<TokenResponse> loginBySms(@Valid @RequestBody SmsLoginRequest req) {
         return R.ok(authService.loginBySms(req));
+    }
+
+    @Operation(summary = "重置密码（忘记密码）", description = "凭手机号 + 短信验证码（场景 3）重设密码，成功后吊销全部刷新令牌")
+    @PostMapping("/password/reset")
+    public R<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest req) {
+        authService.resetPassword(req);
+        return R.ok();
     }
 
     @Operation(summary = "刷新令牌")

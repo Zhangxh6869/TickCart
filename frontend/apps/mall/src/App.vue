@@ -219,14 +219,20 @@ body {
      t=814  address sta t0 zauto | checkout -             ← 旧页才被移除
    常驻 relative + z-index 后，过渡结束后新页依然压在旧页之上。 */
 .login,
-.address {
+.address,
+.forgot {
   position: relative;
   z-index: 10;
 }
 
-/* ── 登录页：全屏层，从底部滑入 / 向下滑出 ─────────────────────────────
-   进入（page-slide-up）：登录页 fixed 在视口下方（top: 100%），滑到 top: 0 盖住当前页。
-   退出（page-slide-down）：登录页从 top: 0 滑回 top: 100%，露出下面已经就位的页面。
+/* ── 全屏层：从底部滑入 / 向下滑出（登录页、找回密码、收货地址） ────────
+   进入（page-slide-up）：新页 fixed 在视口下方（top: 100%），滑到 top: 0 盖住当前页。
+   退出（page-slide-down）：新页从 top: 0 滑回 top: 100%，露出下面已经就位的页面。
+
+   【谁用这一套】
+   登录页、找回密码（登录页的下一层）、收货地址（从确认订单进入时）。
+   router 的 resolvePageTransition 里精确配对返回 up / down —— 注意「忘记密码」那两条
+   必须排在「from 是 login 就 down」之前，否则从登录页进找回密码会被判成离开全屏层。
 
    旧页全程不动、只是被盖住（或露出来），所以**不给它任何位移**，
    但 `transition` 必须声明 —— Vue 的 <Transition> 靠 computedStyle 的 transition-duration
@@ -239,9 +245,8 @@ body {
    有可能影响首页 .home__sticky 的吸顶），而 fixed 元素不参与文档滚动尺寸，
    过渡那 450ms 里不会出现「能上下滚」的穿帮。
 
-   【⚠ 选择器必须绑定页面根类名 .login / .address】
-   这两组类名描述的是「全屏层的出现 / 消失」，只有登录页和收货地址页会用到
-   （router 里 to/from 是 login，或 checkout ↔ address 时才返回 up / down）。
+   【⚠ 选择器必须绑定页面根类名 .login / .address / .forgot】
+   这些类名描述的是「全屏层的出现 / 消失」，只有上面那三类页面会用到。
    但**必须把页面根类名写进选择器**：
    Vue 在 KeepAlive 复用被缓存的页面时，会把**上一次过渡残留的 hooks 一起复用**，
    别的页面因此也会被挂上 page-slide-up-enter-*。
@@ -251,12 +256,13 @@ body {
      我的   → 登录 → 回我的     进入的 .member 拿到 page-slide-up-enter-*    ✗ 上一次过渡的残留
    不绑定时，后者会被 fixed + top: 100% 拉出文档流，和正在下移的登录页叠在一起
    （.member 自身没有背景色，过渡期间会直接透出登录页）。
-   绑定后：只有登录页 / 收货地址页会上滑 / 下滑，其它页面不管被挂上什么类名都留在文档流里当 static。
+   绑定后：只有这几类页面会上滑 / 下滑，其它页面不管被挂上什么类名都留在文档流里当 static。
    再加上 data-page-dir 门禁：`up` / `down` 之外的导航里，这两组规则一律不生效，
-   被 KeepAlive 残留污染的元素也不会被 fixed 拉出文档流。 */
+   被 KeepAlive 残留污染的元素也不会被 fixed 拉出文档流。
+   ★ 新增全屏层页面时，页面根类名要同步加进这里和上面那条常驻 z-index 规则。 */
 /* 进入页：从视口下方滑到 top: 0。
    进入页是刚挂载的新页面，滚动位置必然是 0，所以不需要 --page-scroll-y 偏移。 */
-:root[data-page-dir='up'] :is(.login, .address).page-slide-up-enter-active {
+:root[data-page-dir='up'] :is(.login, .address, .forgot).page-slide-up-enter-active {
   position: fixed;
   top: 0;
   left: 0;
@@ -268,7 +274,7 @@ body {
    一脱离文档流它就会跳回视口顶部，所以起点要先按 --page-scroll-y 钉回原来的内容位置；
    终点同理减去这段偏移，保证「向下移出」的距离正好是一个视口高。
    （登录页内容永远一屏，--page-scroll-y 恒为 0，这两处 calc 退化成原来的 top: 0 / top: 100%） */
-:root[data-page-dir='down'] :is(.login, .address).page-slide-down-leave-active {
+:root[data-page-dir='down'] :is(.login, .address, .forgot).page-slide-down-leave-active {
   position: fixed;
   top: calc(-1 * var(--page-scroll-y, 0px));
   left: 0;
@@ -276,10 +282,10 @@ body {
   z-index: 10;
   transition: top var(--page-layer-duration) cubic-bezier(0.32, 0.72, 0, 1);
 }
-:root[data-page-dir='up'] :is(.login, .address).page-slide-up-enter-from {
+:root[data-page-dir='up'] :is(.login, .address, .forgot).page-slide-up-enter-from {
   top: 100%;
 }
-:root[data-page-dir='down'] :is(.login, .address).page-slide-down-leave-to {
+:root[data-page-dir='down'] :is(.login, .address, .forgot).page-slide-down-leave-to {
   top: calc(100% - var(--page-scroll-y, 0px));
 }
 
@@ -326,12 +332,12 @@ body {
    权重必须 ≥ 上面的主规则，否则会被它们的 transition 简写覆盖掉。
    注意两处主规则的权重并不一样（原注释以为都是 0,3,0，实际不是）：
      `.page-slide-left-enter-active` 这类「单类」选择器 = 0,3,0，与下面 :is(...) 那条同权重，靠声明顺序胜出；
-     `:is(.login, .address).page-slide-up-enter-active` 这类「双类」= 0,4,0，**压不住**，
+     `:is(.login, .address, .forgot).page-slide-up-enter-active` 这类「双类」= 0,4,0，**压不住**，
      所以必须单独用同等权重再写一遍。顺带修掉了登录页减弱动效一直只生效一半的问题
      （旧页淡出被压到 1ms，新页上滑仍是完整时长）。 */
 @media (prefers-reduced-motion: reduce) {
-  :root[data-page-dir] :is(.login, .address).page-slide-up-enter-active,
-  :root[data-page-dir] :is(.login, .address).page-slide-down-leave-active,
+  :root[data-page-dir] :is(.login, .address, .forgot).page-slide-up-enter-active,
+  :root[data-page-dir] :is(.login, .address, .forgot).page-slide-down-leave-active,
   :root[data-page-dir] :is(
       .page-slide-left-enter-active,
       .page-slide-left-leave-active,

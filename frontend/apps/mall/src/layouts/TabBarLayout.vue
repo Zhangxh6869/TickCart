@@ -39,6 +39,9 @@ const indicatorLeft = computed(() => `calc(${activeIndex.value} * 100% / 3 + 100
  *   product-detail —— 页面自带底部操作栏（收藏 / 加购 / 立即购买），tabbar 让位
  *   login          —— 独立全屏层，从底部滑入覆盖整个视口；留着 tabbar 会出现
  *                     「三项全灰、指示条却停在首页下面」的坏选中态，且与登录页无关
+ *   forgot-password
+ *                  —— 找回密码，登录页的下一层全屏层（同样从底部滑入）。
+ *                     与 login 同理，支付/登录流程中不该出现商城底部导航
  *   address        —— 页面自带固定底部按钮条（新增收货地址）。它与 tabbar 都贴视口底，
  *                     而 tabbar 带 z-index: 1、按钮条没写 z-index，实测按钮 44px 里
  *                     只剩顶部 4px 能点到（点中间会命中 tabbar 的「购物车」直接跳走）。
@@ -64,6 +67,7 @@ const indicatorLeft = computed(() => `calc(${activeIndex.value} * 100% / 3 + 100
 const FULLSCREEN_ROUTES = [
   'product-detail',
   'login',
+  'forgot-password',
   'address',
   'orders',
   'favorites',

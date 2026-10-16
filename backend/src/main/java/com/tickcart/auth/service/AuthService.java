@@ -3,6 +3,7 @@ package com.tickcart.auth.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.tickcart.auth.dto.LoginRequest;
 import com.tickcart.auth.dto.RegisterRequest;
+import com.tickcart.auth.dto.ResetPasswordRequest;
 import com.tickcart.auth.dto.SmsLoginRequest;
 import com.tickcart.auth.dto.SmsRegisterRequest;
 import com.tickcart.auth.dto.TokenResponse;
@@ -41,6 +42,8 @@ public class AuthService {
     public static final int SMS_SCENE_REGISTER = 1;
     /** 短信场景：登录 */
     public static final int SMS_SCENE_LOGIN = 2;
+    /** 短信场景：重置密码 */
+    public static final int SMS_SCENE_RESET = 3;
 
     /** 用户状态：正常 / 禁用 */
     private static final int STATUS_NORMAL = 0;
@@ -203,6 +206,36 @@ public class AuthService {
     }
 
     // =========================================================================
+    // 重置密码（忘记密码）
+    // =========================================================================
+
+    /**
+     * 重置密码：凭「手机号 + 短信验证码（场景 3）」重设账号密码，无需登录态。
+     *
+     * <p>顺序与 {@link #loginBySms} 一致：先确认账号存在再消费验证码 ——
+     * 账号不存在时验证码保持可用，避免「手机号是否注册过」被反复试探。</p>
+     *
+     * <p>密码变更后吊销该用户全部刷新令牌：旧会话不该在新密码生效后继续有效。</p>
+     */
+    @Transactional
+    public void resetPassword(ResetPasswordRequest req) {
+        User user = findByPhone(req.getPhone());
+        if (user == null) {
+            throw BizException.notFound("该手机号尚未注册");
+        }
+        assertUserUsable(user);
+        verifyAndConsumeCode(req.getPhone(), SMS_SCENE_RESET, req.getCode());
+
+        User update = new User();
+        update.setId(user.getId());
+        update.setPassword(passwordEncoder.encode(req.getNewPassword()));
+        userMapper.updateById(update);
+
+        revokeAllRefreshTokens(user.getId());
+        log.info("用户 {} 通过短信验证码重置了密码", user.getId());
+    }
+
+    // =========================================================================
     // 令牌刷新 / 用户信息
     // =========================================================================
 
@@ -244,16 +277,21 @@ public class AuthService {
     /** 退出登录：吊销该用户的全部刷新令牌。 */
     @Transactional
     public void logout(Long userId) {
+        revokeAllRefreshTokens(userId);
+    }
+
+    // =========================================================================
+    // 内部方法
+    // =========================================================================
+
+    /** 吊销某用户的全部有效刷新令牌（退出登录、重置密码共用）。 */
+    private void revokeAllRefreshTokens(Long userId) {
         RefreshToken update = new RefreshToken();
         update.setRevoked(TOKEN_REVOKED);
         refreshTokenMapper.update(update, new LambdaQueryWrapper<RefreshToken>()
                 .eq(RefreshToken::getUserId, userId)
                 .eq(RefreshToken::getRevoked, TOKEN_ACTIVE));
     }
-
-    // =========================================================================
-    // 内部方法
-    // =========================================================================
 
     private TokenResponse issueTokens(User user) {
         String accessToken = jwtTokenProvider.createAccessToken(
