@@ -40,6 +40,9 @@ const captchaCode = ref('')
 /** 锁定剩余秒数，> 0 时禁用提交并逐秒递减 */
 const retryLeft = ref(0)
 let retryTimer: number | undefined
+/** 验证码重发倒计时：与后端 tickcart.sms.guard.send-interval-seconds 保持一致 */
+const codeLeft = ref(0)
+let codeTimer: number | undefined
 
 const isRegister = computed(() => mode.value === 'register')
 const showMethodSwitch = computed(() => !isRegister.value)
@@ -145,14 +148,35 @@ function switchMode() {
 }
 
 async function sendCode() {
+  if (codeLeft.value > 0) return
   if (!PHONE_RE.test(form.phone)) {
     fieldErrors.phone = '请输入正确的手机号'
     return
   }
   fieldErrors.phone = ''
-  // 场景必须与后端校验时一致（1=注册 / 2=登录），否则拿注册的码去登录会被拒
-  await sendSmsCode(form.phone, mode.value === 'register' ? SMS_SCENE.REGISTER : SMS_SCENE.LOGIN)
-  showToast('验证码已发送（开发环境固定 123456）')
+  try {
+    // 场景必须与后端校验时一致（1=注册 / 2=登录），否则拿注册的码去登录会被拒
+    await sendSmsCode(
+      form.phone,
+      mode.value === 'register' ? SMS_SCENE.REGISTER : SMS_SCENE.LOGIN
+    )
+    showToast('验证码已发送（开发环境固定 123456）')
+    startCodeCountdown()
+  } catch {
+    // 限流时后端已经通过全局 toast 给出了「请 X 秒后重试」，这里只兜住未处理的拒绝
+  }
+}
+
+function startCodeCountdown(seconds = 30) {
+  codeLeft.value = seconds
+  window.clearInterval(codeTimer)
+  codeTimer = window.setInterval(() => {
+    codeLeft.value -= 1
+    if (codeLeft.value <= 0) {
+      codeLeft.value = 0
+      window.clearInterval(codeTimer)
+    }
+  }, 1000)
 }
 
 /** 刷新图形码：用户看不清或过期时点图重取 */
@@ -248,7 +272,10 @@ async function submit() {
   }
 }
 
-onUnmounted(() => window.clearInterval(retryTimer))
+onUnmounted(() => {
+  window.clearInterval(retryTimer)
+  window.clearInterval(codeTimer)
+})
 </script>
 
 <template>
@@ -368,8 +395,13 @@ onUnmounted(() => window.clearInterval(retryTimer))
               @blur="blurField('code')"
             />
           </label>
-          <button class="login__code-btn" type="button" @click.prevent="sendCode">
-            获取验证码
+          <button
+            class="login__code-btn"
+            type="button"
+            :disabled="codeLeft > 0"
+            @click.prevent="sendCode"
+          >
+            {{ codeLeft > 0 ? `${codeLeft}s 后重发` : '获取验证码' }}
           </button>
         </div>
         <p v-if="fieldErrors.code" class="login__err">{{ fieldErrors.code }}</p>
@@ -606,6 +638,11 @@ onUnmounted(() => window.clearInterval(retryTimer))
   font-size: 13px;
   color: rgb(46, 107, 138);
   cursor: pointer;
+}
+/* 倒计时期间置灰：不可点也不消失，位置不变避免表单跳动 */
+.login__code-btn:disabled {
+  color: #c8c9cc;
+  cursor: default;
 }
 
 /* ── 图形验证码 ─────────────────────────────────────────────────────── */

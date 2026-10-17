@@ -18,6 +18,7 @@ import com.tickcart.auth.mapper.UserMapper;
 import com.tickcart.common.config.JwtProperties;
 import com.tickcart.common.exception.BizException;
 import com.tickcart.common.exception.RateLimitedException;
+import com.tickcart.common.exception.SmsCodeExhaustedException;
 import com.tickcart.common.exception.VerifyRequiredException;
 import com.tickcart.common.security.JwtTokenProvider;
 import org.slf4j.Logger;
@@ -65,6 +66,7 @@ public class AuthService {
     private final LoginGuard loginGuard;
     private final CaptchaService captchaService;
     private final PasswordPolicy passwordPolicy;
+    private final SmsCodeGuard smsCodeGuard;
 
     /**
      * 用户不存在时用来「陪跑」一次 BCrypt 的假哈希。
@@ -83,7 +85,8 @@ public class AuthService {
                        JwtProperties jwtProperties,
                        LoginGuard loginGuard,
                        CaptchaService captchaService,
-                       PasswordPolicy passwordPolicy) {
+                       PasswordPolicy passwordPolicy,
+                       SmsCodeGuard smsCodeGuard) {
         this.userMapper = userMapper;
         this.refreshTokenMapper = refreshTokenMapper;
         this.smsCodeMapper = smsCodeMapper;
@@ -94,6 +97,7 @@ public class AuthService {
         this.loginGuard = loginGuard;
         this.captchaService = captchaService;
         this.passwordPolicy = passwordPolicy;
+        this.smsCodeGuard = smsCodeGuard;
         // 启动时算一次，成本只付一次；值随机，永远匹配不上任何真实密码
         this.dummyHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
@@ -102,44 +106,79 @@ public class AuthService {
     // 发送验证码
     // =========================================================================
 
-    /** 发送短信验证码（落库，校验口径：最新一条未使用且未过期）。 */
+    /**
+     * 发送短信验证码（落库，校验口径：最新一条未使用且未过期）。
+     *
+     * <p>频控放在生成/落库/发送之前：先发后拒等于没防，钱已经花了。
+     * 发送失败（网关异常）要释放间隔占位，否则用户什么都没收到却要白等 30 秒。</p>
+     */
     @Transactional
     public void sendSmsCode(String phone, Integer scene) {
         if (scene == null || scene < 1 || scene > 3) {
             throw BizException.badRequest("短信场景不合法");
         }
-        String code = smsService.generateCode();
-        SmsCode entity = new SmsCode();
-        entity.setPhone(phone);
-        entity.setCode(code);
-        entity.setScene(scene);
-        entity.setUsed(0);
-        entity.setExpiresAt(LocalDateTime.now().plusSeconds(smsService.getCodeExpireSeconds()));
-        smsCodeMapper.insert(entity);
+        if (!smsCodeGuard.tryAcquireSend(phone)) {
+            throw new RateLimitedException(smsCodeGuard.getRetryAfterSeconds(phone));
+        }
+        try {
+            String code = smsService.generateCode();
+            SmsCode entity = new SmsCode();
+            entity.setPhone(phone);
+            entity.setCode(code);
+            entity.setScene(scene);
+            entity.setUsed(0);
+            entity.setExpiresAt(LocalDateTime.now().plusSeconds(smsService.getCodeExpireSeconds()));
+            smsCodeMapper.insert(entity);
 
-        smsService.send(phone, code);
+            smsService.send(phone, code);
+            smsCodeGuard.recordSent(phone);
+        } catch (RuntimeException ex) {
+            smsCodeGuard.releaseSend(phone);
+            throw ex;
+        }
     }
 
-    /** 校验并消费验证码；不通过则抛业务异常。 */
+    /**
+     * 校验并消费验证码；不通过则抛业务异常。
+     *
+     * <p>失败不消费、只计数 —— 消费掉的话用户打错一个字就得重新获取，体验太差。
+     * 但「不消费」意味着同一个码可以被反复试，所以失败达到上限时要主动作废。</p>
+     */
     private void verifyAndConsumeCode(String phone, Integer scene, String code) {
+        // 取「最新一条」而不是「最新一条未使用的」：后者在最新码被作废后，
+        // 会回退到更早那条仍有效的码，等于作废没作干净（同一手机号连发多条时就会出现）
         SmsCode latest = smsCodeMapper.selectOne(new LambdaQueryWrapper<SmsCode>()
                 .eq(SmsCode::getPhone, phone)
                 .eq(SmsCode::getScene, scene)
-                .eq(SmsCode::getUsed, 0)
                 .orderByDesc(SmsCode::getId)
                 .last("LIMIT 1"));
         if (latest == null) {
             throw BizException.badRequest("验证码不存在，请先获取");
         }
+        if (Integer.valueOf(1).equals(latest.getUsed())) {
+            throw BizException.badRequest("验证码已失效，请重新获取");
+        }
         if (latest.getExpiresAt().isBefore(LocalDateTime.now())) {
             throw BizException.badRequest("验证码已过期");
         }
         if (!latest.getCode().equals(code)) {
+            if (smsCodeGuard.recordVerifyFailure(latest.getId())) {
+                // 达到上限：作废当前码，强制重新获取（重新获取又会受发送频控约束）
+                markUsed(latest.getId());
+                smsCodeGuard.clearVerifyFailure(latest.getId());
+                throw new SmsCodeExhaustedException("验证码错误次数过多，请重新获取");
+            }
             throw BizException.badRequest("验证码错误");
         }
         // 标记已使用（一次性）
+        markUsed(latest.getId());
+        smsCodeGuard.clearVerifyFailure(latest.getId());
+    }
+
+    /** 把验证码置为已使用（校验通过 / 失败次数超限作废，两处共用）。 */
+    private void markUsed(Long codeId) {
         SmsCode update = new SmsCode();
-        update.setId(latest.getId());
+        update.setId(codeId);
         update.setUsed(1);
         smsCodeMapper.updateById(update);
     }
@@ -174,7 +213,7 @@ public class AuthService {
     }
 
     /** 手机验证码注册（用户名/密码可选，缺省时用户名取手机号）。 */
-    @Transactional
+    @Transactional(noRollbackFor = SmsCodeExhaustedException.class)
     public TokenResponse registerBySms(SmsRegisterRequest req) {
         String username = StringUtils.hasText(req.getUsername()) ? req.getUsername() : req.getPhone();
         // 密码策略先于验证码消费：不合规的密码不该白白吃掉一次验证码
@@ -263,7 +302,7 @@ public class AuthService {
     }
 
     /** 手机验证码登录（手机号需已注册）。 */
-    @Transactional
+    @Transactional(noRollbackFor = SmsCodeExhaustedException.class)
     public TokenResponse loginBySms(SmsLoginRequest req) {
         User user = findByPhone(req.getPhone());
         if (user == null) {
@@ -286,7 +325,7 @@ public class AuthService {
      *
      * <p>密码变更后吊销该用户全部刷新令牌：旧会话不该在新密码生效后继续有效。</p>
      */
-    @Transactional
+    @Transactional(noRollbackFor = SmsCodeExhaustedException.class)
     public void resetPassword(ResetPasswordRequest req) {
         User user = findByPhone(req.getPhone());
         if (user == null) {

@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.tickcart.auth.dto.LoginRequest;
 import com.tickcart.auth.dto.RegisterRequest;
 import com.tickcart.auth.dto.ResetPasswordRequest;
+import com.tickcart.auth.dto.SmsLoginRequest;
 import com.tickcart.auth.dto.TokenResponse;
 import com.tickcart.auth.entity.RefreshToken;
 import com.tickcart.auth.entity.SmsCode;
@@ -35,6 +36,8 @@ import java.time.LocalDateTime;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -60,6 +63,7 @@ class AuthServiceTest {
     /** 频控与人机验证用桩：默认「不锁定、不需要验证、不计数」，各用例按需覆盖。 */
     private LoginGuard loginGuard;
     private CaptchaService captchaService;
+    private SmsCodeGuard smsCodeGuard;
 
     /**
      * 纯单元测试没有 Spring 容器，而 {@code LambdaQueryWrapper} 解析列名依赖实体的
@@ -85,10 +89,13 @@ class AuthServiceTest {
 
         loginGuard = mock(LoginGuard.class);
         captchaService = mock(CaptchaService.class);
+        smsCodeGuard = mock(SmsCodeGuard.class);
+        // 默认放行发送；只有专门测限流的用例才覆盖它
+        lenient().when(smsCodeGuard.tryAcquireSend(anyString())).thenReturn(true);
         // 密码策略用真实实现：弱口令字典就在测试 classpath 里，没必要造假
         authService = new AuthService(userMapper, refreshTokenMapper, smsCodeMapper,
                 smsService, passwordEncoder, tokenProvider, props,
-                loginGuard, captchaService, new PasswordPolicy());
+                loginGuard, captchaService, new PasswordPolicy(), smsCodeGuard);
     }
 
     private RegisterRequest registerReq(String username, String password) {
@@ -293,6 +300,40 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.registerByPassword(registerReq("alice", "alice2024")))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("不能包含用户名");
+    }
+
+    @Test
+    @DisplayName("发送间隔内重复获取验证码被限流")
+    void sendSmsCodeRejectedWithinInterval() {
+        when(smsCodeGuard.tryAcquireSend("13700000000")).thenReturn(false);
+        when(smsCodeGuard.getRetryAfterSeconds("13700000000")).thenReturn(25L);
+
+        assertThatThrownBy(() -> authService.sendSmsCode("13700000000", AuthService.SMS_SCENE_LOGIN))
+                .isInstanceOf(RateLimitedException.class)
+                .hasMessageContaining("25 秒");
+        // 被限流时不该落库、也不该发短信
+        verify(smsCodeMapper, never()).insert(any(SmsCode.class));
+    }
+
+    @Test
+    @DisplayName("验证码错误达上限时作废当前码，要求重新获取")
+    void verifyCodeInvalidatedAfterTooManyFailures() {
+        when(userMapper.selectOne(any())).thenReturn(userWithPhone("13700000000", "abc12345"));
+        when(smsCodeMapper.selectOne(any()))
+                .thenReturn(validCode("13700000000", AuthService.SMS_SCENE_LOGIN, "123456"));
+        when(smsCodeGuard.recordVerifyFailure(9L)).thenReturn(true);
+
+        SmsLoginRequest req = new SmsLoginRequest();
+        req.setPhone("13700000000");
+        req.setCode("000000");
+
+        assertThatThrownBy(() -> authService.loginBySms(req))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("次数过多");
+
+        ArgumentCaptor<SmsCode> captor = ArgumentCaptor.forClass(SmsCode.class);
+        verify(smsCodeMapper).updateById(captor.capture());
+        assertThat(captor.getValue().getUsed()).isEqualTo(1);
     }
 
     @Test

@@ -113,11 +113,25 @@ tickcart:
     captcha-expire-seconds: ${LOGIN_CAPTCHA_EXPIRE_SECONDS:300}
     captcha-length: 4
   # 模拟短信验证码：开发环境固定返回该验证码，便于联调（不接真实短信网关）
+  # ★ 激活 prod/production profile 时若仍开着 mock，应用会启动失败（见 SmsMockGuard）
   sms:
     mock-enabled: ${SMS_MOCK_ENABLED:true}
     mock-code: ${SMS_MOCK_CODE:123456}
     # 验证码有效期（秒）
     code-expire-seconds: 300
+    # 短信频控：发送侧防轰炸（直接花钱），校验侧防爆破（6 位码只有 100 万种）
+    # 两侧必须同时生效，只做一侧都能被绕过
+    guard:
+      enabled: ${SMS_GUARD_ENABLED:true}
+      # 同号两次发送的最小间隔（秒）
+      send-interval-seconds: ${SMS_SEND_INTERVAL_SECONDS:30}
+      # 同号在窗口内的发送次数上限
+      send-window-minutes: ${SMS_SEND_WINDOW_MINUTES:10}
+      send-window-limit: ${SMS_SEND_WINDOW_LIMIT:3}
+      # 同号每日发送上限
+      daily-limit: ${SMS_DAILY_LIMIT:10}
+      # 同一个码最多允许错几次，达到即作废、需重新获取
+      verify-fail-limit: ${SMS_VERIFY_FAIL_LIMIT:5}
   # 订单
   order:
     # 待付款订单自动关闭时限（毫秒），即 trade.order.timeout 队列的 TTL
