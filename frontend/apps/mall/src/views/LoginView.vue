@@ -59,24 +59,30 @@ const submitLabel = computed(() => {
 const submitDisabled = computed(() => loading.value || retryLeft.value > 0)
 
 // ── 校验规则 ──────────────────────────────────────────────────────────
-// 与后端保持同口径：登录侧只校验格式与长度，注册侧才要求强度。
-// 前端校验只是体验优化，真正的边界在后端 Bean Validation。
+// 用户名与注册口径完全一致（4~20 位字母数字下划线）：注册时不让填的字符，
+// 登录时也没必要放行 —— 那些输入注定查不到账号。
+// 密码只对齐长度上限，强度仍只在注册侧要求（否则 demo/123456 登不进来）。
 
-const USERNAME_RE = /^[A-Za-z0-9_@.-]+$/
+const USERNAME_RE = /^[a-zA-Z0-9_]+$/
+const USERNAME_MIN = 4
+const USERNAME_MAX = 20
+const PASSWORD_MAX = 32
 const PHONE_RE = /^1[3-9]\d{9}$/
 
 function validateUsername(): string {
   const value = form.username.trim()
   if (!value) return '请输入用户名'
-  if (value.length > 50) return '用户名最长 50 位'
-  if (!USERNAME_RE.test(value)) return '只能包含字母、数字、下划线、@、点和横线'
+  if (value.length < USERNAME_MIN || value.length > USERNAME_MAX) {
+    return `用户名长度需在 ${USERNAME_MIN}~${USERNAME_MAX} 位`
+  }
+  if (!USERNAME_RE.test(value)) return '用户名只能包含字母、数字、下划线'
   return ''
 }
 
 function validatePassword(): string {
   const value = form.password
   if (!value) return '请输入密码'
-  if (value.length > 64) return '密码最长 64 位'
+  if (value.length > PASSWORD_MAX) return `密码最长 ${PASSWORD_MAX} 位`
   if (/\s/.test(value)) return '密码不能包含空格'
   // 强度只在注册侧要求：登录侧卡复杂度会把 demo/123456 这类历史账号挡在门外
   if (isRegister.value) {
