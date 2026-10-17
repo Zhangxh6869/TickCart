@@ -17,6 +17,7 @@ public class SmsLoginRequest {
 
     @Schema(description = "验证码", example = "123456")
     @NotBlank(message = "验证码不能为空")
+    @Pattern(regexp = "^\\d{6}$", message = "验证码为 6 位数字")
     private String code;
 
     public String getPhone() {

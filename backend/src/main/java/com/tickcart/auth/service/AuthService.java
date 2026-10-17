@@ -1,6 +1,7 @@
 package com.tickcart.auth.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.tickcart.auth.dto.CaptchaChallenge;
 import com.tickcart.auth.dto.LoginRequest;
 import com.tickcart.auth.dto.RegisterRequest;
 import com.tickcart.auth.dto.ResetPasswordRequest;
@@ -16,6 +17,8 @@ import com.tickcart.auth.mapper.SmsCodeMapper;
 import com.tickcart.auth.mapper.UserMapper;
 import com.tickcart.common.config.JwtProperties;
 import com.tickcart.common.exception.BizException;
+import com.tickcart.common.exception.RateLimitedException;
+import com.tickcart.common.exception.VerifyRequiredException;
 import com.tickcart.common.security.JwtTokenProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,6 +62,17 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final JwtProperties jwtProperties;
+    private final LoginGuard loginGuard;
+    private final CaptchaService captchaService;
+    private final PasswordPolicy passwordPolicy;
+
+    /**
+     * 用户不存在时用来「陪跑」一次 BCrypt 的假哈希。
+     *
+     * <p>不这么做的话，账号不存在会在密码比对前短路返回，响应时间比密码错误快 50~100ms，
+     * 攻击者靠计时就能枚举出哪些用户名真实存在 —— 文案统一了也没用，时间没统一。</p>
+     */
+    private final String dummyHash;
 
     public AuthService(UserMapper userMapper,
                        RefreshTokenMapper refreshTokenMapper,
@@ -66,7 +80,10 @@ public class AuthService {
                        SmsService smsService,
                        PasswordEncoder passwordEncoder,
                        JwtTokenProvider jwtTokenProvider,
-                       JwtProperties jwtProperties) {
+                       JwtProperties jwtProperties,
+                       LoginGuard loginGuard,
+                       CaptchaService captchaService,
+                       PasswordPolicy passwordPolicy) {
         this.userMapper = userMapper;
         this.refreshTokenMapper = refreshTokenMapper;
         this.smsCodeMapper = smsCodeMapper;
@@ -74,6 +91,11 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenProvider = jwtTokenProvider;
         this.jwtProperties = jwtProperties;
+        this.loginGuard = loginGuard;
+        this.captchaService = captchaService;
+        this.passwordPolicy = passwordPolicy;
+        // 启动时算一次，成本只付一次；值随机，永远匹配不上任何真实密码
+        this.dummyHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
     // =========================================================================
@@ -129,6 +151,8 @@ public class AuthService {
     /** 账密注册。 */
     @Transactional
     public TokenResponse registerByPassword(RegisterRequest req) {
+        // 先做纯本地校验，避免占用数据库连接（也避免验证码等一次性资源被无谓消耗）
+        passwordPolicy.validatePassword(req.getPassword(), req.getUsername());
         if (findByUsername(req.getUsername()) != null) {
             throw BizException.conflict("用户名已存在");
         }
@@ -152,12 +176,17 @@ public class AuthService {
     /** 手机验证码注册（用户名/密码可选，缺省时用户名取手机号）。 */
     @Transactional
     public TokenResponse registerBySms(SmsRegisterRequest req) {
+        String username = StringUtils.hasText(req.getUsername()) ? req.getUsername() : req.getPhone();
+        // 密码策略先于验证码消费：不合规的密码不该白白吃掉一次验证码
+        if (StringUtils.hasText(req.getPassword())) {
+            passwordPolicy.validatePassword(req.getPassword(), username);
+        }
+
         verifyAndConsumeCode(req.getPhone(), SMS_SCENE_REGISTER, req.getCode());
 
         if (findByPhone(req.getPhone()) != null) {
             throw BizException.conflict("手机号已被注册");
         }
-        String username = StringUtils.hasText(req.getUsername()) ? req.getUsername() : req.getPhone();
         if (findByUsername(username) != null) {
             throw BizException.conflict("用户名已存在");
         }
@@ -182,15 +211,55 @@ public class AuthService {
     // 登录
     // =========================================================================
 
-    /** 账密登录。 */
-    public TokenResponse loginByPassword(LoginRequest req) {
-        User user = findByUsername(req.getUsername());
-        // 统一提示，避免暴露"用户是否存在"
-        if (user == null || !passwordEncoder.matches(req.getPassword(), user.getPassword())) {
+    /**
+     * 账密登录。
+     *
+     * <p>顺序固定为：QPS → 锁定态 → 人机验证 → 凭据比对。前两步先于查库，
+     * 被锁定的账号连数据库都不用碰；凭据比对之后才记录失败，避免「账号不存在」
+     * 这种请求也计入失败次数（否则枚举用户名就能把别人的号刷到锁定）。</p>
+     *
+     * @param ip 客户端 IP，用于 IP 维度限流
+     */
+    public TokenResponse loginByPassword(LoginRequest req, String ip) {
+        String username = req.getUsername();
+
+        loginGuard.assertQps(ip);
+        loginGuard.assertNotLocked(ip, username);
+
+        // 失败次数够了就必须先过图形码，否则直接要求验证（不回显任何账号信息）
+        if (loginGuard.isVerifyRequired(ip, username)
+                && !captchaService.verify(req.getCaptchaId(), req.getCaptchaCode())) {
+            throw verifyRequired();
+        }
+
+        User user = findByUsername(username);
+        // 用户不存在时也跑一次 BCrypt，让两条路径耗时接近（见 dummyHash 注释）
+        String hash = (user != null) ? user.getPassword() : dummyHash;
+        boolean matched = passwordEncoder.matches(req.getPassword(), hash);
+
+        if (user == null || !matched) {
+            loginGuard.recordFailure(ip, username);
+            long retryAfter = loginGuard.getRetryAfterSeconds(ip, username);
+            if (retryAfter > 0) {
+                // 这次失败刚好触发锁定，直接告诉用户还要等多久，别让他再试一次才发现
+                throw new RateLimitedException(retryAfter);
+            }
+            if (loginGuard.isVerifyRequired(ip, username)) {
+                throw verifyRequired();
+            }
+            // 统一提示，避免暴露"用户是否存在"
             throw BizException.unauthorized("用户名或密码错误");
         }
+
         assertUserUsable(user);
+        loginGuard.recordSuccess(ip, username);
         return issueTokens(user);
+    }
+
+    /** 构造一次人机验证挑战（新图形码 + 一次性提示）。 */
+    private VerifyRequiredException verifyRequired() {
+        CaptchaChallenge challenge = captchaService.create();
+        return new VerifyRequiredException(challenge, "登录尝试次数较多，请完成安全验证");
     }
 
     /** 手机验证码登录（手机号需已注册）。 */

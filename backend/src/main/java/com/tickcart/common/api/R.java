@@ -55,6 +55,16 @@ public class R<T> implements Serializable {
         return new R<>(resultCode.getCode(), message, null);
     }
 
+    /**
+     * 按枚举返回失败，并携带结构化数据。
+     *
+     * <p>用于前端需要据 data 做后续交互的场景：锁定剩余秒数（429）、
+     * 人机验证挑战（401）。普通失败不要用它，避免把内部细节透出去。</p>
+     */
+    public static <T> R<T> fail(ResultCode resultCode, String message, T data) {
+        return new R<>(resultCode.getCode(), message, data);
+    }
+
     public int getCode() {
         return code;
     }

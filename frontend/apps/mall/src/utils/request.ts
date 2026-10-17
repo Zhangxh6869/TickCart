@@ -69,11 +69,15 @@ request.interceptors.response.use(
     const message = error.response?.data?.message
     // 静默请求：不弹提示，但仍然 reject 给调用方
     const silent = error.config?.silent === true
-    if (status === 401) {
+    // 登录接口的 401 是「凭据错误/需要验证」，不是「登录态过期」：
+    // 照常走清 token + 过期提示的话，用户会看到「登录已过期」这种驴唇不对马嘴的文案
+    const url: string = error.config?.url || ''
+    const isLoginAttempt = url.includes('/auth/login')
+    if (status === 401 && !isLoginAttempt) {
       // 令牌确实失效时必须清（与是否静默无关），只有提示文案受 silent 控制
       clearTokens()
       if (!silent) showToast('登录已过期，请重新登录')
-    } else if (!silent) {
+    } else if (!silent && !isLoginAttempt) {
       if (status === 403) {
         showToast('没有权限访问')
       } else {

@@ -19,7 +19,8 @@ public class RegisterRequest {
 
     @Schema(description = "密码", example = "abc12345")
     @NotBlank(message = "密码不能为空")
-    @Size(min = 6, max = 32, message = "密码长度需在 6~32 位")
+    @Size(min = 8, max = 32, message = "密码长度需在 8~32 位")
+    @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d)\\S+$", message = "密码需同时包含字母和数字")
     private String password;
 
     @Schema(description = "手机号（可选）", example = "13700000000")

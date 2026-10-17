@@ -15,6 +15,8 @@ import com.tickcart.auth.mapper.SmsCodeMapper;
 import com.tickcart.auth.mapper.UserMapper;
 import com.tickcart.common.config.JwtProperties;
 import com.tickcart.common.exception.BizException;
+import com.tickcart.common.exception.RateLimitedException;
+import com.tickcart.common.exception.VerifyRequiredException;
 import com.tickcart.common.security.JwtTokenProvider;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
@@ -33,6 +35,7 @@ import java.time.LocalDateTime;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -53,6 +56,10 @@ class AuthServiceTest {
 
     private AuthService authService;
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+
+    /** 频控与人机验证用桩：默认「不锁定、不需要验证、不计数」，各用例按需覆盖。 */
+    private LoginGuard loginGuard;
+    private CaptchaService captchaService;
 
     /**
      * 纯单元测试没有 Spring 容器，而 {@code LambdaQueryWrapper} 解析列名依赖实体的
@@ -76,8 +83,12 @@ class AuthServiceTest {
 
         SmsService smsService = new SmsService();
 
+        loginGuard = mock(LoginGuard.class);
+        captchaService = mock(CaptchaService.class);
+        // 密码策略用真实实现：弱口令字典就在测试 classpath 里，没必要造假
         authService = new AuthService(userMapper, refreshTokenMapper, smsCodeMapper,
-                smsService, passwordEncoder, tokenProvider, props);
+                smsService, passwordEncoder, tokenProvider, props,
+                loginGuard, captchaService, new PasswordPolicy());
     }
 
     private RegisterRequest registerReq(String username, String password) {
@@ -157,7 +168,7 @@ class AuthServiceTest {
         req.setUsername("demo");
         req.setPassword("123456");
 
-        assertThat(authService.loginByPassword(req).getAccessToken()).isNotBlank();
+        assertThat(authService.loginByPassword(req, "127.0.0.1").getAccessToken()).isNotBlank();
     }
 
     @Test
@@ -169,7 +180,7 @@ class AuthServiceTest {
         req.setUsername("demo");
         req.setPassword("wrong");
 
-        assertThatThrownBy(() -> authService.loginByPassword(req))
+        assertThatThrownBy(() -> authService.loginByPassword(req, "127.0.0.1"))
                 .isInstanceOf(BizException.class)
                 .hasMessage("用户名或密码错误");
     }
@@ -185,9 +196,103 @@ class AuthServiceTest {
         req.setUsername("demo");
         req.setPassword("123456");
 
-        assertThatThrownBy(() -> authService.loginByPassword(req))
+        assertThatThrownBy(() -> authService.loginByPassword(req, "127.0.0.1"))
                 .isInstanceOf(BizException.class)
                 .hasMessage("账号已被禁用");
+    }
+
+    @Test
+    @DisplayName("失败次数达到阈值后，不带图形码直接拒绝并要求验证")
+    void loginRequiresCaptchaWhenThresholdReached() {
+        when(loginGuard.isVerifyRequired(any(), any())).thenReturn(true);
+
+        LoginRequest req = new LoginRequest();
+        req.setUsername("demo");
+        req.setPassword("123456");
+
+        assertThatThrownBy(() -> authService.loginByPassword(req, "127.0.0.1"))
+                .isInstanceOf(VerifyRequiredException.class)
+                .hasMessageContaining("安全验证");
+    }
+
+    @Test
+    @DisplayName("图形码错误时同样要求重新验证，不继续比对密码")
+    void loginRejectsWrongCaptcha() {
+        when(loginGuard.isVerifyRequired(any(), any())).thenReturn(true);
+        when(captchaService.verify("cid", "WRONG")).thenReturn(false);
+
+        LoginRequest req = new LoginRequest();
+        req.setUsername("demo");
+        req.setPassword("123456");
+        req.setCaptchaId("cid");
+        req.setCaptchaCode("WRONG");
+
+        assertThatThrownBy(() -> authService.loginByPassword(req, "127.0.0.1"))
+                .isInstanceOf(VerifyRequiredException.class);
+        verify(userMapper, never()).selectOne(any());
+    }
+
+    @Test
+    @DisplayName("图形码通过后正常比对密码并登录")
+    void loginSucceedsAfterCaptchaPassed() {
+        when(loginGuard.isVerifyRequired(any(), any())).thenReturn(true);
+        when(captchaService.verify("cid", "AB12")).thenReturn(true);
+        when(userMapper.selectOne(any())).thenReturn(existingUser("demo", "123456", 0));
+
+        LoginRequest req = new LoginRequest();
+        req.setUsername("demo");
+        req.setPassword("123456");
+        req.setCaptchaId("cid");
+        req.setCaptchaCode("AB12");
+
+        assertThat(authService.loginByPassword(req, "127.0.0.1").getAccessToken()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("失败刚好触发锁定时返回剩余等待秒数")
+    void loginReturnsRetryAfterWhenLocked() {
+        when(userMapper.selectOne(any())).thenReturn(existingUser("demo", "123456", 0));
+        when(loginGuard.getRetryAfterSeconds(any(), any())).thenReturn(600L);
+
+        LoginRequest req = new LoginRequest();
+        req.setUsername("demo");
+        req.setPassword("wrong");
+
+        assertThatThrownBy(() -> authService.loginByPassword(req, "127.0.0.1"))
+                .isInstanceOf(RateLimitedException.class)
+                .hasMessageContaining("10 分钟");
+    }
+
+    @Test
+    @DisplayName("账号不存在也走完整的失败流程（不留时间侧信道）")
+    void loginUnknownUserStillRecordsFailure() {
+        when(userMapper.selectOne(any())).thenReturn(null);
+
+        LoginRequest req = new LoginRequest();
+        req.setUsername("nobody");
+        req.setPassword("whatever");
+
+        assertThatThrownBy(() -> authService.loginByPassword(req, "127.0.0.1"))
+                .isInstanceOf(BizException.class)
+                .hasMessage("用户名或密码错误");
+        // 关键：没有在「查不到用户」处短路，失败计数照记
+        verify(loginGuard).recordFailure("127.0.0.1", "nobody");
+    }
+
+    @Test
+    @DisplayName("注册拒绝弱口令")
+    void registerRejectsWeakPassword() {
+        assertThatThrownBy(() -> authService.registerByPassword(registerReq("alice", "password123")))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("过于简单");
+    }
+
+    @Test
+    @DisplayName("注册拒绝包含用户名的密码")
+    void registerRejectsPasswordContainingUsername() {
+        assertThatThrownBy(() -> authService.registerByPassword(registerReq("alice", "alice2024")))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("不能包含用户名");
     }
 
     @Test

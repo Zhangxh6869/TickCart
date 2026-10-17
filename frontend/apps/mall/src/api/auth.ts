@@ -11,14 +11,39 @@ export const SMS_SCENE = {
   RESET_PASSWORD: 3,
 } as const
 
+/** 图形验证码挑战：svg 可直接 v-html 内联渲染。 */
+export interface CaptchaChallenge {
+  id: string
+  svg: string
+  expiresIn: number
+}
+
+/** 账密登录入参：captcha 两字段只在「需要安全验证」时出现。 */
+export interface LoginPayload {
+  username: string
+  password: string
+  captchaId?: string
+  captchaCode?: string
+}
+
 /** 发送短信验证码。 */
 export function sendSmsCode(phone: string, scene: number): Promise<void> {
   return request.post('/auth/sms/send', { phone, scene })
 }
 
-/** 账密登录。 */
-export function loginByPassword(username: string, password: string): Promise<TokenResponse> {
-  return request.post('/auth/login', { username, password })
+/**
+ * 账密登录。
+ *
+ * 传 silent：失败提示由登录页自己渲染（字段红字 / 锁定倒计时 / 图形码），
+ * 走全局 toast 会把「需要验证」这种需要停留的提示一闪而过。
+ */
+export function loginByPassword(payload: LoginPayload): Promise<TokenResponse> {
+  return request.post('/auth/login', payload, { silent: true })
+}
+
+/** 主动获取图形验证码（刷新页面后验证态仍在时用）。 */
+export function fetchCaptcha(): Promise<CaptchaChallenge> {
+  return request.get('/auth/captcha')
 }
 
 /** 账密注册。 */

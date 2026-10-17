@@ -17,8 +17,8 @@ export const useUserStore = defineStore('user', () => {
     token.value = res.accessToken
   }
 
-  async function login(username: string, password: string) {
-    const res = await authApi.loginByPassword(username, password)
+  async function login(payload: authApi.LoginPayload) {
+    const res = await authApi.loginByPassword(payload)
     applyToken(res)
     await loadUserInfo()
   }

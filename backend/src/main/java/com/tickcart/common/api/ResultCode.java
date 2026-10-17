@@ -13,6 +13,8 @@ public enum ResultCode {
     // ---- 客户端错误 ----
     BAD_REQUEST(40000, "请求参数错误"),
     UNAUTHORIZED(40100, "未登录或登录已过期"),
+    /** 登录失败次数较多，需先完成人机验证再继续（与普通凭据错误区分，前端据此弹出图形码）。 */
+    NEED_VERIFY(40101, "请完成安全验证"),
     FORBIDDEN(40300, "没有权限访问该资源"),
     NOT_FOUND(40400, "资源不存在"),
     METHOD_NOT_ALLOWED(40500, "请求方法不支持"),

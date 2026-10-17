@@ -20,6 +20,7 @@ public class ResetPasswordRequest {
 
     @Schema(description = "短信验证码（场景 3）", example = "123456")
     @NotBlank(message = "验证码不能为空")
+    @Pattern(regexp = "^\\d{6}$", message = "验证码为 6 位数字")
     private String code;
 
     @Schema(description = "新密码", example = "abc12345")

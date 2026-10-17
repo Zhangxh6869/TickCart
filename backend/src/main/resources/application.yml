@@ -86,6 +86,32 @@ tickcart:
     # refresh token 有效期（天）
     refresh-token-days: ${JWT_REFRESH_DAYS:7}
     issuer: tickcart
+  # 登录频控与人机验证（防爆破 / 防撞库 / 防 BCrypt 打满 CPU）
+  # 开发环境阈值偏宽，因为回归脚本会反复登录；生产按注释收紧
+  login-guard:
+    enabled: ${LOGIN_GUARD_ENABLED:true}
+    # 失败计数窗口（分钟）
+    fail-window-minutes: ${LOGIN_FAIL_WINDOW_MINUTES:15}
+    # 窗口内失败达到该次数 → 要求图形验证码
+    verify-threshold: ${LOGIN_VERIFY_THRESHOLD:3}
+    # 窗口内失败达到该次数 → 锁定
+    lock-threshold: ${LOGIN_LOCK_THRESHOLD:5}
+    # 首轮锁定（分钟）
+    lock-minutes: ${LOGIN_LOCK_MINUTES:15}
+    # 24h 内第 2 轮锁定时长（分钟）
+    escalate-lock-minutes: ${LOGIN_ESCALATE_LOCK_MINUTES:60}
+    # 第 3 轮及以后的锁定上限（分钟）
+    max-lock-minutes: ${LOGIN_MAX_LOCK_MINUTES:1440}
+    # 阶梯轮次的记忆窗口（小时）
+    escalate-window-hours: ${LOGIN_ESCALATE_WINDOW_HOURS:24}
+    # 同 IP 窗口内失败多少次封禁 / 封禁多久（分钟）
+    ip-fail-threshold: ${LOGIN_IP_FAIL_THRESHOLD:20}
+    ip-lock-minutes: ${LOGIN_IP_LOCK_MINUTES:30}
+    # 同 IP 登录接口每秒请求数（生产建议 5；开发放宽到 20 避免误伤并发回归脚本）
+    ip-qps-limit: ${LOGIN_IP_QPS_LIMIT:20}
+    # 图形码有效期（秒）与字符数
+    captcha-expire-seconds: ${LOGIN_CAPTCHA_EXPIRE_SECONDS:300}
+    captcha-length: 4
   # 模拟短信验证码：开发环境固定返回该验证码，便于联调（不接真实短信网关）
   sms:
     mock-enabled: ${SMS_MOCK_ENABLED:true}

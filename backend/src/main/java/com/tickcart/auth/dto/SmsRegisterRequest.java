@@ -18,6 +18,7 @@ public class SmsRegisterRequest {
 
     @Schema(description = "验证码", example = "123456")
     @NotBlank(message = "验证码不能为空")
+    @Pattern(regexp = "^\\d{6}$", message = "验证码为 6 位数字")
     private String code;
 
     @Schema(description = "用户名（可选，不填默认用手机号）", example = "bob")
@@ -25,7 +26,8 @@ public class SmsRegisterRequest {
     private String username;
 
     @Schema(description = "密码（可选）", example = "abc12345")
-    @Size(min = 6, max = 32, message = "密码长度需在 6~32 位")
+    @Size(min = 8, max = 32, message = "密码长度需在 8~32 位")
+    @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d)\\S+$", message = "密码需同时包含字母和数字")
     private String password;
 
     @Schema(description = "昵称（可选）", example = "鲍勃")

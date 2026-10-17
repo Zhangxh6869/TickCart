@@ -1,5 +1,6 @@
 package com.tickcart.auth.controller;
 
+import com.tickcart.auth.dto.CaptchaChallenge;
 import com.tickcart.auth.dto.LoginRequest;
 import com.tickcart.auth.dto.RefreshRequest;
 import com.tickcart.auth.dto.RegisterRequest;
@@ -10,10 +11,13 @@ import com.tickcart.auth.dto.SmsRegisterRequest;
 import com.tickcart.auth.dto.TokenResponse;
 import com.tickcart.auth.dto.UserInfoResponse;
 import com.tickcart.auth.service.AuthService;
+import com.tickcart.auth.service.CaptchaService;
 import com.tickcart.common.api.R;
+import com.tickcart.common.security.ClientIpResolver;
 import com.tickcart.common.security.UserContext;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,9 +34,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final CaptchaService captchaService;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, CaptchaService captchaService) {
         this.authService = authService;
+        this.captchaService = captchaService;
     }
 
     @Operation(summary = "发送短信验证码", description = "开发环境为 Mock，固定返回 123456")
@@ -54,10 +60,16 @@ public class AuthController {
         return R.ok(authService.registerBySms(req));
     }
 
-    @Operation(summary = "账密登录")
+    @Operation(summary = "账密登录", description = "失败次数达到阈值后返回 40101，需带图形码重试")
     @PostMapping("/login")
-    public R<TokenResponse> login(@Valid @RequestBody LoginRequest req) {
-        return R.ok(authService.loginByPassword(req));
+    public R<TokenResponse> login(@Valid @RequestBody LoginRequest req, HttpServletRequest request) {
+        return R.ok(authService.loginByPassword(req, ClientIpResolver.resolve(request)));
+    }
+
+    @Operation(summary = "获取图形验证码", description = "答案存 Redis，默认 5 分钟有效，校验一次即作废")
+    @GetMapping("/captcha")
+    public R<CaptchaChallenge> captcha() {
+        return R.ok(captchaService.create());
     }
 
     @Operation(summary = "手机验证码登录")

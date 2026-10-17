@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -37,6 +38,31 @@ public class GlobalExceptionHandler {
         ResultCode rc = ex.getResultCode();
         log.warn("业务异常 [{}] {} -> {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
         return ResponseEntity.status(httpStatusOf(rc)).body(R.fail(rc, ex.getMessage()));
+    }
+
+    /**
+     * 需要人机验证：401 + 验证挑战。
+     *
+     * <p>必须排在 {@link #handleBizException} 之前被匹配 —— Spring 按异常类型的
+     * 继承距离选择最具体的处理器，故子类会自动胜出，与声明顺序无关。</p>
+     */
+    @ExceptionHandler(VerifyRequiredException.class)
+    public ResponseEntity<R<Object>> handleVerifyRequired(VerifyRequiredException ex,
+                                                          HttpServletRequest request) {
+        log.warn("需要安全验证 [{}] {} -> {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(R.fail(ResultCode.NEED_VERIFY, ex.getMessage(), ex.getChallenge()));
+    }
+
+    /** 频控拦截：429 + 剩余等待秒数。 */
+    @ExceptionHandler(RateLimitedException.class)
+    public ResponseEntity<R<Object>> handleRateLimited(RateLimitedException ex,
+                                                       HttpServletRequest request) {
+        log.warn("请求被限流 [{}] {} -> 还需 {} 秒", request.getMethod(), request.getRequestURI(),
+                ex.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(R.fail(ResultCode.TOO_MANY_REQUESTS, ex.getMessage(),
+                        Map.of("retryAfter", ex.getRetryAfterSeconds())));
     }
 
     /** @Valid 校验失败：请求体参数不合法。 */
@@ -107,7 +133,7 @@ public class GlobalExceptionHandler {
     private HttpStatus httpStatusOf(ResultCode rc) {
         return switch (rc) {
             case BAD_REQUEST -> HttpStatus.BAD_REQUEST;
-            case UNAUTHORIZED -> HttpStatus.UNAUTHORIZED;
+            case UNAUTHORIZED, NEED_VERIFY -> HttpStatus.UNAUTHORIZED;
             case FORBIDDEN -> HttpStatus.FORBIDDEN;
             case NOT_FOUND -> HttpStatus.NOT_FOUND;
             case METHOD_NOT_ALLOWED -> HttpStatus.METHOD_NOT_ALLOWED;
