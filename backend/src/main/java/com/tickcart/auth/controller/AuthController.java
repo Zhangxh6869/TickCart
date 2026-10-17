@@ -17,6 +17,7 @@ import com.tickcart.common.security.ClientIpResolver;
 import com.tickcart.common.security.UserContext;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -97,10 +98,17 @@ public class AuthController {
         return R.ok(authService.getUserInfo(UserContext.getUserId()));
     }
 
-    @Operation(summary = "退出登录", description = "吊销当前用户全部刷新令牌")
+    @Operation(summary = "退出登录", description = "吊销当前 access token 与该用户全部刷新令牌，旧令牌立即失效")
     @PostMapping("/logout")
     public R<Void> logout() {
-        authService.logout(UserContext.getUserId());
+        Claims claims = UserContext.getClaims();
+        String jti = claims == null ? null : claims.getId();
+        long remainingSeconds = 0L;
+        if (claims != null && claims.getExpiration() != null) {
+            remainingSeconds = Math.max(0L,
+                    (claims.getExpiration().getTime() - System.currentTimeMillis()) / 1000);
+        }
+        authService.logout(UserContext.getUserId(), jti, remainingSeconds);
         return R.ok();
     }
 }

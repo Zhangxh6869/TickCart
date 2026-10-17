@@ -21,6 +21,7 @@ import com.tickcart.common.exception.RateLimitedException;
 import com.tickcart.common.exception.SmsCodeExhaustedException;
 import com.tickcart.common.exception.VerifyRequiredException;
 import com.tickcart.common.security.JwtTokenProvider;
+import com.tickcart.common.security.TokenBlacklist;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -67,6 +68,7 @@ public class AuthService {
     private final CaptchaService captchaService;
     private final PasswordPolicy passwordPolicy;
     private final SmsCodeGuard smsCodeGuard;
+    private final TokenBlacklist tokenBlacklist;
 
     /**
      * 用户不存在时用来「陪跑」一次 BCrypt 的假哈希。
@@ -86,7 +88,8 @@ public class AuthService {
                        LoginGuard loginGuard,
                        CaptchaService captchaService,
                        PasswordPolicy passwordPolicy,
-                       SmsCodeGuard smsCodeGuard) {
+                       SmsCodeGuard smsCodeGuard,
+                       TokenBlacklist tokenBlacklist) {
         this.userMapper = userMapper;
         this.refreshTokenMapper = refreshTokenMapper;
         this.smsCodeMapper = smsCodeMapper;
@@ -98,6 +101,7 @@ public class AuthService {
         this.captchaService = captchaService;
         this.passwordPolicy = passwordPolicy;
         this.smsCodeGuard = smsCodeGuard;
+        this.tokenBlacklist = tokenBlacklist;
         // 启动时算一次，成本只付一次；值随机，永远匹配不上任何真实密码
         this.dummyHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
@@ -340,6 +344,8 @@ public class AuthService {
         userMapper.updateById(update);
 
         revokeAllRefreshTokens(user.getId());
+        // 改密后旧 access token 也不能再用：记下失效时间点，过滤器按签发时间比对
+        tokenBlacklist.revokeAllIssuedBefore(user.getId(), jwtTokenProvider.getAccessTokenSeconds());
         log.info("用户 {} 通过短信验证码重置了密码", user.getId());
     }
 
@@ -373,8 +379,17 @@ public class AuthService {
         return issueTokens(user);
     }
 
-    /** 查询用户公开信息。 */
+    /**
+     * 查询用户公开信息。
+     *
+     * <p>{@code /api/auth/**} 整体 permitAll，令牌被吊销后请求仍会进到这里，
+     * 此时 userId 为 null —— 必须显式抛 401，否则会退化成「用户不存在」404，
+     * 前端拿到 404 不会清本地令牌，用户会卡在「显示已登录但拉不到资料」的状态。</p>
+     */
     public UserInfoResponse getUserInfo(Long userId) {
+        if (userId == null) {
+            throw BizException.unauthorized("未登录或登录已过期");
+        }
         User user = userMapper.selectById(userId);
         if (user == null) {
             throw BizException.notFound("用户不存在");
@@ -382,9 +397,18 @@ public class AuthService {
         return UserInfoResponse.from(user);
     }
 
-    /** 退出登录：吊销该用户的全部刷新令牌。 */
+    /**
+     * 退出登录：吊销当前 access token（按 jti 拉黑）+ 该用户全部刷新令牌。
+     *
+     * <p>只吊销 refresh 的话，手上这个 access token 还能用满有效期 ——
+     * 公共设备上「登出」形同虚设。拉黑 TTL 取令牌剩余有效期，到期自动清理。</p>
+     *
+     * @param jti              当前 access token 的唯一标识
+     * @param remainingSeconds 该令牌的剩余有效秒数
+     */
     @Transactional
-    public void logout(Long userId) {
+    public void logout(Long userId, String jti, long remainingSeconds) {
+        tokenBlacklist.revoke(jti, remainingSeconds);
         revokeAllRefreshTokens(userId);
     }
 

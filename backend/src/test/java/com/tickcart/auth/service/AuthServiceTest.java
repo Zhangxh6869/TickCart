@@ -19,6 +19,7 @@ import com.tickcart.common.exception.BizException;
 import com.tickcart.common.exception.RateLimitedException;
 import com.tickcart.common.exception.VerifyRequiredException;
 import com.tickcart.common.security.JwtTokenProvider;
+import com.tickcart.common.security.TokenBlacklist;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,6 +65,7 @@ class AuthServiceTest {
     private LoginGuard loginGuard;
     private CaptchaService captchaService;
     private SmsCodeGuard smsCodeGuard;
+    private TokenBlacklist tokenBlacklist;
 
     /**
      * 纯单元测试没有 Spring 容器，而 {@code LambdaQueryWrapper} 解析列名依赖实体的
@@ -90,12 +92,13 @@ class AuthServiceTest {
         loginGuard = mock(LoginGuard.class);
         captchaService = mock(CaptchaService.class);
         smsCodeGuard = mock(SmsCodeGuard.class);
+        tokenBlacklist = mock(TokenBlacklist.class);
         // 默认放行发送；只有专门测限流的用例才覆盖它
         lenient().when(smsCodeGuard.tryAcquireSend(anyString())).thenReturn(true);
         // 密码策略用真实实现：弱口令字典就在测试 classpath 里，没必要造假
         authService = new AuthService(userMapper, refreshTokenMapper, smsCodeMapper,
                 smsService, passwordEncoder, tokenProvider, props,
-                loginGuard, captchaService, new PasswordPolicy(), smsCodeGuard);
+                loginGuard, captchaService, new PasswordPolicy(), smsCodeGuard, tokenBlacklist);
     }
 
     private RegisterRequest registerReq(String username, String password) {
@@ -334,6 +337,36 @@ class AuthServiceTest {
         ArgumentCaptor<SmsCode> captor = ArgumentCaptor.forClass(SmsCode.class);
         verify(smsCodeMapper).updateById(captor.capture());
         assertThat(captor.getValue().getUsed()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("退出登录按 jti 拉黑当前令牌，TTL 取剩余有效期")
+    void logoutRevokesCurrentToken() {
+        authService.logout(1L, "jti-abc", 1200L);
+
+        verify(tokenBlacklist).revoke("jti-abc", 1200L);
+        // 刷新令牌也要一起吊销，否则用户还能用 refresh 换一套新的
+        verify(refreshTokenMapper).update(any(), any());
+    }
+
+    @Test
+    @DisplayName("重置密码后该用户此前签发的令牌全部失效")
+    void resetPasswordInvalidatesIssuedTokens() {
+        when(userMapper.selectOne(any())).thenReturn(userWithPhone("13700000000", "abc12345"));
+        when(smsCodeMapper.selectOne(any()))
+                .thenReturn(validCode("13700000000", AuthService.SMS_SCENE_RESET, "123456"));
+
+        authService.resetPassword(resetReq("13700000000", "123456", "Xx12345678"));
+
+        verify(tokenBlacklist).revokeAllIssuedBefore(1L, 30 * 60L);
+    }
+
+    @Test
+    @DisplayName("未登录访问用户信息返回 401，而不是「用户不存在」404")
+    void getUserInfoRequiresLogin() {
+        assertThatThrownBy(() -> authService.getUserInfo(null))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("未登录");
     }
 
     @Test

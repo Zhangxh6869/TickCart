@@ -10,12 +10,16 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.UUID;
 
 /**
  * JWT 令牌工具：签发与解析 access token。
  *
  * <p>refresh token 不使用 JWT，而是随机串并落库（{@code sys_refresh_token}），
  * 这样可服务端吊销，安全语义更清晰。</p>
+ *
+ * <p>access token 自带 {@code jti}：JWT 本身无法撤回，登出时只能把这个 id 记进黑名单，
+ * 由过滤器逐请求比对 —— 没有 jti 的话「登出」就只是删掉客户端存储，服务端毫无办法。</p>
  */
 @Component
 public class JwtTokenProvider {
@@ -35,11 +39,12 @@ public class JwtTokenProvider {
         this.secretKey = Keys.hmacShaKeyFor(keyBytes);
     }
 
-    /** 签发 access token。 */
+    /** 签发 access token（带唯一 jti，供登出时吊销）。 */
     public String createAccessToken(Long userId, String username, Integer role) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + properties.getAccessTokenMinutes() * 60_000);
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(String.valueOf(userId))
                 .claim(CLAIM_USERNAME, username)
                 .claim(CLAIM_ROLE, role)
