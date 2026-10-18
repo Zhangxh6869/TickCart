@@ -124,7 +124,7 @@ POST /api/payments  → 只落「待支付」流水，订单不推进
 > **决策（2026-10-18）**：秒杀推迟，先补齐现有交易链路的高并发短板。
 > **切分依据**：按「秒杀是否复用」切，不按「公共 / 私有」或「先易后难」切。
 > **理由**：3A 的 5 项能力秒杀必然复用；混在秒杀里做，出问题时无法区分是 Lua 扣减、缓存脏读还是限流误伤。独立切片还能单独压测出干净基线、单独回滚。
-> **顺序依赖**：A1 是唯一地基 —— 缓存、限流、MQ 都建立在「一笔请求只会成一次单」这个前提上。A2/A3/A4 在 A1 定稿后可并行。
+> **顺序依赖**：严格串行 A1→A2→A3→A4→B，**不并行**。原因有两层：依赖关系 + 改动文件重叠（并行必冲突），详见「执行顺序」小节。
 
 ### 已达标（勿重做）
 
@@ -187,6 +187,27 @@ POST /api/payments  → 只落「待支付」流水，订单不推进
 - [ ] RabbitMQ 开启 publisher confirm / return，投递失败可见（日志 + 计数）
 - [ ] 连接池 / 线程池 / prefetch 基线写入 `application.yml` 注释
 - [ ] 验收：订单列表 10 条 SQL 从 11 → ≤3；购物车 10 项从 21 → ≤3
+
+### 执行顺序
+
+严格串行，不并行。原因有两层：一是**依赖**（后面的建立在前面之上），二是**改动文件重叠**（并行必然冲突）。
+
+| 序 | 切片 | 主要改动文件 | 为什么排这个位置 |
+|---|---|---|---|
+| 1 | A1 幂等 + 结算抢占 | `OrderService`、`CartService`、`CartItemMapper`、`OrderController` + 幂等表 | 地基。并发模型定稿前做缓存，可能缓存到半成品状态 |
+| 2 | A2 缓存 | `ProductService`、`CategoryService`、`SearchSuggestionService` + 缓存配置 | 读多写少、收益最大，且不依赖压测数据 |
+| 3 | A3 限流（组件 + 宽阈值） | 新增过滤器 / 注解 + `application.yml` | 组件先落地，**阈值暂用保守宽值**，不阻塞 |
+| 4 | A4 读放大 + 可靠性 | `OrderService`、`CartService`、`ProductService`、`SearchLogService`、`RabbitConfig` | 改完容量才稳定，限流阈值此时才定得准 |
+| 5 | 回填 A3 阈值 | `application.yml` | 用 A4 后的容量数据定阈值，避免调两次 |
+| 6 | B1 活动管理 | 新建 `seckill` 模块 + 迁移脚本 | 秒杀里唯一无前置的部分 |
+| 7 | B2 预热 + Lua 扣减 | `SeckillService` + Lua 脚本 + Redisson | 依赖 B1 的活动数据 |
+| 8 | B3 异步建单 | `SeckillConsumer` + MQ 配置 | 吃 A1 的幂等 + A4 的 publisher confirm |
+| 9 | B4 专场页 + 轮询 | `apps/mall` 秒杀页 + `stores/seckill` | 依赖 B3 的结果查询接口 |
+| 10 | B5 压测报告 | 压测脚本 + 文档 | 全链路就绪后才能压 |
+
+> **为什么 A4 在 A3 之后**：A3 的阈值需要「接口真实容量」作依据，而 A4 的 N+1 修复与池子基线会显著改变容量。先定阈值、后改容量 = 阈值必须调两次。
+> **为什么 A2/A3/A4 不并行**：A4 与 A1 都改 `OrderService`/`CartService`，与 A2 都改 `ProductService`，与 A3 都改 `application.yml` —— 三处重叠。
+> **每个切片内部固定节奏**（AGENTS.md）：设计稿 → 先写测试 → 实现 → 全量回归 → 单个 commit。
 
 ### 范围排除
 
