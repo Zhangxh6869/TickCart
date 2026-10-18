@@ -18,6 +18,9 @@
  *   ④ 立即购买，不带幂等键 5 并发     → 多笔订单（对照，证明 ③ 的保护来自幂等键）
  *
  * 注意：脚本会真实下单与扣库存，跑完按末尾打印的 SQL 清理。
+ *
+ * ⚠ 本脚本会并发打 /api/orders，而 A3 已给下单接口加了 5 次/秒的用户级限流。
+ *   请用 RATE_LIMIT_ENABLED=false 启动后端，否则会大面积 429（脚本会提示）。
  */
 const BASE = (process.env.BASE ?? 'http://localhost:8080').replace(/\/$/, '')
 const USER = process.env.TICKCART_USER ?? 'demo'
@@ -72,6 +75,18 @@ function summarize(results) {
   const orderNos = new Set(success.map((r) => r.body.data.orderNo))
   success.forEach((r) => createdOrderNos.add(r.body.data.orderNo))
   return { success, conflicts, others, orderNos }
+}
+
+/**
+ * 命中接口限流时给出明确提示：否则 429 会被误读成「幂等失效」，排查方向全错。
+ * 限流阈值见 application.yml 的 tickcart.rate-limit.rules（order-create 5 次/秒）。
+ */
+function warnIfRateLimited(results) {
+  const limited = results.filter((r) => r.status === 429)
+  if (limited.length === 0) return false
+  console.log(`  ⚠ 检测到 ${limited.length} 个 429：接口限流正在生效，本次结果不可信`)
+  console.log('    请用 RATE_LIMIT_ENABLED=false 重启后端后再跑（见 docs/接口限流设计.md）')
+  return true
 }
 
 function reportOthers(others) {
@@ -158,6 +173,7 @@ async function main() {
     ),
   )
   const s1 = summarize(r1)
+  const limited1 = warnIfRateLimited(r1)
   reportOthers(s1.others)
   if (s1.orderNos.size === 1 && s1.success.length === CONCURRENCY) {
     ok(`${CONCURRENCY} 个请求全部成功且订单号唯一：${[...s1.orderNos][0]}`)
@@ -176,6 +192,7 @@ async function main() {
     }),
   )
   const s2 = summarize(r2)
+  const limited2 = warnIfRateLimited(r2)
   // 落败者有两种合法结局：抢抢占输了的返回 409；等它读到购物车时已被清空的返回 400
   const rejected = r2.filter((r) => r.status === 409 || r.status === 400)
   const unexpected = r2.filter((r) => r.status !== 200 && r.status !== 409 && r.status !== 400)
@@ -201,6 +218,7 @@ async function main() {
     ),
   )
   const s3 = summarize(r3)
+  const limited3 = warnIfRateLimited(r3)
   reportOthers(s3.others)
   if (s3.orderNos.size === 1 && s3.success.length === CONCURRENCY) {
     ok(`${CONCURRENCY} 个请求全部成功且订单号唯一：${[...s3.orderNos][0]}`)
@@ -228,6 +246,10 @@ async function main() {
   }
 
   // ---- 清理提示 ----
+  if (limited1 || limited2 || limited3) {
+    console.log('\n=== 结论：本次有请求被限流，验证结果无效（不是幂等失效）===')
+  }
+
   const orders = [...createdOrderNos]
   console.log(`\n=== 结果：本次共产生 ${orders.length} 笔订单 ===`)
   if (!KEEP_DATA && orders.length > 0) {

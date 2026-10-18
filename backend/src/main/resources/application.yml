@@ -180,6 +180,39 @@ tickcart:
     null-ttl-seconds: ${CACHE_NULL_TTL:60}
     # TTL 随机抖动百分比，避免同一时刻批量过期造成雪崩
     ttl-jitter-percent: ${CACHE_TTL_JITTER:10}
+  # 接口限流（A3）：令牌桶，阈值可配，未列出的接口不限流
+  # 设计见 docs/接口限流设计.md；压测/并发验证时置 RATE_LIMIT_ENABLED=false
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    rules:
+      # 商品与分类：已加缓存，成本低；一屏页面会连发数个请求，阈值给宽
+      - name: product-read
+        patterns: ["/api/products/**", "/api/categories/**"]
+        methods: ["GET"]
+        dimension: IP
+        permits: 60
+        window-seconds: 1
+      # 搜索：每次 LIKE 全表 + 同步写 search_log，是最贵的读接口
+      - name: search
+        patterns: ["/api/search/**"]
+        methods: ["GET"]
+        dimension: IP
+        permits: 10
+        window-seconds: 1
+      # 下单：幂等只管「同一请求不重复」，管不了「换幂等键狂下单」
+      - name: order-create
+        patterns: ["/api/orders", "/api/orders/buy-now"]
+        methods: ["POST"]
+        dimension: USER
+        permits: 5
+        window-seconds: 1
+      # 发起支付：要落流水 + 投 MQ
+      - name: payment
+        patterns: ["/api/payments/**"]
+        methods: ["POST"]
+        dimension: USER
+        permits: 5
+        window-seconds: 1
 
 # -----------------------------------------------------------------------------
 # MyBatis-Plus 配置
