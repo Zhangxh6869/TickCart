@@ -70,6 +70,9 @@ public class SecurityConfig {
                         // 前台公开搜索建议（热门搜索 / 相关搜索）
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/search/**").permitAll()
+                        // 秒杀活动列表/详情匿名可看；抢购接口（B2）需要登录，不在此列
+                        .requestMatchers(org.springframework.http.HttpMethod.GET,
+                                "/api/seckill/**").permitAll()
                         // 上传图片的静态访问：<img src> 不会携带 Authorization 头，必须放行
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/files/**").permitAll()

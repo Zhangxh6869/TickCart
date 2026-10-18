@@ -29,6 +29,9 @@ public class Order {
     /** 渠道 0普通 1秒杀 */
     private Integer channel;
 
+    /** 秒杀活动ID，0 表示非秒杀订单（B3 秒杀建单时写入，用于取消时回补正确活动的库存） */
+    private Long activityId;
+
     private BigDecimal totalAmount;
 
     private BigDecimal payAmount;
@@ -94,6 +97,14 @@ public class Order {
 
     public void setChannel(Integer channel) {
         this.channel = channel;
+    }
+
+    public Long getActivityId() {
+        return activityId;
+    }
+
+    public void setActivityId(Long activityId) {
+        this.activityId = activityId;
     }
 
     public BigDecimal getTotalAmount() {

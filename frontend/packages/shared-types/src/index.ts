@@ -365,3 +365,53 @@ export interface PaymentStatusResult {
  * 被迫处理「结果不确定」的分支，把三种结果都做成可主动触发的。
  */
 export type MockChannelResult = 'success' | 'fail' | 'cancel'
+
+// ---------------------------------------------------------------------------
+// 秒杀活动（B1）
+// 状态由后端按 (enabled, startTime, endTime) 推导，前端只读不写。
+// ---------------------------------------------------------------------------
+
+/** 秒杀活动状态码：0已下线 1即将开始 2进行中 3已结束 */
+export type SeckillStatus = 0 | 1 | 2 | 3
+
+export interface SeckillActivity {
+  id: number
+  title: string
+  productId: number
+  productName?: string | null
+  productImage?: string | null
+  skuId: number
+  specValue?: string | null
+  /** 商品原价（有规格时取规格价） */
+  originalPrice?: number | null
+  seckillPrice: number
+  seckillStock: number
+  soldCount: number
+  /** DB 口径剩余库存；B2 之后前台展示以 Redis 为准 */
+  remainingStock: number
+  limitPerUser: number
+  startTime: string
+  endTime: string
+  enabled: number
+  status: SeckillStatus
+  statusLabel: string
+}
+
+export interface SeckillActivitySaveRequest {
+  title: string
+  productId: number
+  skuId?: number | null
+  seckillPrice: number
+  seckillStock: number
+  limitPerUser: number
+  startTime: string
+  endTime: string
+}
+
+export interface SeckillActivityQuery {
+  page?: number
+  size?: number
+  enabled?: number
+  status?: SeckillStatus
+  keyword?: string
+}

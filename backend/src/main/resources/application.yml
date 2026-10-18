@@ -227,6 +227,14 @@ tickcart:
         dimension: IP
         permits: 10
         window-seconds: 1
+      # 秒杀前台：B1 只有列表/详情，阈值先给宽；抢购接口（B2）必须另配独立规则，
+      # 绝不能复用本条 —— 抢购流量本来就该被 MQ 削峰
+      - name: seckill-read
+        patterns: ["/api/seckill/**"]
+        methods: ["GET"]
+        dimension: IP
+        permits: 30
+        window-seconds: 1
       # 下单：幂等只管「同一请求不重复」，管不了「换幂等键狂下单」
       - name: order-create
         patterns: ["/api/orders", "/api/orders/buy-now"]

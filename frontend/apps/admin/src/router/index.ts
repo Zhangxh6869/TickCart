@@ -38,6 +38,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/SearchAnalyticsView.vue'),
         meta: { title: '搜索分析', requiresAuth: true },
       },
+      {
+        path: 'seckill',
+        name: 'seckill',
+        component: () => import('@/views/SeckillManageView.vue'),
+        meta: { title: '秒杀管理', requiresAuth: true },
+      },
     ],
   },
   {

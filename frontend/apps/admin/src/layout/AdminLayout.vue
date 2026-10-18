@@ -39,6 +39,10 @@ async function onLogout() {
           <el-icon><Search /></el-icon>
           <span>搜索分析</span>
         </el-menu-item>
+        <el-menu-item index="/seckill">
+          <el-icon><AlarmClock /></el-icon>
+          <span>秒杀管理</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 
