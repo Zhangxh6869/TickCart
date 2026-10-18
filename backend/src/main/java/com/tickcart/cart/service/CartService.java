@@ -260,12 +260,46 @@ public class CartService {
         cartItemMapper.deleteById(id);
     }
 
-    /** 删除已勾选项（下单成功后由 trade 模块调用）。 */
+    /** 删除当前所有已勾选项（购物车页「删除选中」用；下单链路已改用 {@link #claimForCheckout}）。 */
     @Transactional
     public void deleteChecked(Long userId) {
         cartItemMapper.delete(new LambdaQueryWrapper<CartItem>()
                 .eq(CartItem::getUserId, userId)
                 .eq(CartItem::getChecked, 1));
+    }
+
+    /**
+     * 结算抢占：把本次要结算的购物车项标记删除，返回实际影响行数。
+     *
+     * <p>这是「同一批购物车只能被结算一次」的唯一闸门。并发下只有一个请求能影响全部行
+     * （返回 {@code ids.size()}），其余返回 0 —— 调用方据此判定「已被其他请求结算」并抛 409。</p>
+     *
+     * <p>抢占必须发生在扣库存<b>之前</b>：失败路径不碰库存行，锁竞争更小、失败更快。</p>
+     *
+     * @param ids 本次结算的<b>有效</b>购物车项 ID
+     * @return 实际被标记删除的行数，调用方须校验是否等于 {@code ids.size()}
+     */
+    @Transactional
+    public int claimForCheckout(Long userId, List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        return cartItemMapper.markDeleted(userId, ids);
+    }
+
+    /**
+     * 下单后清理「本次读到的失效勾选项」。
+     *
+     * <p>与 {@link #deleteChecked} 的区别：按精确 id 删除、不校验行数。
+     * {@code deleteChecked} 按「当前 checked = 1」删，会把下单过程中用户新勾选的其他商品
+     * 一并删掉；这里只动本次确实读到的那些行。</p>
+     */
+    @Transactional
+    public void removeItems(Long userId, List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        cartItemMapper.markDeleted(userId, ids);
     }
 
     /** 按 ID 获取并校验归属。 */

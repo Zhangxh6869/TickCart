@@ -5,6 +5,9 @@ import com.tickcart.cart.entity.CartItem;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
+
+import java.util.List;
 
 /**
  * CartItem Mapper。
@@ -26,4 +29,23 @@ public interface CartItemMapper extends BaseMapper<CartItem> {
     int purgeDeleted(@Param("userId") Long userId,
                      @Param("productId") Long productId,
                      @Param("skuId") Long skuId);
+
+    /**
+     * 把指定购物车项标记删除（结算抢占 / 下单后清理失效项共用）。
+     *
+     * <p>写自定义 SQL 而不是走 {@code BaseMapper.update}：一是需要 {@code deleted = 0}
+     * 作为条件参与行锁竞争，二是要拿到精确的影响行数用于判断「是否抢到」——
+     * MyBatis-Plus 的逻辑删除会把 {@code deleted} 从 SET 里摘掉，达不到这个效果。</p>
+     *
+     * <p><b>并发语义</b>：{@code WHERE deleted = 0} 是当前读 + 行锁。同一批 id 的并发 UPDATE
+     * 会串行化，只有第一个能影响全部行，其余影响 0 行 —— 调用方据此判定「已被别人结算」。</p>
+     *
+     * @return 实际被标记删除的行数
+     */
+    @Update("<script>"
+            + "UPDATE cart_item SET deleted = 1 "
+            + "WHERE user_id = #{userId} AND deleted = 0 AND id IN "
+            + "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach>"
+            + "</script>")
+    int markDeleted(@Param("userId") Long userId, @Param("ids") List<Long> ids);
 }

@@ -136,6 +136,12 @@ tickcart:
   order:
     # 待付款订单自动关闭时限（毫秒），即 trade.order.timeout 队列的 TTL
     timeout-ttl-ms: ${ORDER_TIMEOUT_TTL_MS:900000}
+  # 下单幂等（A1）：同一 (scene, user_id, 幂等键) 只成一次单
+  idempotent:
+    # 幂等记录保留时长（小时）：保留期内重复提交回放首次结果，过期后由定时任务清理
+    retention-hours: ${IDEMPOTENT_RETENTION_HOURS:24}
+    # 清理任务 cron（Spring 6 段式），默认每天 04:30，与 03:00 的搜索日志清理错开
+    cleanup-cron: ${IDEMPOTENT_CLEANUP_CRON:0 30 4 * * ?}
   # 支付
   payment:
     # 模拟渠道的处理耗时（毫秒）：渠道受理后延迟多久才回调商城，即 trade.payment.notify 队列的 TTL

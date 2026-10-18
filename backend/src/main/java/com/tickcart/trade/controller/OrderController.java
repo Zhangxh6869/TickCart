@@ -13,6 +13,7 @@ import com.tickcart.trade.vo.OrderDetailVO;
 import com.tickcart.trade.vo.OrderListItemVO;
 import com.tickcart.trade.vo.OrderVO;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -37,16 +39,20 @@ public class OrderController {
         this.orderService = orderService;
     }
 
-    @Operation(summary = "创建订单", description = "结算购物车中已勾选且有效的商品")
+    @Operation(summary = "创建订单", description = "结算购物车中已勾选且有效的商品；建议携带 Idempotency-Key 头防止重复下单")
     @PostMapping
-    public R<OrderVO> create(@Valid @RequestBody OrderCreateRequest req) {
-        return R.ok(orderService.create(currentUserId(), req));
+    public R<OrderVO> create(@Valid @RequestBody OrderCreateRequest req,
+                             @Parameter(description = "幂等键（客户端生成的 UUID，可选；不传则无幂等保护）")
+                             @RequestHeader(value = "Idempotency-Key", required = false) String idemKey) {
+        return R.ok(orderService.create(currentUserId(), req, idemKey));
     }
 
-    @Operation(summary = "立即购买", description = "商品详情页直达下单，不经过购物车")
+    @Operation(summary = "立即购买", description = "商品详情页直达下单，不经过购物车；建议携带 Idempotency-Key 头")
     @PostMapping("/buy-now")
-    public R<OrderVO> buyNow(@Valid @RequestBody OrderBuyNowRequest req) {
-        return R.ok(orderService.createBuyNow(currentUserId(), req));
+    public R<OrderVO> buyNow(@Valid @RequestBody OrderBuyNowRequest req,
+                             @Parameter(description = "幂等键（客户端生成的 UUID，可选；不传则无幂等保护）")
+                             @RequestHeader(value = "Idempotency-Key", required = false) String idemKey) {
+        return R.ok(orderService.createBuyNow(currentUserId(), req, idemKey));
     }
 
     @Operation(summary = "订单列表", description = "可按状态筛选")

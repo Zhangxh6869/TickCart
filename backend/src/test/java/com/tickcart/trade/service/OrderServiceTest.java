@@ -12,6 +12,7 @@ import com.tickcart.cart.service.CartService;
 import com.tickcart.cart.vo.CartItemVO;
 import com.tickcart.cart.vo.CartSummary;
 import com.tickcart.common.exception.BizException;
+import com.tickcart.common.idempotent.service.IdempotentService;
 import com.tickcart.common.mq.OrderMessageProducer;
 import com.tickcart.member.entity.UserAddress;
 import com.tickcart.member.service.AddressService;
@@ -37,6 +38,7 @@ import com.tickcart.trade.vo.OrderDetailVO;
 import com.tickcart.trade.vo.OrderVO;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -55,6 +57,8 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -92,9 +96,24 @@ class OrderServiceTest {
     private ProductService productService;
     @Mock
     private PaymentRecordMapper paymentRecordMapper;
+    @Mock
+    private IdempotentService idempotentService;
 
     @InjectMocks
     private OrderService orderService;
+
+    /**
+     * 结算抢占默认成功：影响行数 = 传入的 id 数。
+     *
+     * <p>绝大多数用例关心的是下单主链路，不该为「抢占成功」逐条打桩；
+     * 用 {@code lenient} 是因为少数用例（立即购买、地址校验失败）根本不会走到抢占，
+     * 严格模式下会报 UnnecessaryStubbing。</p>
+     */
+    @BeforeEach
+    void stubCartClaim() {
+        lenient().when(cartService.claimForCheckout(any(), any()))
+                .thenAnswer(inv -> ((List<?>) inv.getArgument(1)).size());
+    }
 
     /**
      * 纯单元测试没有 Spring 容器，而 {@code LambdaUpdateWrapper.set(SFunction, value)}
@@ -233,7 +252,7 @@ class OrderServiceTest {
         });
         when(orderItemMapper.insert(any(OrderItem.class))).thenReturn(1);
 
-        OrderVO result = orderService.create(UID, createReq(1L));
+        OrderVO result = orderService.create(UID, createReq(1L), null);
 
         assertThat(result.getOrderNo()).startsWith("NO");
         assertThat(result.getPayAmount()).isEqualByComparingTo("198.00");
@@ -248,7 +267,7 @@ class OrderServiceTest {
         assertThat(saved.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT.getCode());
 
         verify(inventoryService).deduct(10L, 0L, 2);
-        verify(cartService).deleteChecked(UID);
+        verify(cartService).claimForCheckout(UID, List.of(1000L));
         // 下单后必须投递超时延迟消息，否则订单永远不会自动关闭
         verify(orderMessageProducer).sendOrderTimeout(result.getOrderNo());
     }
@@ -265,7 +284,7 @@ class OrderServiceTest {
         });
         when(orderItemMapper.insert(any(OrderItem.class))).thenReturn(1);
 
-        orderService.create(UID, createReq(1L));
+        orderService.create(UID, createReq(1L), null);
 
         ArgumentCaptor<OrderItem> captor = ArgumentCaptor.forClass(OrderItem.class);
         verify(orderItemMapper).insert(captor.capture());
@@ -285,7 +304,7 @@ class OrderServiceTest {
         when(addressService.getOwned(UID, 1L)).thenReturn(address());
         when(cartService.list(UID)).thenReturn(summaryOf());
 
-        assertThatThrownBy(() -> orderService.create(UID, createReq(1L)))
+        assertThatThrownBy(() -> orderService.create(UID, createReq(1L), null))
                 .isInstanceOf(BizException.class)
                 .hasMessage("请先选择要结算的商品");
         verify(orderMapper, never()).insert(any(Order.class));
@@ -297,7 +316,7 @@ class OrderServiceTest {
         when(addressService.getOwned(UID, 1L)).thenReturn(address());
         when(cartService.list(UID)).thenReturn(summaryOf(cartItemVO(10L, 0L, 1, "99.00", false)));
 
-        assertThatThrownBy(() -> orderService.create(UID, createReq(1L)))
+        assertThatThrownBy(() -> orderService.create(UID, createReq(1L), null))
                 .isInstanceOf(BizException.class)
                 .hasMessage("勾选的商品已失效，请重新选择");
     }
@@ -316,7 +335,7 @@ class OrderServiceTest {
         });
         when(orderItemMapper.insert(any(OrderItem.class))).thenReturn(1);
 
-        OrderVO result = orderService.create(UID, createReq(1L));
+        OrderVO result = orderService.create(UID, createReq(1L), null);
 
         assertThat(result.getPayAmount()).isEqualByComparingTo("198.00");
         verify(inventoryService).deduct(10L, 0L, 2);
@@ -324,18 +343,21 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("库存不足时不写入订单")
+    @DisplayName("库存不足时不写入订单、不投递超时消息")
     void createFailsOnInsufficientStock() {
         when(addressService.getOwned(UID, 1L)).thenReturn(address());
         when(cartService.list(UID)).thenReturn(summaryOf(cartItemVO(10L, 0L, 2, "99.00", true)));
         org.mockito.Mockito.doThrow(BizException.badRequest("库存不足"))
                 .when(inventoryService).deduct(10L, 0L, 2);
 
-        assertThatThrownBy(() -> orderService.create(UID, createReq(1L)))
+        assertThatThrownBy(() -> orderService.create(UID, createReq(1L), null))
                 .isInstanceOf(BizException.class)
                 .hasMessage("库存不足");
+        // 抢占发生在扣库存之前（失败更快、不碰库存行），其回滚由数据库事务保证，
+        // 单测里无法断言「deleted 回到 0」，只断言不会再往下走到建单与投递。
+        verify(cartService).claimForCheckout(UID, List.of(1000L));
         verify(orderMapper, never()).insert(any(Order.class));
-        verify(cartService, never()).deleteChecked(UID);
+        verify(orderMessageProducer, never()).sendOrderTimeout(any());
     }
 
     @Test
@@ -344,9 +366,64 @@ class OrderServiceTest {
         when(addressService.getOwned(UID, 9L))
                 .thenThrow(BizException.notFound("收货地址不存在"));
 
-        assertThatThrownBy(() -> orderService.create(UID, createReq(9L)))
+        assertThatThrownBy(() -> orderService.create(UID, createReq(9L), null))
                 .isInstanceOf(BizException.class)
                 .hasMessage("收货地址不存在");
+    }
+
+    // ---------------- 幂等与结算抢占 ----------------
+
+    @Test
+    @DisplayName("幂等命中：同一幂等键重复提交直接回放首次订单，不再扣库存与建单")
+    void createReplaysWhenIdempotentKeyHit() {
+        when(idempotentService.claim(UID, IdempotentService.SCENE_ORDER_CREATE, "key-1"))
+                .thenReturn("NO20261018120000001");
+        when(orderMapper.selectOne(any())).thenReturn(
+                order("NO20261018120000001", UID, OrderStatus.PENDING_PAYMENT));
+
+        OrderVO result = orderService.create(UID, createReq(1L), "key-1");
+
+        assertThat(result.getOrderNo()).isEqualTo("NO20261018120000001");
+        // 回放路径不得触碰任何写操作：不查地址、不读购物车、不扣库存、不建单
+        verifyNoInteractions(addressService, inventoryService, cartService, orderItemMapper);
+        verify(orderMapper, never()).insert(any(Order.class));
+        verify(orderMessageProducer, never()).sendOrderTimeout(any());
+    }
+
+    @Test
+    @DisplayName("购物车已被并发结算时拒绝下单（抢占影响行数不足）")
+    void createFailsWhenCartAlreadyClaimed() {
+        when(addressService.getOwned(UID, 1L)).thenReturn(address());
+        when(cartService.list(UID)).thenReturn(summaryOf(cartItemVO(10L, 0L, 2, "99.00", true)));
+        // 用 doReturn 而非 when(...)：后者会真的调用一次方法，命中 @BeforeEach 里
+        // 基于参数的 Answer，导致空参 NPE
+        doReturn(0).when(cartService).claimForCheckout(any(), any());
+
+        assertThatThrownBy(() -> orderService.create(UID, createReq(1L), null))
+                .isInstanceOf(BizException.class)
+                .hasMessage("购物车已被其他请求结算，请刷新后重试");
+        verify(inventoryService, never()).deduct(any(), any(), any(Integer.class));
+        verify(orderMapper, never()).insert(any(Order.class));
+    }
+
+    @Test
+    @DisplayName("下单后按精确 id 清理失效勾选项，只抢占有效项")
+    void createRemovesInvalidItemsById() {
+        when(addressService.getOwned(UID, 1L)).thenReturn(address());
+        when(cartService.list(UID)).thenReturn(summaryOf(
+                cartItemVO(10L, 0L, 2, "99.00", true),
+                cartItemVO(11L, 0L, 1, "10.00", false)));
+        when(orderMapper.insert(any(Order.class))).thenAnswer(inv -> {
+            Order o = inv.getArgument(0);
+            o.setId(100L);
+            return 1;
+        });
+        when(orderItemMapper.insert(any(OrderItem.class))).thenReturn(1);
+
+        orderService.create(UID, createReq(1L), null);
+
+        verify(cartService).claimForCheckout(UID, List.of(1000L));
+        verify(cartService).removeItems(UID, List.of(1100L));
     }
 
     // ---------------- 立即购买（不经过购物车） ----------------
@@ -364,7 +441,7 @@ class OrderServiceTest {
         });
         when(orderItemMapper.insert(any(OrderItem.class))).thenReturn(1);
 
-        OrderVO result = orderService.createBuyNow(UID, buyNowReq(1L, 10L, 5L, 2));
+        OrderVO result = orderService.createBuyNow(UID, buyNowReq(1L, 10L, 5L, 2), null);
 
         assertThat(result.getOrderNo()).startsWith("NO");
         assertThat(result.getPayAmount()).isEqualByComparingTo("176.00");
@@ -403,7 +480,7 @@ class OrderServiceTest {
         });
         when(orderItemMapper.insert(any(OrderItem.class))).thenReturn(1);
 
-        OrderVO result = orderService.createBuyNow(UID, buyNowReq(1L, 10L, 0L, 1));
+        OrderVO result = orderService.createBuyNow(UID, buyNowReq(1L, 10L, 0L, 1), null);
 
         assertThat(result.getPayAmount()).isEqualByComparingTo("99.00");
         verify(inventoryService).deduct(10L, 0L, 1);
@@ -417,7 +494,7 @@ class OrderServiceTest {
         when(productMapper.selectById(10L)).thenReturn(product(10L, 1, "99.00", 50));
         when(productService.hasRealSpec(10L)).thenReturn(true);
 
-        assertThatThrownBy(() -> orderService.createBuyNow(UID, buyNowReq(1L, 10L, 0L, 1)))
+        assertThatThrownBy(() -> orderService.createBuyNow(UID, buyNowReq(1L, 10L, 0L, 1), null))
                 .isInstanceOf(BizException.class)
                 .hasMessage("请选择商品规格");
         verify(orderMapper, never()).insert(any(Order.class));
@@ -431,7 +508,7 @@ class OrderServiceTest {
         when(productMapper.selectById(10L)).thenReturn(product(10L, 1, "99.00", 50));
         when(productSkuMapper.selectById(5L)).thenReturn(sku(5L, 11L, "88.00", 20));
 
-        assertThatThrownBy(() -> orderService.createBuyNow(UID, buyNowReq(1L, 10L, 5L, 1)))
+        assertThatThrownBy(() -> orderService.createBuyNow(UID, buyNowReq(1L, 10L, 5L, 1), null))
                 .isInstanceOf(BizException.class)
                 .hasMessage("商品规格不存在");
         verifyNoInteractions(inventoryService);
@@ -443,7 +520,7 @@ class OrderServiceTest {
         when(addressService.getOwned(UID, 1L)).thenReturn(address());
         when(productMapper.selectById(10L)).thenReturn(product(10L, 0, "99.00", 50));
 
-        assertThatThrownBy(() -> orderService.createBuyNow(UID, buyNowReq(1L, 10L, 5L, 1)))
+        assertThatThrownBy(() -> orderService.createBuyNow(UID, buyNowReq(1L, 10L, 5L, 1), null))
                 .isInstanceOf(BizException.class)
                 .hasMessage("商品不存在或已下架");
         verifyNoInteractions(inventoryService);
@@ -456,7 +533,7 @@ class OrderServiceTest {
         when(productMapper.selectById(10L)).thenReturn(product(10L, 1, "99.00", 50));
         when(productSkuMapper.selectById(5L)).thenReturn(sku(5L, 10L, "88.00", 1));
 
-        assertThatThrownBy(() -> orderService.createBuyNow(UID, buyNowReq(1L, 10L, 5L, 2)))
+        assertThatThrownBy(() -> orderService.createBuyNow(UID, buyNowReq(1L, 10L, 5L, 2), null))
                 .isInstanceOf(BizException.class)
                 .hasMessage("库存不足");
         verify(orderMapper, never()).insert(any(Order.class));
@@ -469,7 +546,7 @@ class OrderServiceTest {
         when(addressService.getOwned(UID, 9L))
                 .thenThrow(BizException.notFound("收货地址不存在"));
 
-        assertThatThrownBy(() -> orderService.createBuyNow(UID, buyNowReq(9L, 10L, 5L, 1)))
+        assertThatThrownBy(() -> orderService.createBuyNow(UID, buyNowReq(9L, 10L, 5L, 1), null))
                 .isInstanceOf(BizException.class)
                 .hasMessage("收货地址不存在");
         verifyNoInteractions(inventoryService);

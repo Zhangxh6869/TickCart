@@ -45,6 +45,25 @@ const totalAmount = computed(() => items.value.reduce((sum, item) => sum + item.
 const totalQuantity = computed(() => items.value.reduce((sum, item) => sum + item.quantity, 0))
 
 /**
+ * 下单幂等键：**进入结算页时生成一次，提交失败不换新**。
+ *
+ * <p>「连点两次提交」和「网络超时后用户再点一次」都会带同一个键，服务端只成一次单，
+ * 第二次直接回放首次的订单号；下单成功后跳转，下次进入重新生成，视为新的下单意图。</p>
+ *
+ * <p>务必不要放在 onSubmit 里生成 —— 那样每次点击都是新键，等于没有幂等。</p>
+ */
+const idemKey = ref(newIdemKey())
+
+function newIdemKey(): string {
+  // crypto.randomUUID 只在安全上下文可用（localhost / https）；
+  // 局域网 http 预览时退化为时间戳 + 随机串，仍能保证同一页面内唯一。
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `k-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+}
+
+/**
  * 本页被 KeepAlive 缓存（见 App.vue 的 CACHED_VIEWS），从收货地址页返回时**不会重新挂载**，
  * 所以数据同步不能只写在 onMounted 里。
  * 首次挂载走 onMounted；之后每次重新进入走 onActivated。
@@ -58,6 +77,8 @@ onActivated(() => {
     firstActivated = false
     return
   }
+  // 重新进入 = 新的下单意图，换一把幂等键（此时还没有成功提交过）
+  idemKey.value = newIdemKey()
   // 重新进入时保留用户已经选中的地址，别被「默认地址」覆盖回初始值
   void prepare(true)
 })
@@ -186,14 +207,17 @@ async function onSubmit() {
     // 立即购买把商品随请求带上；购物车结算仍由服务端读购物车已勾选项
     const result =
       buyNow && buyNowItem.value
-        ? await createBuyNowOrder({
-            addressId,
-            productId: buyNowItem.value.productId,
-            skuId: buyNowItem.value.skuId,
-            quantity: buyNowItem.value.quantity,
-            remark: trimmedRemark,
-          })
-        : await createOrder({ addressId, remark: trimmedRemark })
+        ? await createBuyNowOrder(
+            {
+              addressId,
+              productId: buyNowItem.value.productId,
+              skuId: buyNowItem.value.skuId,
+              quantity: buyNowItem.value.quantity,
+              remark: trimmedRemark,
+            },
+            idemKey.value,
+          )
+        : await createOrder({ addressId, remark: trimmedRemark }, idemKey.value)
     // 下单成功只作轻提示：默认 2s 偏长，会把刚跳过去的订单详情挡在上面
     showToast({ message: '下单成功', duration: 1200 })
     // 立即购买不经过购物车，购物车角标本来就没变，不需要刷新

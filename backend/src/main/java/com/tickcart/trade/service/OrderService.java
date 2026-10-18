@@ -9,6 +9,7 @@ import com.tickcart.cart.vo.CartItemVO;
 import com.tickcart.cart.vo.CartSummary;
 import com.tickcart.common.api.PageResult;
 import com.tickcart.common.exception.BizException;
+import com.tickcart.common.idempotent.service.IdempotentService;
 import com.tickcart.common.mq.OrderMessageProducer;
 import com.tickcart.member.entity.UserAddress;
 import com.tickcart.member.service.AddressService;
@@ -81,6 +82,7 @@ public class OrderService {
     private final ProductSkuMapper productSkuMapper;
     private final ProductService productService;
     private final PaymentRecordMapper paymentRecordMapper;
+    private final IdempotentService idempotentService;
 
     public OrderService(OrderMapper orderMapper,
                         OrderItemMapper orderItemMapper,
@@ -91,7 +93,8 @@ public class OrderService {
                         ProductMapper productMapper,
                         ProductSkuMapper productSkuMapper,
                         ProductService productService,
-                        PaymentRecordMapper paymentRecordMapper) {
+                        PaymentRecordMapper paymentRecordMapper,
+                        IdempotentService idempotentService) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.addressService = addressService;
@@ -102,18 +105,30 @@ public class OrderService {
         this.productSkuMapper = productSkuMapper;
         this.productService = productService;
         this.paymentRecordMapper = paymentRecordMapper;
+        this.idempotentService = idempotentService;
     }
 
     /**
      * 结算下单：把购物车中「已勾选且有效」的商品生成订单。
      *
-     * <p>整体在一个事务内完成：扣库存 → 写订单 → 写明细 → 清空已结算的购物车项。
-     * 任一步失败（典型如库存不足）整体回滚，不会留下扣了库存却没有订单的脏数据。</p>
+     * <p>整体在一个事务内完成：幂等占位 → 校验地址 → 结算抢占 → 扣库存 → 写订单 → 写明细
+     * → 回填幂等单号。任一步失败整体回滚，不会留下扣了库存却没有订单的脏数据。</p>
      *
-     * @throws BizException 地址不属于当前用户、无勾选商品、库存不足
+     * <p><b>幂等</b>：同一 {@code idemKey} 重复提交只会成一次单，后续请求回放首次的订单号。
+     * 未携带幂等键时退化为无保护（兼容旧调用方），并打 WARN 日志。</p>
+     *
+     * @param idemKey 客户端生成的幂等键，可为 null
+     * @throws BizException 地址不属于当前用户、无勾选商品、库存不足、购物车已被并发结算
      */
     @Transactional
-    public OrderVO create(Long userId, OrderCreateRequest req) {
+    public OrderVO create(Long userId, OrderCreateRequest req, String idemKey) {
+        // 幂等占位放在最前面：重复请求在这里就被挡掉，不必先查地址、读购物车
+        String replayedOrderNo = idempotentService.claim(
+                userId, IdempotentService.SCENE_ORDER_CREATE, idemKey);
+        if (replayedOrderNo != null) {
+            return replay(userId, replayedOrderNo);
+        }
+
         UserAddress address = addressService.getOwned(userId, req.getAddressId());
 
         CartSummary cart = cartService.list(userId);
@@ -131,7 +146,9 @@ public class OrderService {
             throw BizException.badRequest("勾选的商品已失效，请重新选择");
         }
 
-        // 先扣库存：库存不足会在此抛出并回滚整个事务
+        claimCartItems(userId, checked, checkedItems);
+
+        // 先扣库存：库存不足会在此抛出并回滚整个事务（含上面的抢占，购物车项会恢复）
         for (CartItemVO item : checked) {
             inventoryService.deduct(item.getProductId(), item.getSkuId(), item.getQuantity());
         }
@@ -143,7 +160,7 @@ public class OrderService {
         List<OrderItem> drafts = checked.stream().map(this::toOrderItemDraft).collect(Collectors.toList());
         Order order = saveOrder(userId, address, req.getRemark(), total, drafts);
 
-        cartService.deleteChecked(userId);
+        idempotentService.complete(userId, IdempotentService.SCENE_ORDER_CREATE, idemKey, order.getOrderNo());
 
         // 投递超时延迟消息：消息在 MQ 里滞留 TTL 后转入死信队列，触发自动关单。
         // 投递失败只记日志（见 OrderMessageProducer），不影响本次下单结果。
@@ -153,15 +170,46 @@ public class OrderService {
     }
 
     /**
+     * 结算抢占：把本次要结算的购物车项标记删除，并清理本次读到的失效勾选项。
+     *
+     * <p>抢占是「同一批购物车只能被结算一次」的唯一闸门：并发下只有一个请求能影响全部有效项，
+     * 其余影响 0 行 → 抛 409。这替代了原先的 {@code cartService.deleteChecked(userId)}——
+     * 后者按「当前 checked = 1」删，会误删并发期间用户新勾选的其他商品。</p>
+     *
+     * @param checked      本次要结算的有效项
+     * @param checkedItems 本次读到的全部勾选项（含失效），失效项下单后一并清理以保持原行为
+     */
+    private void claimCartItems(Long userId, List<CartItemVO> checked, List<CartItemVO> checkedItems) {
+        List<Long> validIds = checked.stream().map(CartItemVO::getId).toList();
+        int claimed = cartService.claimForCheckout(userId, validIds);
+        if (claimed != validIds.size()) {
+            throw BizException.conflict("购物车已被其他请求结算，请刷新后重试");
+        }
+
+        List<Long> invalidIds = checkedItems.stream()
+                .filter(item -> !item.isValid())
+                .map(CartItemVO::getId)
+                .toList();
+        cartService.removeItems(userId, invalidIds);
+    }
+
+    /**
      * 立即购买下单：按客户端指定的商品与规格直接生成订单，**不经过购物车**。
      *
      * <p>与 {@link #create} 的区别只在「明细从哪来」：这里不读也不清购物车，
-     * 商品、规格、数量都取自请求参数；落库与超时关单完全复用同一条链路。</p>
+     * 商品、规格、数量都取自请求参数；落库、幂等与超时关单完全复用同一条链路。</p>
      *
      * @throws BizException 地址不属于当前用户、商品下架、规格不存在或不属于该商品、库存不足
      */
     @Transactional
-    public OrderVO createBuyNow(Long userId, OrderBuyNowRequest req) {
+    public OrderVO createBuyNow(Long userId, OrderBuyNowRequest req, String idemKey) {
+        // 与结算下单同理：占位放在最前面，重复请求尽早被挡掉
+        String replayedOrderNo = idempotentService.claim(
+                userId, IdempotentService.SCENE_ORDER_BUY_NOW, idemKey);
+        if (replayedOrderNo != null) {
+            return replay(userId, replayedOrderNo);
+        }
+
         UserAddress address = addressService.getOwned(userId, req.getAddressId());
 
         OrderItem draft = buildBuyNowItem(req);
@@ -171,8 +219,28 @@ public class OrderService {
 
         Order order = saveOrder(userId, address, req.getRemark(), draft.getSubtotal(), List.of(draft));
 
+        idempotentService.complete(userId, IdempotentService.SCENE_ORDER_BUY_NOW, idemKey, order.getOrderNo());
+
         orderMessageProducer.sendOrderTimeout(order.getOrderNo());
 
+        return toOrderVO(order);
+    }
+
+    /**
+     * 幂等命中：按首次成功的订单号回放结果。
+     *
+     * <p>幂等键本身按 {@code (scene, user_id)} 隔离，能命中就说明是本人重试；
+     * 这里再带一次 {@code user_id} 条件，是防止幂等键被清理后撞到他人订单的兜底。</p>
+     *
+     * @throws BizException 订单已不存在（理论上不可达，出现即需人工排查）
+     */
+    private OrderVO replay(Long userId, String orderNo) {
+        Order order = orderMapper.selectOne(new LambdaQueryWrapper<Order>()
+                .eq(Order::getOrderNo, orderNo)
+                .eq(Order::getUserId, userId));
+        if (order == null) {
+            throw BizException.conflict("请求已完成，但对应订单不存在，请到订单中心查看");
+        }
         return toOrderVO(order);
     }
 

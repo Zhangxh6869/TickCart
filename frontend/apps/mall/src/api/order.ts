@@ -10,14 +10,33 @@ import type {
   PageResult,
 } from '@tickcart/shared-types'
 
+/**
+ * 下单幂等键的请求头名。
+ *
+ * <p>服务端按 {@code (scene, user_id, 幂等键)} 去重：同一个键只会成一次单，
+ * 后续请求直接回放首次的订单号。前端必须在「进入结算页」时生成一次、失败重试时保持不变，
+ * 否则等于没有幂等保护。</p>
+ */
+const IDEM_HEADER = 'Idempotency-Key'
+
+function idemConfig(idemKey?: string) {
+  return idemKey ? { headers: { [IDEM_HEADER]: idemKey } } : undefined
+}
+
 /** 创建订单（结算购物车中已勾选且有效的商品）。 */
-export function createOrder(payload: OrderCreateRequest): Promise<OrderCreateResult> {
-  return request.post('/orders', payload)
+export function createOrder(
+  payload: OrderCreateRequest,
+  idemKey?: string,
+): Promise<OrderCreateResult> {
+  return request.post('/orders', payload, idemConfig(idemKey))
 }
 
 /** 立即购买（商品详情页直达下单，不经过购物车）。 */
-export function createBuyNowOrder(payload: OrderBuyNowRequest): Promise<OrderCreateResult> {
-  return request.post('/orders/buy-now', payload)
+export function createBuyNowOrder(
+  payload: OrderBuyNowRequest,
+  idemKey?: string,
+): Promise<OrderCreateResult> {
+  return request.post('/orders/buy-now', payload, idemConfig(idemKey))
 }
 
 /** 订单列表，可按状态筛选。 */
