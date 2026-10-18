@@ -4,6 +4,11 @@ server:
     # 请求体被应用层拒绝（如上传超限）时，Tomcat 仍吞掉剩余字节，
     # 否则会直接断连，前端拿不到我们返回的 400 JSON
     max-swallow-size: -1
+    threads:
+      # 与 Hikari 的 20 个连接保持 5:1 —— 线程数远超连接数时，
+      # 多出来的请求只会卡在「等连接」上，白白占着线程
+      max: 100
+      min-spare: 20
 
 spring:
   application:
@@ -19,8 +24,11 @@ spring:
     password: ${MYSQL_PASSWORD:root}
     hikari:
       minimum-idle: 5
+      # 单机部署 + MySQL 默认 max_connections=151，20 个连接留足余量
       maximum-pool-size: 20
-      connection-timeout: 30000
+      # 3 秒拿不到连接就快速失败：等 30 秒只会让请求线程一起堆积，
+      # 用户等来的还是超时，不如尽早返回 500 让上游重试
+      connection-timeout: 3000
       idle-timeout: 600000
       max-lifetime: 1800000
 
@@ -68,6 +76,14 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
+    # 投递可靠性三件套，缺一则 return 回调不触发：
+    #   publisher-confirm-type 让 Broker 回 ack/nack；publisher-returns 开启退回；
+    #   template.mandatory 让「无匹配队列」的消息退回而不是被丢弃
+    # 回调处理见 com.tickcart.common.mq.RabbitConfirmConfig
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
     listener:
       simple:
         # 手动 ack：成功/重投/丢弃由 OrderTimeoutConsumer 自行决定
@@ -136,6 +152,13 @@ tickcart:
   order:
     # 待付款订单自动关闭时限（毫秒），即 trade.order.timeout 队列的 TTL
     timeout-ttl-ms: ${ORDER_TIMEOUT_TTL_MS:900000}
+  # 商品
+  product:
+    # 随机分页的候选池上限：一次最多取多少个商品 id 到内存里洗牌。
+    # 当前演示量级（647 个商品）远低于该值，开销 <1ms / 5KB；
+    # 商品数超过 5000 或该接口 P95 > 50ms 时，应改为「权重列 + 游标翻页」，
+    # 见 docs/读放大与可靠性收尾设计.md §4
+    random-pool-limit: ${PRODUCT_RANDOM_POOL_LIMIT:2000}
   # 下单幂等（A1）：同一 (scene, user_id, 幂等键) 只成一次单
   idempotent:
     # 幂等记录保留时长（小时）：保留期内重复提交回放首次结果，过期后由定时任务清理
@@ -165,6 +188,11 @@ tickcart:
     log-retention-days: ${SEARCH_LOG_RETENTION_DAYS:90}
     # 清理任务 cron（Spring 6 段式：秒 分 时 日 月 周），默认每天 03:00
     log-cleanup-cron: ${SEARCH_LOG_CLEANUP_CRON:0 0 3 * * ?}
+    # 写入缓冲：请求线程只入队，定时批量落库（见 SearchLogBuffer）
+    # 队列有界，满了丢弃并计数 —— 日志是统计素材，不能影响搜索主链路
+    log-buffer-capacity: ${SEARCH_LOG_BUFFER_CAPACITY:10000}
+    log-flush-batch-size: ${SEARCH_LOG_FLUSH_BATCH:200}
+    log-flush-interval-ms: ${SEARCH_LOG_FLUSH_INTERVAL_MS:1000}
   # 读缓存（A2）：商品详情 / 分类列表 / 热搜词
   # key 规范与失效策略见 docs/商品缓存设计.md
   cache:

@@ -25,7 +25,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.Spy;
@@ -72,7 +71,7 @@ class ProductServiceTest {
     @Spy
     private CacheProperties cacheProperties = new CacheProperties();
 
-    @InjectMocks
+    /** 手工构造：{@code randomPoolLimit} 是 {@code @Value} 注入的原始类型，@InjectMocks 无法解析 */
     private ProductService productService;
 
     /**
@@ -83,6 +82,8 @@ class ProductServiceTest {
     /** 让缓存在单测里透明：get 直接执行 loader，等价于「每次都未命中」。 */
     @BeforeEach
     void stubCacheTransparent() {
+        productService = new ProductService(productMapper, skuMapper, imageMapper, categoryMapper,
+                synonymService, cacheService, cacheProperties, 2000);
         lenient().when(cacheService.get(anyString(), anyLong(), eq(ProductDetail.class), any()))
                 .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(3)).get());
     }

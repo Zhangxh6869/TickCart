@@ -19,6 +19,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 购物车服务。
@@ -62,12 +66,16 @@ public class CartService {
                 .eq(CartItem::getUserId, userId)
                 .orderByDesc(CartItem::getId));
 
+        // 商品与 SKU 各批量查一次：逐项 selectById 会让 10 项购物车产生 21 条 SQL
+        Map<Long, Product> products = loadProducts(items);
+        Map<Long, ProductSku> skus = loadSkus(items);
+
         List<CartItemVO> vos = new ArrayList<>(items.size());
         int checkedCount = 0;
         BigDecimal checkedAmount = BigDecimal.ZERO;
 
         for (CartItem item : items) {
-            CartItemVO vo = buildItemVo(item);
+            CartItemVO vo = buildItemVo(item, products, skus);
             vos.add(vo);
             if (vo.isValid() && Integer.valueOf(1).equals(item.getChecked())) {
                 checkedCount += item.getQuantity();
@@ -321,8 +329,41 @@ public class CartService {
         return product == null ? 0 : nullToZero(product.getStock());
     }
 
-    /** 组装购物车项视图，并在商品/规格异常时标记失效。 */
-    private CartItemVO buildItemVo(CartItem item) {
+    /** 批量取购物车涉及的商品（一次 IN 查询）。 */
+    private Map<Long, Product> loadProducts(List<CartItem> items) {
+        List<Long> ids = items.stream()
+                .map(CartItem::getProductId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return productMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(Product::getId, Function.identity()));
+    }
+
+    /** 批量取购物车涉及的 SKU（一次 IN 查询；无规格项 skuId 为 0，不参与）。 */
+    private Map<Long, ProductSku> loadSkus(List<CartItem> items) {
+        List<Long> ids = items.stream()
+                .map(CartItem::getSkuId)
+                .filter(id -> id != null && id > NO_SKU)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return productSkuMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(ProductSku::getId, Function.identity()));
+    }
+
+    /**
+     * 组装购物车项视图，并在商品/规格异常时标记失效。
+     *
+     * @param products 本页商品，key 为商品 ID；商品被物理删除时 map 里没有该 key
+     * @param skus     本页 SKU，key 为 SKU ID
+     */
+    private CartItemVO buildItemVo(CartItem item, Map<Long, Product> products, Map<Long, ProductSku> skus) {
         CartItemVO vo = new CartItemVO();
         vo.setId(item.getId());
         vo.setProductId(item.getProductId());
@@ -330,7 +371,7 @@ public class CartService {
         vo.setQuantity(item.getQuantity());
         vo.setChecked(item.getChecked());
 
-        Product product = productMapper.selectById(item.getProductId());
+        Product product = products.get(item.getProductId());
         if (product == null || !Integer.valueOf(1).equals(product.getStatus())) {
             vo.setProductName(product == null ? "已下架商品" : product.getName());
             vo.setProductImage(product == null ? null : product.getMainImage());
@@ -348,7 +389,7 @@ public class CartService {
         boolean skuMissing = false;
 
         if (item.getSkuId() != null && item.getSkuId() > NO_SKU) {
-            ProductSku sku = productSkuMapper.selectById(item.getSkuId());
+            ProductSku sku = skus.get(item.getSkuId());
             if (sku == null) {
                 skuMissing = true;
             } else {

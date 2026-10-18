@@ -20,6 +20,7 @@ import com.tickcart.product.mapper.ProductSkuMapper;
 import com.tickcart.product.vo.ProductDetail;
 import com.tickcart.product.vo.ProductListItem;
 import com.tickcart.search.service.SynonymService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -44,9 +45,6 @@ public class ProductService {
     private static final int STATUS_ON = 1;
     private static final int STATUS_OFF = 0;
 
-    /** 随机分页时最多参与打乱的商品数，避免数据量变大后一次拉回整表 id。 */
-    private static final int RANDOM_POOL_LIMIT = 2000;
-
     private final ProductMapper productMapper;
     private final ProductSkuMapper skuMapper;
     private final ProductImageMapper imageMapper;
@@ -54,6 +52,8 @@ public class ProductService {
     private final SynonymService synonymService;
     private final CacheService cacheService;
     private final CacheProperties cacheProperties;
+    /** 随机分页时最多参与打乱的商品数，见 {@code tickcart.product.random-pool-limit} */
+    private final int randomPoolLimit;
 
     public ProductService(ProductMapper productMapper,
                           ProductSkuMapper skuMapper,
@@ -61,7 +61,8 @@ public class ProductService {
                           CategoryMapper categoryMapper,
                           SynonymService synonymService,
                           CacheService cacheService,
-                          CacheProperties cacheProperties) {
+                          CacheProperties cacheProperties,
+                          @Value("${tickcart.product.random-pool-limit:2000}") int randomPoolLimit) {
         this.productMapper = productMapper;
         this.skuMapper = skuMapper;
         this.imageMapper = imageMapper;
@@ -69,6 +70,7 @@ public class ProductService {
         this.synonymService = synonymService;
         this.cacheService = cacheService;
         this.cacheProperties = cacheProperties;
+        this.randomPoolLimit = Math.max(1, randomPoolLimit);
     }
 
     /**
@@ -102,8 +104,12 @@ public class ProductService {
      * {@code ORDER BY RAND(seed)} 虽然带种子，但取值依赖行的读取顺序，执行计划一变顺序就变，
      * 同样不能保证翻页一致。所以这里取回候选 id、在应用层用 seed 做确定性洗牌，再切出当前页。</p>
      *
-     * <p>代价说明：会取回符合条件的**全部** id（上限 {@link #RANDOM_POOL_LIMIT}），
-     * 适合演示数据量（几十~几千条）。若商品量级上到十万级，应改为落库一个随机权重列并建索引，
+     * <p><b>代价说明</b>：会取回符合条件的 id（上限 {@code tickcart.product.random-pool-limit}，
+     * 默认 2000），适合演示数据量（几十~几千条）。当前库 647 个商品时，拉 id ≈ 5KB、
+     * 洗牌 &lt;1ms，不构成瓶颈。</p>
+     *
+     * <p><b>触发改造的条件</b>（见 {@code docs/读放大与可靠性收尾设计.md} §4）：
+     * 商品数 &gt; 5000，或该接口 P95 &gt; 50ms —— 届时改为落库随机权重列 + 索引，
      * 用「按权重排序 + 游标翻页」替代本实现。</p>
      */
     private PageResult<ProductListItem> randomPage(ProductQuery query, boolean onlyOnSale) {
@@ -111,7 +117,7 @@ public class ProductService {
                         filterWrapper(query, onlyOnSale)
                                 .select(Product::getId)
                                 .orderByAsc(Product::getId)
-                                .last("LIMIT " + RANDOM_POOL_LIMIT))
+                                .last("LIMIT " + randomPoolLimit))
                 .stream()
                 .map(Product::getId)
                 .toList();

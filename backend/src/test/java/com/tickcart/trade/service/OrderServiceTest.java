@@ -865,6 +865,8 @@ class OrderServiceTest {
             return p;
         });
         OrderItem item = new OrderItem();
+        // 批量分组依赖 orderNo，测试数据必须带上（单查时可以不填）
+        item.setOrderNo("NO25");
         item.setQuantity(3);
         when(orderItemMapper.selectList(any())).thenReturn(List.of(item));
 

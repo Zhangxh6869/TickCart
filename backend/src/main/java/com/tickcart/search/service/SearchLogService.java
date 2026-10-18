@@ -3,6 +3,7 @@ package com.tickcart.search.service;
 import com.tickcart.search.dto.KeywordCount;
 import com.tickcart.search.dto.KeywordStat;
 import com.tickcart.search.dto.SearchStatsVO;
+import com.tickcart.search.buffer.SearchLogBuffer;
 import com.tickcart.search.entity.SearchLog;
 import com.tickcart.search.mapper.SearchLogMapper;
 import org.slf4j.Logger;
@@ -16,6 +17,9 @@ import java.time.LocalDateTime;
  *
  * <p>职责：① 在每次前台搜索后 best-effort 记录一行（写入失败绝不阻塞搜索主流程）；
  * ② 为后台「搜索分析」看板提供聚合统计（无结果词 TOP N / 热搜词 TOP N）。</p>
+ *
+ * <p>写入走 {@link SearchLogBuffer} 的内存队列 + 定时批量落库：请求线程只做一次入队，
+ * 不承担 DB 往返，也不会因为搜索日志写不进去而拖慢搜索接口。</p>
  */
 @Service
 public class SearchLogService {
@@ -26,9 +30,11 @@ public class SearchLogService {
     private static final int KEYWORD_MAX = 64;
 
     private final SearchLogMapper searchLogMapper;
+    private final SearchLogBuffer searchLogBuffer;
 
-    public SearchLogService(SearchLogMapper searchLogMapper) {
+    public SearchLogService(SearchLogMapper searchLogMapper, SearchLogBuffer searchLogBuffer) {
         this.searchLogMapper = searchLogMapper;
+        this.searchLogBuffer = searchLogBuffer;
     }
 
     /**
@@ -51,8 +57,9 @@ public class SearchLogService {
             entity.setKeyword(kw);
             entity.setResultCount(resultCount);
             entity.setUserId(userId);
-            // created_at 由 MyMetaObjectHandler 在插入时自动填充
-            searchLogMapper.insert(entity);
+            // 批量插入走自定义 SQL，不经过 MyMetaObjectHandler，时间戳必须在这里填
+            entity.setCreatedAt(LocalDateTime.now());
+            searchLogBuffer.offer(entity);
         } catch (Exception e) {
             // 搜索日志仅用于统计，写入失败绝不能影响搜索结果的返回
             log.warn("记录搜索日志失败 keyword={} resultCount={}", kw, resultCount, e);

@@ -5,6 +5,7 @@ import com.tickcart.search.dto.KeywordCount;
 import com.tickcart.search.dto.KeywordStat;
 import com.tickcart.search.entity.SearchLog;
 import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -51,6 +52,23 @@ public interface SearchLogMapper extends BaseMapper<SearchLog> {
             LIMIT #{limit}
             """)
     List<KeywordStat> hotTopN(@Param("limit") int limit, @Param("since") LocalDateTime since);
+
+    /**
+     * 批量写入搜索日志（一条 INSERT 多组 VALUES）。
+     *
+     * <p>不用 MyBatis-Plus 的 {@code insertBatchSomeColumn}：那需要自定义 SqlInjector，
+     * 为一个批量插入扩展全局注入器不划算。这里显式写列，反而更清楚。</p>
+     *
+     * <p>{@code created_at} 由调用方填好 —— 自定义 SQL 不经过 {@code MetaObjectHandler}，
+     * 依赖自动填充会写入 NULL。</p>
+     */
+    @Insert("<script>"
+            + "INSERT INTO search_log (keyword, result_count, user_id, created_at) VALUES "
+            + "<foreach collection='list' item='it' separator=','>"
+            + "(#{it.keyword}, #{it.resultCount}, #{it.userId}, #{it.createdAt})"
+            + "</foreach>"
+            + "</script>")
+    int insertBatch(@Param("list") List<SearchLog> logs);
 
     @Select("""
             SELECT COUNT(*) FROM search_log

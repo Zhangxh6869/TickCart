@@ -252,9 +252,11 @@ public class OrderService {
                 .eq(query.getStatus() != null, Order::getStatus, query.getStatus())
                 .orderByDesc(Order::getId));
 
+        // 一次 IN 查回本页所有明细再分组，避免「每单一条 SQL」的 N+1
+        Map<String, List<OrderItemVO>> itemsByOrder = loadItemsGrouped(page.getRecords());
         List<OrderListItemVO> records = new ArrayList<>(page.getRecords().size());
         for (Order order : page.getRecords()) {
-            records.add(toListItemVO(order));
+            records.add(toListItemVO(order, itemsByOrder.get(order.getOrderNo())));
         }
         return new PageResult<>(records, page.getTotal(), page.getCurrent(), page.getSize(), page.getPages());
     }
@@ -330,9 +332,11 @@ public class OrderService {
                 .orderByDesc(Order::getId));
 
         Map<String, PaymentRecord> latestPayments = loadLatestPayments(page.getRecords());
+        Map<String, List<OrderItemVO>> itemsByOrder = loadItemsGrouped(page.getRecords());
         List<AdminOrderListItemVO> records = new ArrayList<>(page.getRecords().size());
         for (Order order : page.getRecords()) {
-            records.add(toAdminListItemVO(order, latestPayments.get(order.getOrderNo())));
+            records.add(toAdminListItemVO(order, latestPayments.get(order.getOrderNo()),
+                    itemsByOrder.get(order.getOrderNo())));
         }
         return new PageResult<>(records, page.getTotal(), page.getCurrent(), page.getSize(), page.getPages());
     }
@@ -675,6 +679,30 @@ public class OrderService {
         return loadRawItems(orderNo).stream().map(this::toItemVO).collect(Collectors.toList());
     }
 
+    /**
+     * 批量取一页订单的明细并按订单号分组（一次 IN 查询）。
+     *
+     * <p>列表页原本对每条订单各查一次明细，10 条就是 11 条 SQL；改成本方法后固定为 2 条
+     * （1 次分页 + 1 次明细）。明细顺序仍由 {@code orderByAsc(id)} 保证，与单查时一致。</p>
+     *
+     * <p>没有明细的订单不会出现在返回的 map 里，调用方按 {@code null} 处理即可。</p>
+     */
+    private Map<String, List<OrderItemVO>> loadItemsGrouped(List<Order> orders) {
+        if (orders == null || orders.isEmpty()) {
+            return Map.of();
+        }
+        List<String> orderNos = orders.stream().map(Order::getOrderNo).toList();
+        List<OrderItem> items = orderItemMapper.selectList(new LambdaQueryWrapper<OrderItem>()
+                .in(OrderItem::getOrderNo, orderNos)
+                .orderByAsc(OrderItem::getId));
+
+        Map<String, List<OrderItemVO>> grouped = new LinkedHashMap<>();
+        for (OrderItem item : items) {
+            grouped.computeIfAbsent(item.getOrderNo(), key -> new ArrayList<>()).add(toItemVO(item));
+        }
+        return grouped;
+    }
+
     private OrderItemVO toItemVO(OrderItem item) {
         OrderItemVO vo = new OrderItemVO();
         vo.setProductId(item.getProductId());
@@ -698,7 +726,7 @@ public class OrderService {
         return vo;
     }
 
-    private OrderListItemVO toListItemVO(Order order) {
+    private OrderListItemVO toListItemVO(Order order, List<OrderItemVO> items) {
         OrderListItemVO vo = new OrderListItemVO();
         vo.setOrderNo(order.getOrderNo());
         vo.setStatus(order.getStatus());
@@ -707,9 +735,9 @@ public class OrderService {
         vo.setPayAmount(order.getPayAmount());
         vo.setCreatedAt(order.getCreatedAt());
 
-        List<OrderItemVO> items = loadItems(order.getOrderNo());
-        vo.setItems(items);
-        vo.setTotalQuantity(items.stream().mapToInt(OrderItemVO::getQuantity).sum());
+        List<OrderItemVO> safeItems = items == null ? List.of() : items;
+        vo.setItems(safeItems);
+        vo.setTotalQuantity(safeItems.stream().mapToInt(OrderItemVO::getQuantity).sum());
         return vo;
     }
 
@@ -718,8 +746,10 @@ public class OrderService {
      *
      * @param order   订单
      * @param payment 该订单最新一条支付流水，可为 null（用户尚未发起过支付）
+     * @param items   该订单明细，由调用方批量查回后传入（避免逐单查询）
      */
-    private AdminOrderListItemVO toAdminListItemVO(Order order, PaymentRecord payment) {
+    private AdminOrderListItemVO toAdminListItemVO(Order order, PaymentRecord payment,
+                                                  List<OrderItemVO> items) {
         AdminOrderListItemVO vo = new AdminOrderListItemVO();
         vo.setOrderNo(order.getOrderNo());
         vo.setUserId(order.getUserId());
@@ -735,9 +765,9 @@ public class OrderService {
             vo.setChannel(payment.getChannel());
         }
 
-        List<OrderItemVO> items = loadItems(order.getOrderNo());
-        vo.setItems(items);
-        vo.setTotalQuantity(items.stream().mapToInt(OrderItemVO::getQuantity).sum());
+        List<OrderItemVO> safeItems = items == null ? List.of() : items;
+        vo.setItems(safeItems);
+        vo.setTotalQuantity(safeItems.stream().mapToInt(OrderItemVO::getQuantity).sum());
         return vo;
     }
 

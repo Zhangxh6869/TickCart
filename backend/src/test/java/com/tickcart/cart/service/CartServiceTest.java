@@ -377,9 +377,8 @@ class CartServiceTest {
                 item(2L, UID, 2L, 0L, 3, 0),
                 item(3L, UID, 3L, 0L, 1, 1)
         ));
-        when(productMapper.selectById(1L)).thenReturn(product(1L, 1, 100));
-        when(productMapper.selectById(2L)).thenReturn(product(2L, 1, 100));
-        when(productMapper.selectById(3L)).thenReturn(product(3L, 0, 100));
+        when(productMapper.selectBatchIds(any())).thenReturn(java.util.List.of(
+                product(1L, 1, 100), product(2L, 1, 100), product(3L, 0, 100)));
 
         CartSummary summary = cartService.list(UID);
 
@@ -392,7 +391,7 @@ class CartServiceTest {
     @DisplayName("商品下架时列表项标记为失效")
     void summaryMarksInvalidItem() {
         when(cartItemMapper.selectList(any())).thenReturn(java.util.List.of(item(1L, UID, 1L, 0L, 1, 1)));
-        when(productMapper.selectById(1L)).thenReturn(product(1L, 0, 100));
+        when(productMapper.selectBatchIds(any())).thenReturn(java.util.List.of(product(1L, 0, 100)));
 
         CartSummary summary = cartService.list(UID);
 
@@ -405,7 +404,7 @@ class CartServiceTest {
     @DisplayName("商品被删除时列表项标记为失效")
     void summaryMarksDeletedProduct() {
         when(cartItemMapper.selectList(any())).thenReturn(java.util.List.of(item(1L, UID, 1L, 0L, 1, 1)));
-        when(productMapper.selectById(1L)).thenReturn(null);
+        when(productMapper.selectBatchIds(any())).thenReturn(java.util.List.of());
 
         CartSummary summary = cartService.list(UID);
 
@@ -417,8 +416,8 @@ class CartServiceTest {
     @DisplayName("有 SKU 时取 SKU 价格与库存")
     void summaryUsesSkuPrice() {
         when(cartItemMapper.selectList(any())).thenReturn(java.util.List.of(item(1L, UID, 1L, 5L, 2, 1)));
-        when(productMapper.selectById(1L)).thenReturn(product(1L, 1, 100));
-        when(productSkuMapper.selectById(5L)).thenReturn(sku(5L, 1L, "88.50", 10));
+        when(productMapper.selectBatchIds(any())).thenReturn(java.util.List.of(product(1L, 1, 100)));
+        when(productSkuMapper.selectBatchIds(any())).thenReturn(java.util.List.of(sku(5L, 1L, "88.50", 10)));
 
         CartSummary summary = cartService.list(UID);
 
@@ -431,8 +430,8 @@ class CartServiceTest {
     @DisplayName("SKU 已被删除时列表项标记为失效")
     void summaryMarksMissingSku() {
         when(cartItemMapper.selectList(any())).thenReturn(java.util.List.of(item(1L, UID, 1L, 5L, 1, 1)));
-        when(productMapper.selectById(1L)).thenReturn(product(1L, 1, 100));
-        when(productSkuMapper.selectById(5L)).thenReturn(null);
+        when(productMapper.selectBatchIds(any())).thenReturn(java.util.List.of(product(1L, 1, 100)));
+        when(productSkuMapper.selectBatchIds(any())).thenReturn(java.util.List.of());
 
         CartSummary summary = cartService.list(UID);
 
@@ -444,8 +443,8 @@ class CartServiceTest {
     @DisplayName("SKU 库存为 0 时列表项标记为失效")
     void summaryMarksOutOfStockSku() {
         when(cartItemMapper.selectList(any())).thenReturn(java.util.List.of(item(1L, UID, 1L, 5L, 1, 1)));
-        when(productMapper.selectById(1L)).thenReturn(product(1L, 1, 100));
-        when(productSkuMapper.selectById(5L)).thenReturn(sku(5L, 1L, "88.50", 0));
+        when(productMapper.selectBatchIds(any())).thenReturn(java.util.List.of(product(1L, 1, 100)));
+        when(productSkuMapper.selectBatchIds(any())).thenReturn(java.util.List.of(sku(5L, 1L, "88.50", 0)));
 
         CartSummary summary = cartService.list(UID);
 
