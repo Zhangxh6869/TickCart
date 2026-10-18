@@ -15,7 +15,7 @@ const loading = ref(false)
 const finished = ref(false)
 /** 已加载页码；van-list 首次挂载就会触发一次 load，因此从 0 起算 */
 const page = ref(0)
-const PAGE_SIZE = 10
+const PAGE_SIZE = 12
 
 /**
  * van-list 的加载回调：不提前 return，出错时直接置 finished，
@@ -156,7 +156,7 @@ const groups = computed(() => {
       class="view-history__list"
       @load="onLoad"
     >
-      <!-- 分组标题 + 两列网格。分组是展示层切分，数据仍是同一个分页列表 -->
+      <!-- 分组标题 + 三列网格。分组是展示层切分，数据仍是同一个分页列表 -->
       <section v-for="group in groups" :key="group.key" class="view-history__group">
         <h2 class="view-history__date">{{ group.label }}</h2>
         <div class="view-history__grid">
@@ -214,32 +214,47 @@ const groups = computed(() => {
 }
 .view-history__date {
   margin: 8px 0 8px;
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--van-text-color, #323233);
 }
 .view-history__group:first-child .view-history__date {
   margin-top: 0;
 }
-/* 与首页商品流、收藏页一致的两列网格；minmax(0,1fr) 防止列宽被卡片文字撑开而溢出 */
+/* 三列网格（每行三个商品）；minmax(0,1fr) 防止列宽被卡片文字撑开而溢出 */
 .view-history__grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 .view-history__item {
   position: relative;
 }
-/* 删除入口：浮在卡片右上角，避免为此改动 ProductCard 的结构 */
+/* 三列后单卡仅约 110px 宽：压缩 ProductCard 的字号与内边距，
+   否则「价格 + 已售」一行放不下会折行。只在本页覆盖，不动组件本身。 */
+.view-history__item :deep(.product-card__body) {
+  padding: 6px;
+}
+.view-history__item :deep(.product-card__name) {
+  font-size: 13px;
+}
+.view-history__item :deep(.product-card__price) {
+  font-size: 14px;
+}
+.view-history__item :deep(.product-card__sales) {
+  font-size: 11px;
+}
+/* 删除入口：浮在卡片右上角，避免为此改动 ProductCard 的结构。
+   三列下单卡更窄，热区收到 22px，保持与卡片的视觉比例 */
 .view-history__remove {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 5px;
+  right: 5px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   color: #fff;
   background: rgba(0, 0, 0, 0.45);
