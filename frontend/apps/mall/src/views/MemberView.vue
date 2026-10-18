@@ -4,9 +4,6 @@ import { useRouter } from 'vue-router'
 import { showConfirmDialog } from 'vant'
 import type { OrderStatusCount } from '@tickcart/shared-types'
 import { useUserStore } from '@/stores/user'
-import { fetchAddresses } from '@/api/address'
-import { fetchFavorites } from '@/api/favorite'
-import { fetchViewHistory } from '@/api/view-history'
 import { fetchOrderCount } from '@/api/order'
 import OrderStatusIcon from '@/components/OrderStatusIcon.vue'
 
@@ -71,9 +68,6 @@ const COUNT_KEY: Record<number, keyof OrderStatusCount> = {
 }
 
 const orderCount = ref<OrderStatusCount | null>(null)
-const favoriteCount = ref<number | null>(null)
-const viewHistoryCount = ref<number | null>(null)
-const addressCount = ref<number | null>(null)
 
 /** 某状态的订单数；未登录或还没拉到数据时返回 0（0 不渲染角标） */
 function countOf(status: number): number {
@@ -87,40 +81,23 @@ function badgeText(count: number): string {
   return count > 99 ? '99+' : String(count)
 }
 
-const favoriteText = computed(() => (favoriteCount.value === null ? '' : `${favoriteCount.value} 件`))
-const viewHistoryText = computed(() =>
-  viewHistoryCount.value === null ? '' : `${viewHistoryCount.value} 件`
-)
-const addressText = computed(() => (addressCount.value === null ? '' : `${addressCount.value} 个`))
-
 /**
- * 拉取页面上的四处数字。
+ * 拉取订单宫格的四态数字。
  *
- * 四个请求互不依赖，用 allSettled 让任一失败都不影响另外三个 ——
- * 少一个数字比整页报错好（失败时该项保持 null，界面上就是不显示）。
+ * 失败时保持 null，界面上的对应角标就是不显示 ——
+ * 少一个红点比整页报错好。
  */
 async function loadOverview() {
   if (!isLoggedIn.value) {
     orderCount.value = null
-    favoriteCount.value = null
-    viewHistoryCount.value = null
-    addressCount.value = null
     return
   }
 
-  const [orders, favorites, viewHistory, addresses] = await Promise.allSettled([
-    fetchOrderCount(),
-    // 只要总数：size 取 1，不把收藏的商品也拉回来
-    fetchFavorites({ page: 1, size: 1 }),
-    // 同上：浏览记录也只要 total
-    fetchViewHistory({ page: 1, size: 1 }),
-    fetchAddresses(),
-  ])
-
-  if (orders.status === 'fulfilled') orderCount.value = orders.value
-  if (favorites.status === 'fulfilled') favoriteCount.value = favorites.value.total
-  if (viewHistory.status === 'fulfilled') viewHistoryCount.value = viewHistory.value.total
-  if (addresses.status === 'fulfilled') addressCount.value = addresses.value.length
+  try {
+    orderCount.value = await fetchOrderCount()
+  } catch {
+    // 错误提示由请求拦截器统一处理，这里只保证角标不显示
+  }
 }
 
 /**
@@ -207,27 +184,11 @@ function goOrders(status?: number) {
         </div>
       </section>
 
-      <!-- 菜单与登录态无关，始终展示；未登录时点进去由路由守卫拦到登录页并带 redirect。
-           数字在未登录时不请求，右侧留空（不显示 0 件这种误导性文案）。 -->
+      <!-- 菜单与登录态无关，始终展示；未登录时点进去由路由守卫拦到登录页并带 redirect。 -->
       <van-cell-group inset class="member__cells">
-        <van-cell
-          title="我的收藏"
-          is-link
-          :value="favoriteText"
-          @click="router.push({ name: 'favorites' })"
-        />
-        <van-cell
-          title="浏览记录"
-          is-link
-          :value="viewHistoryText"
-          @click="router.push({ name: 'view-history' })"
-        />
-        <van-cell
-          title="收货地址"
-          is-link
-          :value="addressText"
-          @click="router.push({ name: 'address' })"
-        />
+        <van-cell title="我的收藏" is-link @click="router.push({ name: 'favorites' })" />
+        <van-cell title="浏览记录" is-link @click="router.push({ name: 'view-history' })" />
+        <van-cell title="收货地址" is-link @click="router.push({ name: 'address' })" />
         <van-cell title="个人信息" is-link @click="router.push({ name: 'profile' })" />
       </van-cell-group>
 
