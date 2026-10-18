@@ -1,6 +1,9 @@
 package com.tickcart.product.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.tickcart.common.cache.CacheKeys;
+import com.tickcart.common.cache.CacheProperties;
+import com.tickcart.common.cache.CacheService;
 import com.tickcart.common.exception.BizException;
 import com.tickcart.product.dto.CategorySaveRequest;
 import com.tickcart.product.entity.Category;
@@ -20,14 +23,36 @@ public class CategoryService {
 
     private final CategoryMapper categoryMapper;
     private final ProductMapper productMapper;
+    private final CacheService cacheService;
+    private final CacheProperties cacheProperties;
 
-    public CategoryService(CategoryMapper categoryMapper, ProductMapper productMapper) {
+    public CategoryService(CategoryMapper categoryMapper,
+                           ProductMapper productMapper,
+                           CacheService cacheService,
+                           CacheProperties cacheProperties) {
         this.categoryMapper = categoryMapper;
         this.productMapper = productMapper;
+        this.cacheService = cacheService;
+        this.cacheProperties = cacheProperties;
     }
 
-    /** 全部分类（按 sort 升序）；enabledOnly=true 时仅返回启用的。 */
+    /**
+     * 全部分类（按 sort 升序）；enabledOnly=true 时仅返回启用的。
+     *
+     * <p>前台只要启用的那一份，整表缓存（分类表很小，整表比按 id 缓存更省事）；
+     * 后台要看到停用分类，直接查库，不与前台共用缓存 —— 否则后台改完可能看到旧数据。</p>
+     */
     public List<Category> list(boolean enabledOnly) {
+        if (!enabledOnly) {
+            return queryList(false);
+        }
+        return cacheService.getList(CacheKeys.categoryListEnabled(),
+                cacheProperties.getCategoryListTtlSeconds(),
+                Category.class,
+                () -> queryList(true));
+    }
+
+    private List<Category> queryList(boolean enabledOnly) {
         LambdaQueryWrapper<Category> wrapper = new LambdaQueryWrapper<Category>()
                 .eq(enabledOnly, Category::getStatus, 1)
                 .orderByAsc(Category::getSort)
@@ -55,6 +80,8 @@ public class CategoryService {
         category.setSort(req.getSort() == null ? 0 : req.getSort());
         category.setStatus(req.getStatus() == null ? 1 : req.getStatus());
         categoryMapper.insert(category);
+        // 分类列表整表缓存，任一分类变动都要整体失效（提交后执行）
+        cacheService.evictAfterCommit(CacheKeys.categoryListEnabled());
         return category;
     }
 
@@ -76,6 +103,7 @@ public class CategoryService {
             category.setStatus(req.getStatus());
         }
         categoryMapper.updateById(category);
+        cacheService.evictAfterCommit(CacheKeys.categoryListEnabled());
         return category;
     }
 
@@ -94,6 +122,7 @@ public class CategoryService {
             throw BizException.conflict("该分类下存在商品，无法删除");
         }
         categoryMapper.deleteById(id);
+        cacheService.evictAfterCommit(CacheKeys.categoryListEnabled());
     }
 
     /** 由父分类推导层级：顶级为 1，否则父级 +1。 */

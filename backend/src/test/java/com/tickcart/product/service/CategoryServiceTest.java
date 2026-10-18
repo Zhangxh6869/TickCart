@@ -1,20 +1,30 @@
 package com.tickcart.product.service;
 
+import com.tickcart.common.cache.CacheProperties;
+import com.tickcart.common.cache.CacheService;
 import com.tickcart.common.exception.BizException;
 import com.tickcart.product.dto.CategorySaveRequest;
 import com.tickcart.product.entity.Category;
 import com.tickcart.product.mapper.CategoryMapper;
 import com.tickcart.product.mapper.ProductMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.Spy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import java.util.function.Supplier;
+
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -28,9 +38,20 @@ class CategoryServiceTest {
     private CategoryMapper categoryMapper;
     @Mock
     private ProductMapper productMapper;
+    @Mock
+    private CacheService cacheService;
+    @Spy
+    private CacheProperties cacheProperties = new CacheProperties();
 
     @InjectMocks
     private CategoryService categoryService;
+
+    /** 让缓存在单测里透明：getList 直接执行 loader，等价于「每次都未命中」。 */
+    @BeforeEach
+    void stubCacheTransparent() {
+        lenient().when(cacheService.getList(anyString(), anyLong(), eq(Category.class), any()))
+                .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(3)).get());
+    }
 
     private CategorySaveRequest req(Long parentId, String name) {
         CategorySaveRequest r = new CategorySaveRequest();

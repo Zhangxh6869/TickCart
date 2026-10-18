@@ -51,10 +51,10 @@ public class AdminProductController {
         return R.ok(productService.page(query, false));
     }
 
-    @Operation(summary = "商品详情")
+    @Operation(summary = "商品详情", description = "后台读取绕过缓存，避免编辑到 TTL 内的旧数据")
     @GetMapping("/products/{id}")
     public R<ProductDetail> detail(@PathVariable Long id) {
-        return R.ok(productService.detail(id));
+        return R.ok(productService.detailFresh(id));
     }
 
     @Operation(summary = "新增商品")

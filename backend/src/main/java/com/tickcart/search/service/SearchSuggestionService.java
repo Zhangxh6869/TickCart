@@ -1,6 +1,9 @@
 package com.tickcart.search.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.tickcart.common.cache.CacheKeys;
+import com.tickcart.common.cache.CacheProperties;
+import com.tickcart.common.cache.CacheService;
 import com.tickcart.product.entity.Product;
 import com.tickcart.product.mapper.ProductMapper;
 import com.tickcart.search.mapper.SearchLogMapper;
@@ -29,16 +32,33 @@ public class SearchSuggestionService {
 
     private final SearchLogMapper searchLogMapper;
     private final ProductMapper productMapper;
+    private final CacheService cacheService;
+    private final CacheProperties cacheProperties;
 
-    public SearchSuggestionService(SearchLogMapper searchLogMapper, ProductMapper productMapper) {
+    public SearchSuggestionService(SearchLogMapper searchLogMapper,
+                                   ProductMapper productMapper,
+                                   CacheService cacheService,
+                                   CacheProperties cacheProperties) {
         this.searchLogMapper = searchLogMapper;
         this.productMapper = productMapper;
+        this.cacheService = cacheService;
+        this.cacheProperties = cacheProperties;
     }
 
     /**
      * 全局热门搜索词：真实搜索词频 TOP N；搜索日志为空时兜底「热销商品名首段」。
      */
     public List<String> hotWords(int limit) {
+        // 热搜依赖 search_log 词频，每次都要 GROUP BY 全表聚合，是全站最贵的只读查询之一。
+        // 用短 TTL 自然过期而不是主动失效：搜索日志每搜一次就写一行，主动失效等于永不命中。
+        return cacheService.getList(CacheKeys.hotWords(limit),
+                cacheProperties.getHotWordsTtlSeconds(),
+                String.class,
+                () -> loadHotWords(limit));
+    }
+
+    /** 直查 DB 计算热搜词（缓存未命中时调用）。 */
+    private List<String> loadHotWords(int limit) {
         List<String> hot = searchLogMapper.hotKeywords(limit);
         if (!hot.isEmpty()) {
             return hot;

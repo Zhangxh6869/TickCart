@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.tickcart.common.cache.CacheProperties;
+import com.tickcart.common.cache.CacheService;
 import com.tickcart.common.exception.BizException;
 import com.tickcart.product.dto.ProductQuery;
 import com.tickcart.product.dto.ProductSaveRequest;
@@ -18,6 +20,7 @@ import com.tickcart.product.mapper.ProductSkuMapper;
 import com.tickcart.product.vo.ProductDetail;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,14 +28,20 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.Spy;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -57,6 +66,11 @@ class ProductServiceTest {
      */
     @Mock
     private SynonymService synonymService;
+    @Mock
+    private CacheService cacheService;
+    /** 用真实配置对象（默认 TTL），不 mock：这些用例不关心 TTL，只关心缓存被绕过 */
+    @Spy
+    private CacheProperties cacheProperties = new CacheProperties();
 
     @InjectMocks
     private ProductService productService;
@@ -66,6 +80,13 @@ class ProductServiceTest {
      * TableInfo 缓存；只要断言里调用了 {@code getSqlSegment()} 把条件实体化，
      * 就必须先手动初始化，否则报 "can not find lambda cache"。
      */
+    /** 让缓存在单测里透明：get 直接执行 loader，等价于「每次都未命中」。 */
+    @BeforeEach
+    void stubCacheTransparent() {
+        lenient().when(cacheService.get(anyString(), anyLong(), eq(ProductDetail.class), any()))
+                .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(3)).get());
+    }
+
     @BeforeAll
     static void initTableInfo() {
         MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");

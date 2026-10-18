@@ -165,6 +165,21 @@ tickcart:
     log-retention-days: ${SEARCH_LOG_RETENTION_DAYS:90}
     # 清理任务 cron（Spring 6 段式：秒 分 时 日 月 周），默认每天 03:00
     log-cleanup-cron: ${SEARCH_LOG_CLEANUP_CRON:0 0 3 * * ?}
+  # 读缓存（A2）：商品详情 / 分类列表 / 热搜词
+  # key 规范与失效策略见 docs/商品缓存设计.md
+  cache:
+    # 总开关：关掉后所有读写直接回源，用于排查「是不是缓存导致的」
+    enabled: ${CACHE_ENABLED:true}
+    # 商品详情 TTL（秒）：详情含库存，太长会显示过期库存
+    product-detail-ttl-seconds: ${CACHE_PRODUCT_DETAIL_TTL:60}
+    # 分类列表 TTL（秒）：分类极少变动
+    category-list-ttl-seconds: ${CACHE_CATEGORY_LIST_TTL:1800}
+    # 热搜词 TTL（秒）：太短等于没缓存，太长失去时效
+    hot-words-ttl-seconds: ${CACHE_HOT_WORDS_TTL:300}
+    # 空值标记 TTL（秒）：防穿透
+    null-ttl-seconds: ${CACHE_NULL_TTL:60}
+    # TTL 随机抖动百分比，避免同一时刻批量过期造成雪崩
+    ttl-jitter-percent: ${CACHE_TTL_JITTER:10}
 
 # -----------------------------------------------------------------------------
 # MyBatis-Plus 配置

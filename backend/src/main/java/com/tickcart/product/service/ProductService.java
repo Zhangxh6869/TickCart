@@ -3,6 +3,9 @@ package com.tickcart.product.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tickcart.common.api.PageResult;
+import com.tickcart.common.cache.CacheKeys;
+import com.tickcart.common.cache.CacheProperties;
+import com.tickcart.common.cache.CacheService;
 import com.tickcart.common.exception.BizException;
 import com.tickcart.product.dto.ProductQuery;
 import com.tickcart.product.dto.ProductSaveRequest;
@@ -49,17 +52,23 @@ public class ProductService {
     private final ProductImageMapper imageMapper;
     private final CategoryMapper categoryMapper;
     private final SynonymService synonymService;
+    private final CacheService cacheService;
+    private final CacheProperties cacheProperties;
 
     public ProductService(ProductMapper productMapper,
                           ProductSkuMapper skuMapper,
                           ProductImageMapper imageMapper,
                           CategoryMapper categoryMapper,
-                          SynonymService synonymService) {
+                          SynonymService synonymService,
+                          CacheService cacheService,
+                          CacheProperties cacheProperties) {
         this.productMapper = productMapper;
         this.skuMapper = skuMapper;
         this.imageMapper = imageMapper;
         this.categoryMapper = categoryMapper;
         this.synonymService = synonymService;
+        this.cacheService = cacheService;
+        this.cacheProperties = cacheProperties;
     }
 
     /**
@@ -235,9 +244,49 @@ public class ProductService {
                 .replace("_", LIKE_ESCAPE + "_");
     }
 
-    /** 商品详情（含 SKU、图集、分类名）。 */
+    /**
+     * 商品详情（含 SKU、图集、分类名）。
+     *
+     * <p>走读缓存：一次详情原本要打 4 条 SQL（product / product_sku / product_image / category），
+     * 命中后为 0 条。库存也在缓存里，允许 TTL 内的短暂陈旧 —— 权威校验在下单时的
+     * 条件 UPDATE（{@code WHERE stock >= n}），详情页只做展示。</p>
+     */
     public ProductDetail detail(Long id) {
-        Product product = requireProduct(id);
+        ProductDetail detail = cacheService.get(
+                CacheKeys.productDetail(id),
+                cacheProperties.getProductDetailTtlSeconds(),
+                ProductDetail.class,
+                () -> loadDetail(id));
+        if (detail == null) {
+            throw BizException.notFound("商品不存在");
+        }
+        return detail;
+    }
+
+    /**
+     * 商品详情（绕过缓存，直查 DB）。
+     *
+     * <p>后台编辑弹窗用：避免拿到 TTL 内的旧数据，保存后覆盖掉刚被别人改过的字段。</p>
+     */
+    public ProductDetail detailFresh(Long id) {
+        ProductDetail detail = loadDetail(id);
+        if (detail == null) {
+            throw BizException.notFound("商品不存在");
+        }
+        return detail;
+    }
+
+    /**
+     * 直查 DB 组装详情。
+     *
+     * <p><b>商品不存在时返回 null 而不是抛异常</b>：只有返回 null，缓存层才能写入空值标记，
+     * 挡住对同一个无效 id 的重复请求（防穿透）。404 由调用方统一抛。</p>
+     */
+    private ProductDetail loadDetail(Long id) {
+        Product product = productMapper.selectById(id);
+        if (product == null) {
+            return null;
+        }
         List<ProductSku> skus = skuMapper.selectList(
                 new LambdaQueryWrapper<ProductSku>().eq(ProductSku::getProductId, id));
         List<ProductImage> images = imageMapper.selectList(
@@ -315,6 +364,8 @@ public class ProductService {
                     .eq(ProductImage::getProductId, id));
             saveImages(id, req.getImages());
         }
+        // 提交后失效详情缓存：事务内删的话，并发读可能在提交前读到旧值并回填
+        cacheService.evictAfterCommit(CacheKeys.productDetail(id));
     }
 
     /** 上架/下架。 */
@@ -326,6 +377,7 @@ public class ProductService {
         Product product = requireProduct(id);
         product.setStatus(status);
         productMapper.updateById(product);
+        cacheService.evictAfterCommit(CacheKeys.productDetail(id));
     }
 
     /** 删除商品（连同 SKU、图集）。 */
@@ -335,6 +387,7 @@ public class ProductService {
         skuMapper.delete(new LambdaQueryWrapper<ProductSku>().eq(ProductSku::getProductId, id));
         imageMapper.delete(new LambdaQueryWrapper<ProductImage>().eq(ProductImage::getProductId, id));
         productMapper.deleteById(id);
+        cacheService.evictAfterCommit(CacheKeys.productDetail(id));
     }
 
     // -------------------------------------------------------------------------
@@ -354,6 +407,8 @@ public class ProductService {
         sku.setStock(stock);
         skuMapper.updateById(sku);
         refreshProductStock(sku.getProductId());
+        // 详情里含 SKU 库存，改库存后必须失效，否则后台改完前台仍显示旧值
+        cacheService.evictAfterCommit(CacheKeys.productDetail(sku.getProductId()));
     }
 
     /** 依据 SKU 汇总刷新商品总库存。 */
