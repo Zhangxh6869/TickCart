@@ -64,24 +64,56 @@
 打通「加购→下单→支付→订单履约」完整闭环，实现订单状态机与地址体系。
 
 ### 前端
-- [ ] 购物车页：增删改数量、勾选、全选、合计、失效商品提示；Pinia `stores/cart`
-- [ ] 结算/提交订单页：地址选择/新增、商品清单、配送方式、实付金额
-- [ ] 支付页：金额 + 模拟支付方式（微信/支付宝），确认支付后跳订单详情
-- [ ] 订单中心：状态 tab（待付款/待发货/待收货/已完成/已取消）、订单详情、取消、确认收货
-- [ ] 个人中心：我的订单、地址管理、收藏、信息
+- [x] 购物车页：增删改数量、勾选、全选、合计、失效商品提示；Pinia `stores/cart`
+- [x] 结算/提交订单页：地址选择/新增、商品清单、配送方式、实付金额
+- [x] 支付页：金额 + 模拟支付方式（微信/支付宝），确认支付后跳订单详情
+- [x] 订单中心：状态 tab（待付款/待发货/待收货/已完成/已取消）、订单详情、取消、确认收货
+- [x] 个人中心：我的订单、地址管理、收藏、信息
 
 ### 后端
-- [ ] `member` 模块：收货地址 CRUD
-- [ ] `cart` 模块：购物车项增删改查、勾选合计、失效校验（MVP 用 MySQL 表）
-- [ ] `trade` 模块：创建订单（校验地址/购物车/价格快照、扣库存、生成订单号）、订单状态机
-- [ ] 支付回调入口（模拟）：写支付记录、订单置为待发货（预留真实回调形态）
-- [ ] 订单超时自动取消：发布 `trade.order.timeout` 延迟队列 + 死信关单回库存
-- [ ] 订单列表/详情/取消/确认收货接口
+- [x] `member` 模块：收货地址 CRUD
+- [x] `cart` 模块：购物车项增删改查、勾选合计、失效校验（MVP 用 MySQL 表）
+- [x] `trade` 模块：创建订单（校验地址/购物车/价格快照、扣库存、生成订单号）、订单状态机
+- [x] 支付回调入口（模拟）：写支付记录、订单置为待发货（预留真实回调形态）
+- [x] 订单超时自动取消：发布 `trade.order.timeout` 延迟队列 + 死信关单回库存
+- [x] 订单列表/详情/取消/确认收货接口
 
 ### 验收标准
-- 完整走通：加购→勾选→填地址→提交订单→支付→订单待发货。
-- 待付款订单超时自动取消并把库存回补。
-- 订单状态流转正确（状态机防御非法跳转）。
+- [x] 完整走通：加购→勾选→填地址→提交订单→支付→订单待发货。
+- [x] 待付款订单超时自动取消并把库存回补。
+- [x] 订单状态流转正确（状态机防御非法跳转）。
+
+### 验收记录（2026-10-18）
+
+**实现落点**
+
+| 端 | 文件 |
+|---|---|
+| 后端 | `member`（AddressController/AddressService）、`cart`（CartController/CartService）、`trade`（OrderService 686 行、OrderStatus 状态机、PaymentService、MockChannelService、InventoryService）、`trade/mq`（OrderTimeoutConsumer、PaymentNotifyConsumer）、`common/mq`（OrderMqConfig、PaymentMqConfig） |
+| 前端 | `CartView` / `CheckoutView` / `PayView` / `PayChannelView` / `OrderListView` / `OrderDetailView` / `MemberView` / `AddressListView` + `stores/cart` + `api/{cart,order,payment,address}.ts` |
+
+**提交切片**：`97a1856`（切片1 地址）→ `b9f1345`（切片2 购物车）→ `f318361`（切片3 下单+状态机）→ `08fe553`（切片4 模拟支付）→ `57392e7`（切片5 超时关单）；后续 `7d532e0` 支付改三段式、`75806d2` 立即购买、`50f555e` 购物车换规格。
+
+**自动化测试**：`mvn test` 242 项全通过（2026-10-17 13:38），交易链路相关 71 项 —— OrderServiceTest 44、PaymentServiceTest 15、OrderStatusTest 8、OrderTimeoutConsumerTest 4、CartServiceTest 30、AddressServiceTest 14。
+
+**运行时实测**（demo/123456，8080 真实请求）
+
+```
+buy-now 下单        → status 0 待付款，SKU 库存 118 → 117
+POST /api/payments  → 只落「待支付」流水，订单不推进
+渠道 notify success → 经 MQ 延迟，订单变 1 待发货
+取消未付订单         → status 4，库存回补 117 → 118
+待发货再取消         → 409 订单当前为「待发货」，无法取消
+已取消再确认收货     → 409（状态机防御生效）
+```
+
+超时关单：库中已有 7 条 `status=5` 记录，`tickcart.order.timeout-ttl-ms` 默认 900000ms。
+
+**已知边界（不影响验收，留档）**
+
+1. 订单取消后其「待支付」流水不置终态；若渠道回调迟到，`markPaid` 会因状态已变抛冲突 → 消费者重试 3 次后打 ERROR 日志等人工介入（不会产生「已关闭却标记已支付」的脏数据）。
+2. 结算页「配送方式」为展示型（快递配送 · 免运费），不落库、不加订单字段，待后续有运费策略时再建模。
+3. 订单中心 tab 为 6 个（全部/待付款/待发货/待收货/已完成/已取消），比原清单多一个「全部」入口。
 
 ---
 
