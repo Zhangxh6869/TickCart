@@ -59,12 +59,12 @@ public class SeckillController {
 
     @Operation(summary = "抢购",
             description = "同步完成库存原子扣减并把建单任务投递到 MQ，返回 requestId 供轮询结果；"
-                    + "必须登录（限购需要用户维度）")
+                    + "必须登录（限购需要用户维度），且必须指定属于本人的收货地址")
     @PostMapping("/activities/{activityId}/order")
     public R<SeckillBuyResultVO> buy(@PathVariable Long activityId,
-                                     @Valid @RequestBody(required = false) SeckillBuyRequest req) {
-        int quantity = (req == null || req.getQuantity() == null) ? 1 : req.getQuantity();
-        return R.ok(buyService.buy(currentUserId(), activityId, quantity));
+                                     @Valid @RequestBody SeckillBuyRequest req) {
+        int quantity = req.getQuantity() == null ? 1 : req.getQuantity();
+        return R.ok(buyService.buy(currentUserId(), activityId, quantity, req.getAddressId()));
     }
 
     @Operation(summary = "抢购结果",

@@ -19,6 +19,8 @@ public class SeckillOrderMessage {
     private Long userId;
     private Long productId;
     private Long skuId;
+    /** 收货地址ID（抢购时由用户选定，建单时按此取快照） */
+    private Long addressId;
     private Integer quantity;
     private BigDecimal seckillPrice;
     private LocalDateTime createdAt;
@@ -61,6 +63,14 @@ public class SeckillOrderMessage {
 
     public void setSkuId(Long skuId) {
         this.skuId = skuId;
+    }
+
+    public Long getAddressId() {
+        return addressId;
+    }
+
+    public void setAddressId(Long addressId) {
+        this.addressId = addressId;
     }
 
     public Integer getQuantity() {

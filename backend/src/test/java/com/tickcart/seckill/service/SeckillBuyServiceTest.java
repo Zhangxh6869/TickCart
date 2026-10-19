@@ -42,6 +42,7 @@ class SeckillBuyServiceTest {
 
     private static final Long ACTIVITY_ID = 9L;
     private static final Long USER_ID = 2L;
+    private static final Long ADDRESS_ID = 124L;
 
     @Mock
     private SeckillStockService stockService;
@@ -55,11 +56,11 @@ class SeckillBuyServiceTest {
     @BeforeEach
     void setUp() {
         service = new SeckillBuyService(stockService, messageProducer, addressService);
-        // 默认用户有地址；需要验证「无地址」的用例单独覆盖
+        // 默认地址有效；需要验证「地址无效」的用例单独覆盖
         UserAddress address = new UserAddress();
-        address.setId(124L);
+        address.setId(ADDRESS_ID);
         address.setUserId(USER_ID);
-        lenient().when(addressService.getDefault(USER_ID)).thenReturn(address);
+        lenient().when(addressService.getOwned(USER_ID, ADDRESS_ID)).thenReturn(address);
     }
 
     @Test
@@ -67,7 +68,7 @@ class SeckillBuyServiceTest {
     void notPreloaded() {
         when(stockService.snapshot(ACTIVITY_ID)).thenReturn(null);
 
-        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1))
+        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1, ADDRESS_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("尚未就绪");
     }
@@ -79,7 +80,7 @@ class SeckillBuyServiceTest {
         pending.setStartTime(LocalDateTime.now().plusMinutes(30));
         when(stockService.snapshot(ACTIVITY_ID)).thenReturn(pending);
 
-        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1))
+        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1, ADDRESS_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessage("活动尚未开始");
         verify(stockService, never()).tryDeduct(anyLong(), anyLong(), anyInt(), anyInt());
@@ -90,7 +91,7 @@ class SeckillBuyServiceTest {
     void endedActivity() {
         when(stockService.snapshot(ACTIVITY_ID)).thenReturn(snapshot(LocalDateTime.now().minusHours(1)));
 
-        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1))
+        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1, ADDRESS_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessage("活动已结束");
     }
@@ -102,7 +103,7 @@ class SeckillBuyServiceTest {
         snapshot.setEnabled(0);
         when(stockService.snapshot(ACTIVITY_ID)).thenReturn(snapshot);
 
-        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1))
+        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1, ADDRESS_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessage("活动已结束");
     }
@@ -112,7 +113,7 @@ class SeckillBuyServiceTest {
     void overLimitRequested() {
         when(stockService.snapshot(ACTIVITY_ID)).thenReturn(snapshot(LocalDateTime.now().plusHours(1)));
 
-        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 3))
+        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 3, ADDRESS_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessage("每人限购 2 件");
         verify(stockService, never()).tryDeduct(anyLong(), anyLong(), anyInt(), anyInt());
@@ -124,21 +125,22 @@ class SeckillBuyServiceTest {
         when(stockService.snapshot(ACTIVITY_ID)).thenReturn(snapshot(LocalDateTime.now().plusHours(1)));
         when(stockService.tryLockRequest(anyLong(), anyLong(), anyString())).thenReturn(false);
 
-        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1))
+        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1, ADDRESS_ID))
                 .isInstanceOf(RateLimitedException.class);
         verify(stockService, never()).tryDeduct(anyLong(), anyLong(), anyInt(), anyInt());
     }
 
     @Test
-    @DisplayName("无收货地址：409，且不扣库存（不消耗名额）")
-    void noAddressRejected() {
+    @DisplayName("收货地址无效：拒绝，且不扣库存（不消耗名额）")
+    void invalidAddressRejected() {
         when(stockService.snapshot(ACTIVITY_ID)).thenReturn(snapshot(LocalDateTime.now().plusHours(1)));
         when(stockService.tryLockRequest(anyLong(), anyLong(), anyString())).thenReturn(true);
-        when(addressService.getDefault(USER_ID)).thenReturn(null);
+        when(addressService.getOwned(USER_ID, ADDRESS_ID))
+                .thenThrow(BizException.notFound("收货地址不存在"));
 
-        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1))
+        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1, ADDRESS_ID))
                 .isInstanceOf(BizException.class)
-                .hasMessage("请先添加收货地址");
+                .hasMessage("收货地址不存在");
         verify(stockService, never()).tryDeduct(anyLong(), anyLong(), anyInt(), anyInt());
         verify(stockService).unlockRequest(ACTIVITY_ID, USER_ID);
     }
@@ -151,7 +153,7 @@ class SeckillBuyServiceTest {
         when(stockService.tryDeduct(anyLong(), anyLong(), anyInt(), anyInt()))
                 .thenReturn(SeckillStockService.RESULT_SOLD_OUT);
 
-        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1))
+        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1, ADDRESS_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessage("已抢光");
         verify(stockService).unlockRequest(ACTIVITY_ID, USER_ID);
@@ -165,7 +167,7 @@ class SeckillBuyServiceTest {
         when(stockService.tryDeduct(anyLong(), anyLong(), anyInt(), anyInt()))
                 .thenReturn(SeckillStockService.RESULT_OVER_LIMIT);
 
-        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1))
+        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1, ADDRESS_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessage("每人限购 2 件");
     }
@@ -178,7 +180,7 @@ class SeckillBuyServiceTest {
         when(stockService.tryDeduct(anyLong(), anyLong(), anyInt(), anyInt())).thenReturn(99L);
         when(messageProducer.sendOrder(any())).thenReturn(false);
 
-        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1))
+        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1, ADDRESS_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("下单繁忙");
 
@@ -194,7 +196,7 @@ class SeckillBuyServiceTest {
         when(stockService.tryDeduct(anyLong(), anyLong(), anyInt(), anyInt())).thenReturn(99L);
         when(messageProducer.sendOrder(any())).thenReturn(true);
 
-        SeckillBuyResultVO result = service.buy(USER_ID, ACTIVITY_ID, 1);
+        SeckillBuyResultVO result = service.buy(USER_ID, ACTIVITY_ID, 1, ADDRESS_ID);
 
         assertThat(result.getRequestId()).isNotBlank();
         assertThat(result.getRemainingStock()).isEqualTo(99L);
@@ -206,6 +208,7 @@ class SeckillBuyServiceTest {
         assertThat(message.getActivityId()).isEqualTo(ACTIVITY_ID);
         assertThat(message.getUserId()).isEqualTo(USER_ID);
         assertThat(message.getSeckillPrice()).isEqualByComparingTo("9.90");
+        assertThat(message.getAddressId()).isEqualTo(ADDRESS_ID);
         // 成功后不释放标记：挡住建单排队期间的连点
         verify(stockService, never()).unlockRequest(anyLong(), anyLong());
     }

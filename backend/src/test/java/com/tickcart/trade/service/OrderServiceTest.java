@@ -433,7 +433,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("秒杀建单：channel=1、SK 前缀、不扣 SKU 库存、累加已售")
     void createSeckillOrderSuccess() {
-        when(addressService.getDefault(UID)).thenReturn(address());
+        when(addressService.getOwned(UID, 1L)).thenReturn(address());
         when(productMapper.selectById(10L)).thenReturn(product(10L, 1, "99.00", 50));
         when(productSkuMapper.selectById(5L)).thenReturn(sku(5L, 10L, "88.00", 20));
         when(orderMapper.insert(any(Order.class))).thenAnswer(inv -> {
@@ -444,7 +444,7 @@ class OrderServiceTest {
         when(orderItemMapper.insert(any(OrderItem.class))).thenReturn(1);
 
         OrderVO result = orderService.createSeckillOrder(
-                UID, 9L, 10L, 5L, 2, new BigDecimal("9.90"), "rid-1");
+                UID, 9L, 10L, 5L, 1L, 2, new BigDecimal("9.90"), "rid-1");
 
         assertThat(result.getOrderNo()).startsWith("SK");
         assertThat(result.getPayAmount()).isEqualByComparingTo("19.80");
@@ -462,14 +462,15 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("秒杀建单：无默认收货地址时拒绝")
-    void createSeckillOrderWithoutAddress() {
-        when(addressService.getDefault(UID)).thenReturn(null);
+    @DisplayName("秒杀建单：地址不属于该用户时拒绝（抢到后删地址也会落到这里）")
+    void createSeckillOrderWithForeignAddress() {
+        when(addressService.getOwned(UID, 9L))
+                .thenThrow(BizException.notFound("收货地址不存在"));
 
         assertThatThrownBy(() -> orderService.createSeckillOrder(
-                UID, 9L, 10L, 5L, 1, new BigDecimal("9.90"), "rid-2"))
+                UID, 9L, 10L, 5L, 9L, 1, new BigDecimal("9.90"), "rid-2"))
                 .isInstanceOf(BizException.class)
-                .hasMessage("请先添加收货地址");
+                .hasMessage("收货地址不存在");
         verify(orderMapper, never()).insert(any(Order.class));
     }
 
@@ -482,7 +483,7 @@ class OrderServiceTest {
                 .thenReturn(order("SK202610191700001234", UID, OrderStatus.PENDING_PAYMENT));
 
         OrderVO vo = orderService.createSeckillOrder(
-                UID, 9L, 10L, 5L, 1, new BigDecimal("9.90"), "rid-3");
+                UID, 9L, 10L, 5L, 1L, 1, new BigDecimal("9.90"), "rid-3");
 
         assertThat(vo.getOrderNo()).isEqualTo("SK202610191700001234");
         verify(orderMapper, never()).insert(any(Order.class));

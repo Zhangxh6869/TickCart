@@ -100,8 +100,18 @@ async function main() {
   console.log(`\n① ${USERS} 个用户并发抢 ${STOCK} 件`)
   const usernames = Array.from({ length: USERS }, (_, i) => `sku${String(i + 1).padStart(3, '0')}`)
   const tokens = await Promise.all(usernames.map((u) => login(u, USER_PASS)))
-  const buys = await Promise.all(tokens.map((token) =>
-    call('POST', `/api/seckill/activities/${activityId}/order`, { quantity: 1 }, token)))
+  // 抢购必须指定本人的收货地址：先取每个用户的第一条地址
+  const addressIds = await Promise.all(tokens.map(async (token) => {
+    const r = await call('GET', '/api/addresses', undefined, token)
+    const first = r.body?.data?.[0]
+    if (!first) throw new Error('测试账号缺少收货地址，请先 seed user_address')
+    return first.id
+  }))
+  ok(`已取到 ${addressIds.length} 个收货地址`)
+
+  const buys = await Promise.all(tokens.map((token, i) =>
+    call('POST', `/api/seckill/activities/${activityId}/order`,
+      { quantity: 1, addressId: addressIds[i] }, token)))
 
   const accepted = buys
     .map((r, i) => ({ r, i }))

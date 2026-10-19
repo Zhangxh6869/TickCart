@@ -84,8 +84,8 @@ public class SeckillOrderConsumer {
         try {
             OrderVO order = orderService.createSeckillOrder(
                     payload.getUserId(), payload.getActivityId(), payload.getProductId(),
-                    payload.getSkuId(), payload.getQuantity(), payload.getSeckillPrice(),
-                    payload.getRequestId());
+                    payload.getSkuId(), payload.getAddressId(), payload.getQuantity(),
+                    payload.getSeckillPrice(), payload.getRequestId());
             resultService.success(payload.getRequestId(), payload.getUserId(), order.getOrderNo());
             channel.basicAck(deliveryTag, false);
             log.info("秒杀建单成功：requestId={}, orderNo={}", payload.getRequestId(), order.getOrderNo());

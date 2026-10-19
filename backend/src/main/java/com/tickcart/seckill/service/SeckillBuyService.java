@@ -52,7 +52,7 @@ public class SeckillBuyService {
      * @param quantity 抢购数量，null 按 1 处理
      * @return 受理结果（含 {@code requestId}，供前端轮询）
      */
-    public SeckillBuyResultVO buy(Long userId, Long activityId, Integer quantity) {
+    public SeckillBuyResultVO buy(Long userId, Long activityId, Integer quantity, Long addressId) {
         int qty = quantity == null ? 1 : quantity;
 
         SeckillActivitySnapshot snapshot = stockService.snapshot(activityId);
@@ -81,11 +81,13 @@ public class SeckillBuyService {
             throw new RateLimitedException(3);
         }
 
-        // 有收货地址才能下单：抢购是异步建单，等消费者发现没地址就太晚了 —— 库存白扣一次再退回，
-        // 用户还以为抢到了。放在请求锁之后，同一用户 3 秒内最多查一次，不会把 DB 打穿。
-        if (addressService.getDefault(userId) == null) {
+        // 校验用户选定的收货地址：抢购是异步建单，等消费者发现地址无效就太晚了 ——
+        // 库存白扣一次再退回，用户还以为抢到了。放在请求锁之后，同一用户 3 秒内最多查一次 DB。
+        try {
+            addressService.getOwned(userId, addressId);
+        } catch (RuntimeException e) {
             stockService.unlockRequest(activityId, userId);
-            throw BizException.conflict("请先添加收货地址");
+            throw e;
         }
 
         long remaining;
@@ -101,7 +103,7 @@ public class SeckillBuyService {
             throw mapDeductFailure(remaining, limit);
         }
 
-        if (!messageProducer.sendOrder(buildMessage(requestId, snapshot, userId, qty))) {
+        if (!messageProducer.sendOrder(buildMessage(requestId, snapshot, userId, qty, addressId))) {
             // 扣了库存却没进队列 = 用户白抢，必须立刻还回去
             stockService.restore(activityId, userId, qty);
             stockService.unlockRequest(activityId, userId);
@@ -128,13 +130,14 @@ public class SeckillBuyService {
     }
 
     private SeckillOrderMessage buildMessage(String requestId, SeckillActivitySnapshot snapshot,
-                                             Long userId, int qty) {
+                                             Long userId, int qty, Long addressId) {
         SeckillOrderMessage message = new SeckillOrderMessage();
         message.setRequestId(requestId);
         message.setActivityId(snapshot.getActivityId());
         message.setUserId(userId);
         message.setProductId(snapshot.getProductId());
         message.setSkuId(snapshot.getSkuId());
+        message.setAddressId(addressId);
         message.setQuantity(qty);
         // 价格用快照，消费者不再回查活动
         message.setSeckillPrice(snapshot.getSeckillPrice());

@@ -244,12 +244,14 @@ public class OrderService {
      *
      * <p>幂等键用抢购时生成的 {@code requestId}：消息重复投递会命中同一键并回放首次订单号。</p>
      *
+     * @param addressId    抢购时用户选定的收货地址（必须属于该用户）
      * @param seckillPrice 活动价快照（来自消息，不回查活动）
-     * @throws BizException 无默认收货地址、商品已不存在、幂等键冲突
+     * @throws BizException 地址不属于该用户、商品已不存在、幂等键冲突
      */
     @Transactional
     public OrderVO createSeckillOrder(Long userId, Long activityId, Long productId, Long skuId,
-                                      int quantity, BigDecimal seckillPrice, String requestId) {
+                                      Long addressId, int quantity, BigDecimal seckillPrice,
+                                      String requestId) {
         String replayedOrderNo = idempotentService.claim(
                 userId, IdempotentService.SCENE_SECKILL_BUY, requestId);
         if (replayedOrderNo != null) {
@@ -257,11 +259,9 @@ public class OrderService {
             return replay(userId, replayedOrderNo);
         }
 
-        // 秒杀来不及选地址，用默认地址；没有地址属于业务拒绝，不该重试
-        UserAddress address = addressService.getDefault(userId);
-        if (address == null) {
-            throw BizException.badRequest("请先添加收货地址");
-        }
+        // 地址由用户在抢购时选定；这里再校验一次归属 —— 抢到后把地址删了也会落到这里，
+        // 属于业务拒绝（重试无意义），消费者会回补库存
+        UserAddress address = addressService.getOwned(userId, addressId);
 
         OrderItem draft = buildSeckillItem(productId, skuId, quantity, seckillPrice);
         Order order = saveOrder(userId, address, null, draft.getSubtotal(), List.of(draft),
