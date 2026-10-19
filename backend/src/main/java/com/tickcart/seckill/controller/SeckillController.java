@@ -3,9 +3,12 @@ package com.tickcart.seckill.controller;
 import com.tickcart.common.api.R;
 import com.tickcart.common.exception.BizException;
 import com.tickcart.common.security.UserContext;
+import com.tickcart.seckill.cache.SeckillResult;
 import com.tickcart.seckill.dto.SeckillBuyRequest;
 import com.tickcart.seckill.service.SeckillActivityService;
 import com.tickcart.seckill.service.SeckillBuyService;
+import com.tickcart.seckill.service.SeckillResultService;
+import com.tickcart.seckill.vo.SeckillResultVO;
 import com.tickcart.seckill.vo.SeckillActivityVO;
 import com.tickcart.seckill.vo.SeckillBuyResultVO;
 import io.swagger.v3.oas.annotations.Operation;
@@ -32,11 +35,14 @@ public class SeckillController {
 
     private final SeckillActivityService activityService;
     private final SeckillBuyService buyService;
+    private final SeckillResultService resultService;
 
     public SeckillController(SeckillActivityService activityService,
-                             SeckillBuyService buyService) {
+                             SeckillBuyService buyService,
+                             SeckillResultService resultService) {
         this.activityService = activityService;
         this.buyService = buyService;
+        this.resultService = resultService;
     }
 
     @Operation(summary = "进行中与即将开始的秒杀活动", description = "按开始时间升序；已结束与已下线不返回")
@@ -59,6 +65,23 @@ public class SeckillController {
                                      @Valid @RequestBody(required = false) SeckillBuyRequest req) {
         int quantity = (req == null || req.getQuantity() == null) ? 1 : req.getQuantity();
         return R.ok(buyService.buy(currentUserId(), activityId, quantity));
+    }
+
+    @Operation(summary = "抢购结果",
+            description = "供前端轮询：SUCCESS 带订单号，FAILED 带原因（库存已退回）；"
+                    + "不存在、已过期或非本人一律 404")
+    @GetMapping("/result/{requestId}")
+    public R<SeckillResultVO> result(@PathVariable String requestId) {
+        SeckillResult result = resultService.get(requestId, currentUserId());
+        if (result == null) {
+            throw BizException.notFound("抢购结果不存在或已过期");
+        }
+        SeckillResultVO vo = new SeckillResultVO();
+        vo.setRequestId(result.getRequestId());
+        vo.setStatus(result.getStatus());
+        vo.setOrderNo(result.getOrderNo());
+        vo.setMessage(result.getMessage());
+        return R.ok(vo);
     }
 
     private Long currentUserId() {

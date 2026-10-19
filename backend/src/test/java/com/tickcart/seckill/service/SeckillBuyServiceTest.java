@@ -2,6 +2,8 @@ package com.tickcart.seckill.service;
 
 import com.tickcart.common.exception.BizException;
 import com.tickcart.common.exception.RateLimitedException;
+import com.tickcart.member.entity.UserAddress;
+import com.tickcart.member.service.AddressService;
 import com.tickcart.seckill.cache.SeckillActivitySnapshot;
 import com.tickcart.seckill.mq.SeckillMessageProducer;
 import com.tickcart.seckill.mq.SeckillOrderMessage;
@@ -23,6 +25,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,12 +47,19 @@ class SeckillBuyServiceTest {
     private SeckillStockService stockService;
     @Mock
     private SeckillMessageProducer messageProducer;
+    @Mock
+    private AddressService addressService;
 
     private SeckillBuyService service;
 
     @BeforeEach
     void setUp() {
-        service = new SeckillBuyService(stockService, messageProducer);
+        service = new SeckillBuyService(stockService, messageProducer, addressService);
+        // 默认用户有地址；需要验证「无地址」的用例单独覆盖
+        UserAddress address = new UserAddress();
+        address.setId(124L);
+        address.setUserId(USER_ID);
+        lenient().when(addressService.getDefault(USER_ID)).thenReturn(address);
     }
 
     @Test
@@ -117,6 +127,20 @@ class SeckillBuyServiceTest {
         assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1))
                 .isInstanceOf(RateLimitedException.class);
         verify(stockService, never()).tryDeduct(anyLong(), anyLong(), anyInt(), anyInt());
+    }
+
+    @Test
+    @DisplayName("无收货地址：409，且不扣库存（不消耗名额）")
+    void noAddressRejected() {
+        when(stockService.snapshot(ACTIVITY_ID)).thenReturn(snapshot(LocalDateTime.now().plusHours(1)));
+        when(stockService.tryLockRequest(anyLong(), anyLong(), anyString())).thenReturn(true);
+        when(addressService.getDefault(USER_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.buy(USER_ID, ACTIVITY_ID, 1))
+                .isInstanceOf(BizException.class)
+                .hasMessage("请先添加收货地址");
+        verify(stockService, never()).tryDeduct(anyLong(), anyLong(), anyInt(), anyInt());
+        verify(stockService).unlockRequest(ACTIVITY_ID, USER_ID);
     }
 
     @Test

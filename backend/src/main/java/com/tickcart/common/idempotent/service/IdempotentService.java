@@ -52,6 +52,9 @@ public class IdempotentService {
     /** 场景：立即购买下单 */
     public static final String SCENE_ORDER_BUY_NOW = "order.buyNow";
 
+    /** 场景：秒杀建单（幂等键 = 抢购时生成的 requestId） */
+    public static final String SCENE_SECKILL_BUY = "seckill.buy";
+
     /** 幂等键长度上限，与 {@code idempotent_record.idem_key} 列宽一致 */
     private static final int KEY_MAX_LENGTH = 64;
 

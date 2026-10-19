@@ -258,10 +258,10 @@ POST /api/payments  → 只落「待支付」流水，订单不推进
 - [x] 活动开启时 `loadStockIntoRedis` 预热库存与活动缓存（三处触发：上线/新建、启动、每 30s）
 - [x] 编写 Lua 脚本：校验剩余库存/N 件限购 → 原子 DECR 库存 → 累加已购计数
 - [x] 抢购接口：登录校验 → 读 Redis 快照（不查 DB）→ Lua 原子扣减 → 投递 MQ
-- [ ] 消费者 `SeckillConsumer`：幂等查重 → 调 `OrderService` 建秒杀订单 → 写 Redis 凭据供轮询；失败重试+死信
-- [ ] 结果查询接口：供前端轮询（排队中/成功/失败）
+- [x] 消费者 `SeckillConsumer`：幂等查重 → 调 `OrderService` 建秒杀订单 → 写 Redis 凭据供轮询；失败重试+死信
+- [x] 结果查询接口：供前端轮询（排队中/成功/失败）
 - [x] 防重复下单（请求级 `SETNX` 3s + `bought` 计数）、限购
-- [ ] 幂等键（建单阶段，随 B3 复用 `idempotent_record`，`scene=seckill.buy`）
+- [x] 幂等键（`requestId` 作幂等键，`scene=seckill.buy`，复用 `idempotent_record`）
 - [x] 分布式锁兜底 —— **经设计确认不做**：Lua 原子扣减已覆盖超卖/限购，加锁会把并发变串行（见 B2 设计 §10）
 
 ### 前端
@@ -282,11 +282,17 @@ POST /api/payments  → 只落「待支付」流水，订单不推进
 状态按 `(enabled, start_time, end_time)` 推导不落库；后台 CRUD + 前台列表；
 已开始禁改价改库存、有成交禁删、秒杀价必须低于原价。`mvn test` 300 项通过。
 
-**B2 库存预热与 Lua 扣减**（2026-10-19，commit 见下）
+**B2 库存预热与 Lua 扣减**（2026-10-19，commit `91411ff`）
 设计见 `docs/秒杀库存预热与扣减设计.md`。实测：
 **库存 50 / 120 个不同用户并发 → 恰好 50 成功 + 70 个「已抢光」，Redis 剩余 0，未超卖**；
 已抢到的用户再抢 → 「每人限购 1 件」；结束后的抢购 → 409。`mvn test` 322 项通过。
 **不引入 Redisson**（P2-9 已改为「不做」）。
+
+**B3 异步建单**（2026-10-19，commit 见下）
+设计见 `docs/秒杀异步建单设计.md`。实测端到端：
+**5 用户抢 5 件 → 5 个 requestId 全部轮询到 SUCCESS、订单号互不相同且为 SK 前缀；
+soldCount=5；取消一单后 soldCount=4、Redis 剩余 1；SKU 库存全程未变（118）**。
+`mvn test` 332 项通过。地址改为「抢购前校验默认地址」，零地址用户不消耗库存。
 
 ---
 

@@ -98,6 +98,8 @@ class OrderServiceTest {
     private PaymentRecordMapper paymentRecordMapper;
     @Mock
     private IdempotentService idempotentService;
+    @Mock
+    private SeckillStockAccounting seckillStockAccounting;
 
     @InjectMocks
     private OrderService orderService;
@@ -424,6 +426,83 @@ class OrderServiceTest {
 
         verify(cartService).claimForCheckout(UID, List.of(1000L));
         verify(cartService).removeItems(UID, List.of(1100L));
+    }
+
+    // ---------------- 秒杀建单 ----------------
+
+    @Test
+    @DisplayName("秒杀建单：channel=1、SK 前缀、不扣 SKU 库存、累加已售")
+    void createSeckillOrderSuccess() {
+        when(addressService.getDefault(UID)).thenReturn(address());
+        when(productMapper.selectById(10L)).thenReturn(product(10L, 1, "99.00", 50));
+        when(productSkuMapper.selectById(5L)).thenReturn(sku(5L, 10L, "88.00", 20));
+        when(orderMapper.insert(any(Order.class))).thenAnswer(inv -> {
+            Order o = inv.getArgument(0);
+            o.setId(100L);
+            return 1;
+        });
+        when(orderItemMapper.insert(any(OrderItem.class))).thenReturn(1);
+
+        OrderVO result = orderService.createSeckillOrder(
+                UID, 9L, 10L, 5L, 2, new BigDecimal("9.90"), "rid-1");
+
+        assertThat(result.getOrderNo()).startsWith("SK");
+        assertThat(result.getPayAmount()).isEqualByComparingTo("19.80");
+
+        ArgumentCaptor<Order> captor = ArgumentCaptor.forClass(Order.class);
+        verify(orderMapper).insert(captor.capture());
+        assertThat(captor.getValue().getChannel()).isEqualTo(1);
+        assertThat(captor.getValue().getActivityId()).isEqualTo(9L);
+        assertThat(captor.getValue().getReceiver()).isEqualTo("张三");
+
+        // 秒杀库存在抢购时已由 Redis 扣过，这里绝不能再扣 SKU
+        verifyNoInteractions(inventoryService);
+        verify(seckillStockAccounting).increaseSold(9L, 2);
+        verify(orderMessageProducer).sendOrderTimeout(result.getOrderNo());
+    }
+
+    @Test
+    @DisplayName("秒杀建单：无默认收货地址时拒绝")
+    void createSeckillOrderWithoutAddress() {
+        when(addressService.getDefault(UID)).thenReturn(null);
+
+        assertThatThrownBy(() -> orderService.createSeckillOrder(
+                UID, 9L, 10L, 5L, 1, new BigDecimal("9.90"), "rid-2"))
+                .isInstanceOf(BizException.class)
+                .hasMessage("请先添加收货地址");
+        verify(orderMapper, never()).insert(any(Order.class));
+    }
+
+    @Test
+    @DisplayName("秒杀建单：幂等命中直接回放，不重复建单也不重复累加已售")
+    void createSeckillOrderReplays() {
+        when(idempotentService.claim(UID, IdempotentService.SCENE_SECKILL_BUY, "rid-3"))
+                .thenReturn("SK202610191700001234");
+        when(orderMapper.selectOne(any()))
+                .thenReturn(order("SK202610191700001234", UID, OrderStatus.PENDING_PAYMENT));
+
+        OrderVO vo = orderService.createSeckillOrder(
+                UID, 9L, 10L, 5L, 1, new BigDecimal("9.90"), "rid-3");
+
+        assertThat(vo.getOrderNo()).isEqualTo("SK202610191700001234");
+        verify(orderMapper, never()).insert(any(Order.class));
+        verifyNoInteractions(seckillStockAccounting);
+    }
+
+    @Test
+    @DisplayName("取消秒杀订单：回补走秒杀账（Redis + 已售数），不动 SKU 库存")
+    void cancelSeckillOrderRestoresSeckillStock() {
+        Order seckillOrder = order("SK1", UID, OrderStatus.PENDING_PAYMENT);
+        seckillOrder.setChannel(1);
+        seckillOrder.setActivityId(9L);
+        when(orderMapper.selectOne(any())).thenReturn(seckillOrder);
+        when(orderMapper.updateById(any(Order.class))).thenReturn(1);
+        when(orderItemMapper.selectList(any())).thenReturn(List.of(item(10L, 5L, 2)));
+
+        orderService.cancel(UID, "SK1");
+
+        verify(seckillStockAccounting).restore(9L, UID, 2);
+        verifyNoInteractions(inventoryService);
     }
 
     // ---------------- 立即购买（不经过购物车） ----------------

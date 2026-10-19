@@ -67,6 +67,12 @@ public class OrderService {
     /** 普通订单渠道标识 */
     private static final int CHANNEL_NORMAL = 0;
 
+    /** 秒杀订单渠道标识 */
+    private static final int CHANNEL_SECKILL = 1;
+
+    /** 秒杀订单号前缀（与普通 NO 区分，便于人工识别与对账） */
+    private static final String ORDER_NO_PREFIX_SECKILL = "SK";
+
     /** 无规格商品的 SKU 占位值 */
     private static final long NO_SKU = 0L;
 
@@ -83,6 +89,8 @@ public class OrderService {
     private final ProductService productService;
     private final PaymentRecordMapper paymentRecordMapper;
     private final IdempotentService idempotentService;
+    /** 秒杀库存记账扩展点（由 seckill 模块实现，见该接口注释） */
+    private final SeckillStockAccounting seckillStockAccounting;
 
     public OrderService(OrderMapper orderMapper,
                         OrderItemMapper orderItemMapper,
@@ -94,7 +102,8 @@ public class OrderService {
                         ProductSkuMapper productSkuMapper,
                         ProductService productService,
                         PaymentRecordMapper paymentRecordMapper,
-                        IdempotentService idempotentService) {
+                        IdempotentService idempotentService,
+                        SeckillStockAccounting seckillStockAccounting) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.addressService = addressService;
@@ -106,6 +115,7 @@ public class OrderService {
         this.productService = productService;
         this.paymentRecordMapper = paymentRecordMapper;
         this.idempotentService = idempotentService;
+        this.seckillStockAccounting = seckillStockAccounting;
     }
 
     /**
@@ -224,6 +234,76 @@ public class OrderService {
         orderMessageProducer.sendOrderTimeout(order.getOrderNo());
 
         return toOrderVO(order);
+    }
+
+    /**
+     * 秒杀建单：由 MQ 消费者调用，不读购物车、**不扣 SKU 库存**。
+     *
+     * <p>秒杀库存在抢购时已由 Redis Lua 扣减（B2），这里再扣一次就是双扣。
+     * 建单只负责「把抢到的名额变成订单」，其余（超时关单、支付、发货）与普通订单完全一致。</p>
+     *
+     * <p>幂等键用抢购时生成的 {@code requestId}：消息重复投递会命中同一键并回放首次订单号。</p>
+     *
+     * @param seckillPrice 活动价快照（来自消息，不回查活动）
+     * @throws BizException 无默认收货地址、商品已不存在、幂等键冲突
+     */
+    @Transactional
+    public OrderVO createSeckillOrder(Long userId, Long activityId, Long productId, Long skuId,
+                                      int quantity, BigDecimal seckillPrice, String requestId) {
+        String replayedOrderNo = idempotentService.claim(
+                userId, IdempotentService.SCENE_SECKILL_BUY, requestId);
+        if (replayedOrderNo != null) {
+            log.info("秒杀建单幂等命中：requestId={}, orderNo={}", requestId, replayedOrderNo);
+            return replay(userId, replayedOrderNo);
+        }
+
+        // 秒杀来不及选地址，用默认地址；没有地址属于业务拒绝，不该重试
+        UserAddress address = addressService.getDefault(userId);
+        if (address == null) {
+            throw BizException.badRequest("请先添加收货地址");
+        }
+
+        OrderItem draft = buildSeckillItem(productId, skuId, quantity, seckillPrice);
+        Order order = saveOrder(userId, address, null, draft.getSubtotal(), List.of(draft),
+                CHANNEL_SECKILL, activityId, generateOrderNo(ORDER_NO_PREFIX_SECKILL));
+
+        // 已售数只在「真正新建」这条路径上累加：幂等回放直接 return，不会重复计数
+        seckillStockAccounting.increaseSold(activityId, quantity);
+
+        idempotentService.complete(userId, IdempotentService.SCENE_SECKILL_BUY, requestId, order.getOrderNo());
+        orderMessageProducer.sendOrderTimeout(order.getOrderNo());
+        return toOrderVO(order);
+    }
+
+    /**
+     * 组装秒杀订单明细。
+     *
+     * <p>商品必须存在（要取名称与主图做快照），但**不校验上下架状态** ——
+     * 活动创建时已校验过，用户也已经抢到了，活动期间被下架不该让用户白抢。
+     * 规格被删时同样不阻断：价格与数量来自消息，图片回退商品主图。</p>
+     */
+    private OrderItem buildSeckillItem(Long productId, Long skuId, int quantity, BigDecimal seckillPrice) {
+        Product product = productMapper.selectById(productId);
+        if (product == null) {
+            throw BizException.badRequest("商品不存在");
+        }
+        if (seckillPrice == null) {
+            throw BizException.badRequest("秒杀价缺失");
+        }
+        long normalizedSkuId = skuId == null ? NO_SKU : skuId;
+        ProductSku sku = normalizedSkuId > NO_SKU ? productSkuMapper.selectById(normalizedSkuId) : null;
+
+        OrderItem item = new OrderItem();
+        item.setProductId(productId);
+        item.setSkuId(normalizedSkuId);
+        item.setProductName(product.getName());
+        item.setProductImage(sku != null && StringUtils.hasText(sku.getSkuImage())
+                ? sku.getSkuImage() : product.getMainImage());
+        item.setSpecValue(sku == null ? null : sku.getSpecValue());
+        item.setPrice(seckillPrice);
+        item.setQuantity(quantity);
+        item.setSubtotal(seckillPrice.multiply(BigDecimal.valueOf(quantity)));
+        return item;
     }
 
     /**
@@ -405,7 +485,7 @@ public class OrderService {
         Order order = getOwned(userId, orderNo);
         OrderStatus.of(order.getStatus()).assertTransitionTo(OrderStatus.CANCELLED, "取消");
 
-        restoreStock(orderNo);
+        restoreStock(order);
 
         order.setStatus(OrderStatus.CANCELLED.getCode());
         order.setCancelTime(LocalDateTime.now());
@@ -529,7 +609,8 @@ public class OrderService {
         }
 
         // 只有成功抢到状态流转才回补库存，保证不会重复回补
-        restoreStock(orderNo);
+        restoreStock(orderMapper.selectOne(new LambdaQueryWrapper<Order>()
+                .eq(Order::getOrderNo, orderNo)));
         log.info("超时关单成功：{}", orderNo);
     }
 
@@ -552,9 +633,25 @@ public class OrderService {
         return order;
     }
 
-    /** 按明细逐条回补库存。 */
-    private void restoreStock(String orderNo) {
-        for (OrderItem item : loadRawItems(orderNo)) {
+    /**
+     * 按明细回补库存。
+     *
+     * <p><b>秒杀订单与普通订单的回补目标不同</b>：普通订单回补 {@code product_sku.stock}；
+     * 秒杀订单的库存在 Redis 计数与活动已售数里（B2 的 Lua 扣的），回补到 SKU 上等于
+     * 凭空多出普通库存。所以必须按渠道分流。</p>
+     */
+    private void restoreStock(Order order) {
+        if (order == null) {
+            return;
+        }
+        List<OrderItem> items = loadRawItems(order.getOrderNo());
+        if (Integer.valueOf(CHANNEL_SECKILL).equals(order.getChannel())
+                && order.getActivityId() != null && order.getActivityId() > NO_SKU) {
+            int totalQuantity = items.stream().mapToInt(OrderItem::getQuantity).sum();
+            seckillStockAccounting.restore(order.getActivityId(), order.getUserId(), totalQuantity);
+            return;
+        }
+        for (OrderItem item : items) {
             inventoryService.restore(item.getProductId(), item.getSkuId(), item.getQuantity());
         }
     }
@@ -569,10 +666,24 @@ public class OrderService {
      */
     private Order saveOrder(Long userId, UserAddress address, String remark,
                             BigDecimal total, List<OrderItem> drafts) {
+        return saveOrder(userId, address, remark, total, drafts,
+                CHANNEL_NORMAL, NO_SKU, generateOrderNo());
+    }
+
+    /**
+     * 落库订单（带渠道与活动信息）。
+     *
+     * <p>秒杀订单与普通订单共用这一段：只有「渠道、活动 ID、订单号前缀」不同。
+     * 分成两个方法写会出现「一边改了快照口径、另一边忘了」的经典分叉。</p>
+     */
+    private Order saveOrder(Long userId, UserAddress address, String remark,
+                            BigDecimal total, List<OrderItem> drafts,
+                            int channel, long activityId, String orderNo) {
         Order order = new Order();
-        order.setOrderNo(generateOrderNo());
+        order.setOrderNo(orderNo);
         order.setUserId(userId);
-        order.setChannel(CHANNEL_NORMAL);
+        order.setChannel(channel);
+        order.setActivityId(activityId);
         order.setTotalAmount(total);
         order.setPayAmount(total);
         order.setStatus(OrderStatus.PENDING_PAYMENT.getCode());
@@ -777,8 +888,12 @@ public class OrderService {
      * <p>时间戳精确到毫秒，叠加随机数后重复概率极低；数据库仍有 {@code uk_order_no} 兜底。</p>
      */
     private String generateOrderNo() {
+        return generateOrderNo(ORDER_NO_PREFIX);
+    }
+
+    private String generateOrderNo(String prefix) {
         String timestamp = LocalDateTime.now().format(ORDER_NO_TIME);
         String random = String.format("%04d", ThreadLocalRandom.current().nextInt(10000));
-        return ORDER_NO_PREFIX + timestamp + random;
+        return prefix + timestamp + random;
     }
 }

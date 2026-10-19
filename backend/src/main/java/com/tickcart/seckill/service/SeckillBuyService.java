@@ -2,6 +2,7 @@ package com.tickcart.seckill.service;
 
 import com.tickcart.common.exception.BizException;
 import com.tickcart.common.exception.RateLimitedException;
+import com.tickcart.member.service.AddressService;
 import com.tickcart.seckill.cache.SeckillActivitySnapshot;
 import com.tickcart.seckill.enums.SeckillActivityStatus;
 import com.tickcart.seckill.mq.SeckillMessageProducer;
@@ -35,11 +36,14 @@ public class SeckillBuyService {
 
     private final SeckillStockService stockService;
     private final SeckillMessageProducer messageProducer;
+    private final AddressService addressService;
 
     public SeckillBuyService(SeckillStockService stockService,
-                             SeckillMessageProducer messageProducer) {
+                             SeckillMessageProducer messageProducer,
+                             AddressService addressService) {
         this.stockService = stockService;
         this.messageProducer = messageProducer;
+        this.addressService = addressService;
     }
 
     /**
@@ -75,6 +79,13 @@ public class SeckillBuyService {
         String requestId = UUID.randomUUID().toString().replace("-", "");
         if (!stockService.tryLockRequest(activityId, userId, requestId)) {
             throw new RateLimitedException(3);
+        }
+
+        // 有收货地址才能下单：抢购是异步建单，等消费者发现没地址就太晚了 —— 库存白扣一次再退回，
+        // 用户还以为抢到了。放在请求锁之后，同一用户 3 秒内最多查一次，不会把 DB 打穿。
+        if (addressService.getDefault(userId) == null) {
+            stockService.unlockRequest(activityId, userId);
+            throw BizException.conflict("请先添加收货地址");
         }
 
         long remaining;
