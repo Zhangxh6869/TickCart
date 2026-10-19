@@ -415,3 +415,24 @@ export interface SeckillActivityQuery {
   status?: SeckillStatus
   keyword?: string
 }
+
+// ---------------------------------------------------------------------------
+// 秒杀抢购（B3/B4）
+// ---------------------------------------------------------------------------
+
+/** 抢购受理结果：拿到 requestId 表示已占名额，订单由消费者异步创建 */
+export interface SeckillBuyResult {
+  requestId: string
+  /** 扣减后的剩余库存（Redis 口径） */
+  remainingStock: number
+  /** QUEUED 表示排队中 */
+  status: string
+}
+
+/** 抢购结果（轮询用） */
+export interface SeckillResult {
+  requestId: string
+  status: 'SUCCESS' | 'FAILED'
+  orderNo?: string | null
+  message?: string | null
+}

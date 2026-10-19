@@ -346,6 +346,7 @@ public class SeckillActivityService {
         for (SeckillActivity activity : activities) {
             SeckillActivityVO vo = SeckillActivityVO.from(activity, now);
             fillProductSnapshot(vo, products.get(activity.getProductId()), skus.get(activity.getSkuId()));
+            overrideRemainingFromRedis(vo);
             vos.add(vo);
         }
         return vos;
@@ -355,7 +356,19 @@ public class SeckillActivityService {
         SeckillActivityVO vo = SeckillActivityVO.from(activity, now);
         fillProductSnapshot(vo, productMapper.selectById(activity.getProductId()),
                 activity.getSkuId() > NO_SKU ? productSkuMapper.selectById(activity.getSkuId()) : null);
+        overrideRemainingFromRedis(vo);
         return vo;
+    }
+
+    /**
+     * 剩余库存以 Redis 为准（B2 的 Lua 扣的是它），DB 的 {@code sold_count} 会滞后。
+     * 未预热时保留 DB 口径（VO 里已算好）。
+     */
+    private void overrideRemainingFromRedis(SeckillActivityVO vo) {
+        Integer redisStock = stockService.currentStock(vo.getId());
+        if (redisStock != null) {
+            vo.setRemainingStock(redisStock);
+        }
     }
 
     /**

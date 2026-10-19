@@ -163,6 +163,14 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '搜索', depth: 2 },
   },
   {
+    // 秒杀专场：从首页顶部入口进来，属于首页的下一层（depth 2 → 右滑前进、返回左滑）。
+    // 全屏层（无 tabbar），见 layouts/TabBarLayout.vue 的 FULLSCREEN_ROUTES。
+    path: '/seckill',
+    name: 'seckill',
+    component: () => import('@/views/SeckillView.vue'),
+    meta: { title: '限时秒杀', depth: 2 },
+  },
+  {
     path: '/products/:id',
     name: 'product-detail',
     component: () => import('@/views/ProductDetailView.vue'),

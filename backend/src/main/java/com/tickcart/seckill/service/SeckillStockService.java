@@ -185,6 +185,24 @@ public class SeckillStockService {
     }
 
     /**
+     * 读取当前剩余库存（展示用）。
+     *
+     * <p>前台进度条必须以 Redis 为准：DB 的 {@code sold_count} 只在消费者建单后才累加，
+     * 高峰期会明显滞后 —— 显示「还剩 30 件」而实际早已抢光。</p>
+     *
+     * @return 未预热/已过期/Redis 异常时返回 {@code null}，调用方回退到 DB 口径
+     */
+    public Integer currentStock(Long activityId) {
+        try {
+            String value = redis.opsForValue().get(SeckillKeys.stock(activityId));
+            return value == null ? null : Math.max(0, Integer.parseInt(value));
+        } catch (Exception e) {
+            log.warn("读取秒杀剩余库存失败，回退 DB 口径：activityId={}", activityId, e);
+            return null;
+        }
+    }
+
+    /**
      * 原子扣减库存。
      *
      * <p>Redis 异常直接向上抛（fail-close）：不知道库存就不该卖，不能像读缓存那样降级回源。</p>

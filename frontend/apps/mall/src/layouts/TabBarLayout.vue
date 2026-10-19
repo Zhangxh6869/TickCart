@@ -77,6 +77,7 @@ const FULLSCREEN_ROUTES = [
   'pay',
   'pay-channel',
   'search',
+  'seckill',
 ]
 const showTabbar = computed(() => !FULLSCREEN_ROUTES.includes(route.name as string))
 

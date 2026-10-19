@@ -73,6 +73,9 @@ class SeckillActivityServiceTest {
     void setUp() {
         service = new SeckillActivityService(
                 activityMapper, productMapper, productSkuMapper, stockService);
+        // Mockito 对包装类型返回 0（不是 null），必须显式打桩成 null，
+        // 否则 currentStock 会被当成「Redis 里剩 0 件」，把 DB 口径覆盖掉
+        lenient().when(stockService.currentStock(any())).thenReturn(null);
         lenient().when(productMapper.selectById(PRODUCT_ID)).thenReturn(product("99.00", 1));
         lenient().when(productSkuMapper.selectById(SKU_ID)).thenReturn(sku("88.00"));
     }
@@ -268,8 +271,30 @@ class SeckillActivityServiceTest {
         assertThat(result.getRecords()).hasSize(1);
         SeckillActivityVO vo = result.getRecords().get(0);
         assertThat(vo.getStatusLabel()).isEqualTo("已结束");
+        // Redis 未预热 → 回退 DB 口径（5 件里已售 0，库存 100 来自测试数据）
         assertThat(vo.getRemainingStock()).isEqualTo(100);
         assertThat(vo.getProductName()).isEqualTo("商品302");
+    }
+
+    @Test
+    @DisplayName("列表剩余库存以 Redis 为准（DB 的 sold_count 会滞后）")
+    void pageUsesRedisRemainingStock() {
+        SeckillActivity ongoing = futureActivity();
+        when(activityMapper.selectPage(ArgumentMatchers.<IPage<SeckillActivity>>any(), any()))
+                .thenAnswer(inv -> {
+                    IPage<SeckillActivity> page = inv.getArgument(0);
+                    page.setRecords(List.of(ongoing));
+                    page.setTotal(1);
+                    return page;
+                });
+        when(productMapper.selectBatchIds(any())).thenReturn(List.of(product("99.00", 1)));
+        when(productSkuMapper.selectBatchIds(any())).thenReturn(List.of(sku("88.00")));
+        // DB 口径是 100，Redis 只剩 2 → 必须展示 2
+        when(stockService.currentStock(ACTIVITY_ID)).thenReturn(2);
+
+        var result = service.page(new SeckillActivityQuery());
+
+        assertThat(result.getRecords().get(0).getRemainingStock()).isEqualTo(2);
     }
 
     @Test

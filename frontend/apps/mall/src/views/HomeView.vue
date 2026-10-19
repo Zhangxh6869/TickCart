@@ -331,6 +331,10 @@ function selectCategory(id: number | null) {
  * 原先跳列表页既带不上关键词、也没有历史/热搜，用户以为能搜却搜不了。
  * 现在统一进 `/search`（空态给历史 + 热搜，提交后同页出结果）。
  */
+function goSeckill() {
+  router.push({ name: 'seckill' })
+}
+
 function goSearch() {
   router.push({ name: 'search' })
 }
@@ -385,6 +389,13 @@ onBeforeUnmount(() => {
           <button class="search-btn" type="button" @click.stop="goSearch">搜索</button>
         </template>
       </van-search>
+
+      <!-- 限时秒杀入口：常驻在搜索栏与分类栏之间，点进秒杀专场 -->
+      <div class="seckill-entry" @click="goSeckill">
+        <span class="seckill-entry__badge">限时秒杀</span>
+        <span class="seckill-entry__desc">整点开抢 · 手慢无</span>
+        <van-icon name="arrow" class="seckill-entry__arrow" />
+      </div>
 
       <!-- 分类栏：搜索栏下方一行；「全部」钉在左侧不动，其余分类横向滑动，点击后原地切换下方商品 -->
       <div ref="catBarRef" class="cat-bar">
@@ -688,6 +699,35 @@ onBeforeUnmount(() => {
   }
 }
 /* 分类栏：紧贴搜索栏下方，单行横向排列，超出部分横向滚动（隐藏滚动条） */
+/* 限时秒杀入口：红色渐变横条，与商品卡的品牌浅蓝区分开 */
+.seckill-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #ff6034 0%, #ee0a24 100%);
+  color: #fff;
+}
+
+.seckill-entry__badge {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.seckill-entry__desc {
+  flex: 1;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.seckill-entry__arrow {
+  font-size: 14px;
+  opacity: 0.9;
+}
+
 .cat-bar {
   display: flex;
   /* 项间距用 .cat-bar__item 的 margin-right 实现，不用 gap：
