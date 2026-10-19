@@ -158,6 +158,8 @@ tickcart:
     preload-lookahead-seconds: ${SECKILL_PRELOAD_LOOKAHEAD:60}
     # 预热定时任务间隔（毫秒）：兜住「上线时预热失败」的场景
     preload-interval-ms: ${SECKILL_PRELOAD_INTERVAL_MS:30000}
+    # 建单消费者开关：压测时关掉，用来验证「抢购成功率不依赖 DB 写入速度」（B5 场景 S4）
+    consumer-enabled: ${SECKILL_CONSUMER_ENABLED:true}
   # 商品
   product:
     # 随机分页的候选池上限：一次最多取多少个商品 id 到内存里洗牌。

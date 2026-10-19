@@ -14,6 +14,7 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -34,6 +35,10 @@ import java.io.IOException;
  * <p><b>为什么失败回补只动 Redis、不动 {@code sold_count}</b>：{@code sold_count} 的累加
  * 发生在建单事务内，事务回滚时它一起回滚了；这里再减一次就会把统计减穿。</p>
  */
+@ConditionalOnProperty(
+        name = "tickcart.seckill.consumer-enabled",
+        havingValue = "true",
+        matchIfMissing = true)
 @Component
 public class SeckillOrderConsumer {
 

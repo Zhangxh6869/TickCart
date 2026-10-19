@@ -227,7 +227,7 @@ POST /api/payments  → 只落「待支付」流水，订单不推进
 | 7 | B2 预热 + Lua 扣减 | `SeckillService` + Lua 脚本 + Redisson | 依赖 B1 的活动数据 |
 | 8 | B3 异步建单 | `SeckillConsumer` + MQ 配置 | 吃 A1 的幂等 + A4 的 publisher confirm |
 | 9 | B4 专场页 + 轮询 | `apps/mall` 秒杀页 + `stores/seckill` | 依赖 B3 的结果查询接口 |
-| 10 | B5 压测报告 | 压测脚本 + 文档 | 全链路就绪后才能压 |
+| 10 | B5 压测报告 | 压测脚本 + 报告（`docs/秒杀压测报告.md`） | 全链路就绪后才能压 |
 
 > **为什么 A4 在 A3 之后**：A3 的阈值需要「接口真实容量」作依据，而 A4 的 N+1 修复与池子基线会显著改变容量。先定阈值、后改容量 = 阈值必须调两次。
 > **为什么 A2/A3/A4 不并行**：A4 与 A1 都改 `OrderService`/`CartService`，与 A2 都改 `ProductService`，与 A3 都改 `application.yml` —— 三处重叠。
@@ -270,6 +270,12 @@ POST /api/payments  → 只落「待支付」流水，订单不推进
 - [x] 抢购确认层（商品/价格/地址只读展示）
 - [x] 抢购结果轮询（指数退避，超时引导查订单）
 - [x] 状态与倒计时用页面内 `setInterval`（单页使用，未建 store）
+
+### B5 压测（2026-10-19）
+设计 `docs/秒杀压测方案.md`，报告 `docs/秒杀压测报告.md`；脚本 `scripts/seed-bench-users.mjs`
+与 `scripts/bench-seckill.mjs`。核心数字：**500 并发抢 100 件 → 恰好 100 单、未超卖、账目一致**；
+秒杀 QPS 990 / P95 467ms，**普通立即购买 QPS 82 / P95 1146ms（差 12 倍）**；
+停掉建单消费者后 QPS 反升（建单不在关键路径上）。瓶颈定位：地址校验的 DB 查询。
 
 ### 验收标准
 - 并发压测下**不超卖、不重复下单**。
