@@ -45,6 +45,11 @@ public class BizException extends RuntimeException {
         return new BizException(ResultCode.UNAUTHORIZED, message);
     }
 
+    /** 503：依赖的中间件/预热数据暂不可用，稍后重试可恢复。 */
+    public static BizException serviceUnavailable(String message) {
+        return new BizException(ResultCode.SERVICE_UNAVAILABLE, message);
+    }
+
     public static BizException forbidden(String message) {
         return new BizException(ResultCode.FORBIDDEN, message);
     }

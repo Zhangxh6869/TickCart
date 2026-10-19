@@ -22,6 +22,8 @@ public enum ResultCode {
     TOO_MANY_REQUESTS(42900, "请求过于频繁，请稍后再试"),
 
     // ---- 服务端错误 ----
+    /** 服务暂不可用：如秒杀库存尚未预热，稍后重试即可恢复（与 500 区分，避免前端当成缺陷上报）。 */
+    SERVICE_UNAVAILABLE(50300, "服务暂不可用，请稍后重试"),
     INTERNAL_ERROR(50000, "服务器内部错误");
 
     private final int code;

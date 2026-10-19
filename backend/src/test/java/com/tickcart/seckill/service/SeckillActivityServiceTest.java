@@ -13,6 +13,7 @@ import com.tickcart.seckill.dto.SeckillActivityQuery;
 import com.tickcart.seckill.dto.SeckillActivitySaveRequest;
 import com.tickcart.seckill.entity.SeckillActivity;
 import com.tickcart.seckill.mapper.SeckillActivityMapper;
+import com.tickcart.seckill.service.SeckillStockService;
 import com.tickcart.seckill.vo.SeckillActivityVO;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
@@ -56,6 +57,8 @@ class SeckillActivityServiceTest {
     private ProductMapper productMapper;
     @Mock
     private ProductSkuMapper productSkuMapper;
+    @Mock
+    private SeckillStockService stockService;
 
     private SeckillActivityService service;
 
@@ -68,7 +71,8 @@ class SeckillActivityServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new SeckillActivityService(activityMapper, productMapper, productSkuMapper);
+        service = new SeckillActivityService(
+                activityMapper, productMapper, productSkuMapper, stockService);
         lenient().when(productMapper.selectById(PRODUCT_ID)).thenReturn(product("99.00", 1));
         lenient().when(productSkuMapper.selectById(SKU_ID)).thenReturn(sku("88.00"));
     }

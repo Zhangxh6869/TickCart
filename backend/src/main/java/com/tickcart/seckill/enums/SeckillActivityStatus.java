@@ -48,13 +48,23 @@ public enum SeckillActivityStatus {
      * @param now      判定时刻
      */
     public static SeckillActivityStatus of(SeckillActivity activity, LocalDateTime now) {
-        if (!Integer.valueOf(1).equals(activity.getEnabled())) {
+        return of(activity.getEnabled(), activity.getStartTime(), activity.getEndTime(), now);
+    }
+
+    /**
+     * 由字段直接推导，供 Redis 活动快照使用（快照里没有实体对象）。
+     *
+     * <p>两个入口共用同一段判断，避免「实体一套、快照一套」导致状态口径不一致。</p>
+     */
+    public static SeckillActivityStatus of(Integer enabled, LocalDateTime startTime,
+                                           LocalDateTime endTime, LocalDateTime now) {
+        if (!Integer.valueOf(1).equals(enabled)) {
             return DISABLED;
         }
-        if (now.isBefore(activity.getStartTime())) {
+        if (now.isBefore(startTime)) {
             return PENDING;
         }
-        if (now.isBefore(activity.getEndTime())) {
+        if (now.isBefore(endTime)) {
             return ONGOING;
         }
         return ENDED;

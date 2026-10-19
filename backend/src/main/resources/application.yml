@@ -152,6 +152,12 @@ tickcart:
   order:
     # 待付款订单自动关闭时限（毫秒），即 trade.order.timeout 队列的 TTL
     timeout-ttl-ms: ${ORDER_TIMEOUT_TTL_MS:900000}
+  # 秒杀（3B）
+  seckill:
+    # 预热前瞻窗口（秒）：扫描「已开始或 N 秒内即将开始」的活动
+    preload-lookahead-seconds: ${SECKILL_PRELOAD_LOOKAHEAD:60}
+    # 预热定时任务间隔（毫秒）：兜住「上线时预热失败」的场景
+    preload-interval-ms: ${SECKILL_PRELOAD_INTERVAL_MS:30000}
   # 商品
   product:
     # 随机分页的候选池上限：一次最多取多少个商品 id 到内存里洗牌。
@@ -234,6 +240,14 @@ tickcart:
         methods: ["GET"]
         dimension: IP
         permits: 30
+        window-seconds: 1
+      # 抢购：独立规则，绝不复用 seckill-read 的 30/s —— 抢购流量本就该被
+      # Redis 原子扣减 + MQ 削峰，限流只用来挡脚本连点
+      - name: seckill-buy
+        patterns: ["/api/seckill/*/order"]
+        methods: ["POST"]
+        dimension: USER
+        permits: 5
         window-seconds: 1
       # 下单：幂等只管「同一请求不重复」，管不了「换幂等键狂下单」
       - name: order-create

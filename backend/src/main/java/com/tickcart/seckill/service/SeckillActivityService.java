@@ -18,6 +18,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
@@ -51,13 +53,16 @@ public class SeckillActivityService {
     private final SeckillActivityMapper activityMapper;
     private final ProductMapper productMapper;
     private final ProductSkuMapper productSkuMapper;
+    private final SeckillStockService stockService;
 
     public SeckillActivityService(SeckillActivityMapper activityMapper,
                                   ProductMapper productMapper,
-                                  ProductSkuMapper productSkuMapper) {
+                                  ProductSkuMapper productSkuMapper,
+                                  SeckillStockService stockService) {
         this.activityMapper = activityMapper;
         this.productMapper = productMapper;
         this.productSkuMapper = productSkuMapper;
+        this.stockService = stockService;
     }
 
     // -------------------------------------------------------------------------
@@ -155,6 +160,9 @@ public class SeckillActivityService {
         // 新建默认上线：与「建完就能在后台看到」的直觉一致，需要下架再手动关
         activity.setEnabled(ENABLED_ON);
         activityMapper.insert(activity);
+        // 新建默认上线，因此要立刻预热 —— 否则「建完就能抢」这个直觉不成立，
+        // 用户会先看到 30 秒的「活动尚未就绪」（等定时任务扫到）
+        syncCacheAfterCommit(() -> stockService.preload(activity));
         return activity.getId();
     }
 
@@ -195,6 +203,8 @@ public class SeckillActivityService {
         activity.setStartTime(req.getStartTime());
         activity.setEndTime(req.getEndTime());
         activityMapper.updateById(activity);
+        // 改了时间或限购必须刷新快照：否则抢购接口仍按旧时间判断「进行中」
+        syncCacheAfterCommit(() -> stockService.refreshSnapshot(activity));
     }
 
     /**
@@ -202,8 +212,9 @@ public class SeckillActivityService {
      *
      * <p>下线只是让活动不再出现在前台、抢购接口拒绝；已成交订单不受影响。</p>
      *
-     * <p>B2 接入后：上线成功需触发库存预热（{@code loadStockIntoRedis}），
-     * 否则用户点抢购会发现 Redis 里没有库存。</p>
+     * <p>上线会<b>同步预热库存</b>（写 Redis 快照与剩余库存），否则用户点抢购会拿到
+     * 「活动尚未就绪」。预热放在<b>事务提交之后</b>执行：若先写 Redis 再回滚，
+     * 会出现「活动还是下线状态、Redis 里却能抢」的幽灵活动。</p>
      */
     @Transactional
     public void changeEnabled(Long id, Integer enabled) {
@@ -213,7 +224,39 @@ public class SeckillActivityService {
         SeckillActivity activity = requireActivity(id);
         activity.setEnabled(enabled);
         activityMapper.updateById(activity);
+        syncCacheAfterCommit(enabled == ENABLED_ON
+                ? () -> stockService.preload(activity)
+                : () -> stockService.refreshSnapshot(activity));
         log.info("秒杀活动 {} 已{}", id, enabled == ENABLED_ON ? "上线" : "下线");
+    }
+
+    /**
+     * 提交后再同步 Redis。
+     *
+     * <p><b>必须等提交</b>：先写 Redis 再回滚，会出现「活动还是下线状态、Redis 里却能抢」
+     * 的幽灵活动 —— 比「晚 30 秒生效」严重得多。</p>
+     *
+     * <p>同步失败只记 ERROR：定时任务每 30 秒会重扫「已上线且未结束」的活动补预热，
+     * 最终会自愈，不必让管理员的操作失败。</p>
+     */
+    private void syncCacheAfterCommit(Runnable action) {
+        Runnable guarded = () -> {
+            try {
+                action.run();
+            } catch (Exception e) {
+                log.error("秒杀活动 Redis 同步失败，定时任务会在 30 秒内重试", e);
+            }
+        };
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            guarded.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                guarded.run();
+            }
+        });
     }
 
     /** 删除活动；有成交记录时拒绝（保留对账依据）。 */
@@ -224,6 +267,7 @@ public class SeckillActivityService {
             throw BizException.conflict("该活动已有成交记录，不能删除；如需停止请下线");
         }
         activityMapper.deleteById(id);
+        syncCacheAfterCommit(() -> stockService.evict(id));
     }
 
     // -------------------------------------------------------------------------
