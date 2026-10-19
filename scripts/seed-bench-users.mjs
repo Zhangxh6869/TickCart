@@ -37,6 +37,12 @@ function mysql(sql) {
   })
 }
 
+function redisCli(...args) {
+  return execFileSync('docker', ['exec', '-i', 'tickcart-redis', 'redis-cli', ...args], {
+    encoding: 'utf8',
+  })
+}
+
 function mysqlQuery(sql) {
   return execFileSync(
     'docker',
@@ -50,16 +56,20 @@ const prefixFor = (i) => `bench${String(i).padStart(4, '0')}`
 // ---------------- 清理 ----------------
 if (clean) {
   console.log(`删除 bench 账号与地址…`)
+  // 子表没有 user_id 列，只能按 order_no 关联清理
   mysql(`START TRANSACTION;
-DELETE FROM tickcart.order_item       WHERE user_id IN (SELECT id FROM tickcart.sys_user WHERE username LIKE 'bench%');
-DELETE FROM tickcart.payment_record   WHERE order_no LIKE 'SK%';
-DELETE FROM tickcart.t_order          WHERE user_id IN (SELECT id FROM tickcart.sys_user WHERE username LIKE 'bench%');
+DELETE FROM tickcart.order_item        WHERE order_no IN (SELECT order_no FROM tickcart.t_order WHERE user_id IN (SELECT id FROM tickcart.sys_user WHERE username LIKE 'bench%'));
+DELETE FROM tickcart.payment_record    WHERE order_no IN (SELECT order_no FROM tickcart.t_order WHERE user_id IN (SELECT id FROM tickcart.sys_user WHERE username LIKE 'bench%'));
+DELETE FROM tickcart.t_order           WHERE user_id IN (SELECT id FROM tickcart.sys_user WHERE username LIKE 'bench%');
 DELETE FROM tickcart.idempotent_record WHERE user_id IN (SELECT id FROM tickcart.sys_user WHERE username LIKE 'bench%');
-DELETE FROM tickcart.user_address     WHERE user_id IN (SELECT id FROM tickcart.sys_user WHERE username LIKE 'bench%');
-DELETE FROM tickcart.sys_user         WHERE username LIKE 'bench%';
+DELETE FROM tickcart.user_address      WHERE user_id IN (SELECT id FROM tickcart.sys_user WHERE username LIKE 'bench%');
+DELETE FROM tickcart.sys_user          WHERE username LIKE 'bench%';
 COMMIT;`)
   if (fs.existsSync(TOKEN_FILE)) fs.rmSync(TOKEN_FILE)
-  console.log('已清理，token 缓存已删除')
+  for (const key of redisCli('--scan', '--pattern', 'seckill:*').split('\n').filter(Boolean)) {
+    redisCli('del', key)
+  }
+  console.log('已清理：账号、地址、订单、秒杀 Redis key、token 缓存')
   process.exit(0)
 }
 
