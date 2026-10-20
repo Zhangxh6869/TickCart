@@ -117,30 +117,6 @@ const activeSession = computed<Session | null>(() => sessions.value[activeIndex.
 
 const sessionItems = computed<SeckillActivity[]>(() => activeSession.value?.items ?? [])
 
-/** 顶部倒计时：跟随选中场次 —— 未开始显示「距开抢」，进行中显示「距本场结束」 */
-const countdownLabel = computed(() => {
-  const session = activeSession.value
-  if (!session) return ''
-  const status = sessionStatus(session)
-  if (status === 1) return '距开抢'
-  if (status === 2) return '距本场结束'
-  return ''
-})
-
-const countdownTarget = computed(() => {
-  const session = activeSession.value
-  if (!session) return 0
-  const status = sessionStatus(session)
-  if (status === 1) return parseTime(session.items[0].startTime)
-  // 进行中：取该场最晚的结束时刻（同一场通常一致，取 max 更稳）
-  if (status === 2) return Math.max(...session.items.map((item) => parseTime(item.endTime)))
-  return 0
-})
-
-const countdownText = computed(() =>
-  countdownTarget.value === 0 ? '' : formatDuration(countdownTarget.value - now.value),
-)
-
 // ---------------- 场次切换 ----------------
 
 /**
@@ -246,6 +222,25 @@ function soldPercent(activity: SeckillActivity): number {
   if (total <= 0) return 100
   const sold = Math.max(0, total - activity.remainingStock)
   return Math.min(100, Math.round((sold / total) * 100))
+}
+
+/** 卡片内的场次时间：`18:00-20:00`（取活动自身的开抢/结束时刻，不依赖选中的场次） */
+function timeRange(activity: SeckillActivity): string {
+  return `${formatClock(activity.startTime)}-${formatClock(activity.endTime)}`
+}
+
+/**
+ * 卡片内的倒计时文案。
+ *
+ * <p>原来挂在页面标题条右上角、只反映「当前选中场次」；现在下沉到每张卡片，
+ * 一张卡只讲自己这场：未开始「距开抢」、进行中「距结束」、结束给静态文案。
+ * 依赖 `now` 每秒刷新，所以切场次 / 到点都会自动重算。</p>
+ */
+function cardCountdown(activity: SeckillActivity): string {
+  const status = statusOf(activity)
+  if (status === 1) return `距开抢 ${formatDuration(parseTime(activity.startTime) - now.value)}`
+  if (status === 2) return `距结束 ${formatDuration(parseTime(activity.endTime) - now.value)}`
+  return '已结束'
 }
 
 function maskPhone(phone: string): string {
@@ -367,13 +362,9 @@ function sleep(ms: number) {
   <div class="seckill">
     <!-- 标题条：白底吸顶，与下方场次栏组成吸顶区（两者高度必须配套：
          这里 44px，场次栏的 sticky offset-top 也是 44）。
-         倒计时跟随选中场次：未开始显示「距开抢」，进行中显示「距本场结束」。 -->
+         右上角不再放全局倒计时：时间与倒计时都下沉到各自的商品卡里。 -->
     <div class="sk-head">
       <span class="sk-head__title">限时秒杀</span>
-      <span v-if="countdownText" class="sk-head__countdown">
-        {{ countdownLabel }}
-        <em class="sk-head__time">{{ countdownText }}</em>
-      </span>
     </div>
 
     <!-- 地址栏：页面级状态，一进页面就能看到、能改（三态与 B4 一致） -->
@@ -447,6 +438,16 @@ function sleep(ms: number) {
           <span v-if="item.remainingStock <= 0" class="sk-card__mask">已抢光</span>
         </div>
         <div class="sk-card__body">
+          <!-- 场次时间下沉到卡片：左「18:00-20:00」区间，右本场倒计时/状态 -->
+          <div class="sk-card__time">
+            <span class="sk-card__time-range">{{ timeRange(item) }}</span>
+            <span
+              class="sk-card__time-cd"
+              :class="{ 'sk-card__time-cd--on': statusOf(item) === 2 }"
+            >
+              {{ cardCountdown(item) }}
+            </span>
+          </div>
           <div class="sk-card__title">{{ item.productName || item.title }}</div>
           <div class="sk-card__sub">
             {{ item.title }}<template v-if="item.specValue"> · {{ item.specValue }}</template>
@@ -550,19 +551,6 @@ function sleep(ms: number) {
   font-size: 16px;
   font-weight: 600;
   color: #323233;
-}
-
-/* 倒计时：品牌浅蓝（与订单状态字、结算按钮同源），等宽数字避免每秒跳动时宽度抖 */
-.sk-head__countdown {
-  font-size: 12px;
-  color: rgb(107, 163, 200);
-  font-variant-numeric: tabular-nums;
-}
-
-.sk-head__time {
-  font-style: normal;
-  font-weight: 600;
-  margin-left: 2px;
 }
 
 /* ── 地址栏（沿用 B4 的白条结构，只把提示底色换成浅蓝） ── */
@@ -754,6 +742,42 @@ function sleep(ms: number) {
 
 .sk-card__body {
   padding: 8px 10px 10px;
+}
+
+/* ── 卡片内的场次时间 ──
+   一行两段：左「18:00-20:00」区间（次要灰），右本场倒计时（品牌浅蓝）。
+   卡片宽度只有 ~170px，区间用 tabular-nums 等宽数字防抖，倒计时单行不换行。 */
+.sk-card__time {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sk-card__time-range {
+  flex: none;
+  font-size: 11px;
+  font-weight: 500;
+  color: #646566;
+}
+
+.sk-card__time-cd {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  line-height: 14px;
+  color: #969799;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 进行中的场次：倒计时用品牌浅蓝强调（与按钮、进度条同色系） */
+.sk-card__time-cd--on {
+  color: rgb(107, 163, 200);
 }
 
 .sk-card__title {

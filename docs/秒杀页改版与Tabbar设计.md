@@ -266,3 +266,43 @@ tab→seckill: 路径 /seckill、active=秒杀、data-page-dir=tab-left、tabbar
 - `vue-tsc` 仍有 2 个既有错误：`src/utils/request.ts:57`（拦截器返回类型）、
   `vite.config.ts:3`（缺 `@types/node`），与本次改动无关，未顺手改。
 - `vite build` 因 dist/assets 文件数超过安全删除阈值被环境拦截，本次用 `vue-tsc --noEmit` 代偿。
+
+---
+
+## 11. 变更：删除标题条倒计时，场次时间下沉到卡片（v2.1）
+
+### 11.1 为什么改
+
+v2 把倒计时放在标题条右槽（`#right` 插槽 / `.sk-head__countdown`），语义是「当前选中场次」。
+但一个页面有多个场次、同一场次下有多张卡，**顶部只有一个倒计时**，用户看某张卡时
+还得回头确认「这个倒计时说的是哪一场」——尤其是切过场次之后。这次把时间与倒计时
+都放到卡片自己身上：一张卡只讲自己这场，不用再跨区域对照。
+
+### 11.2 具体改动（`views/SeckillView.vue`）
+
+| 位置 | 改动 |
+| --- | --- |
+| `.sk-head` | 删除右上角 `{{ countdownLabel }} {{ countdownText }}`，标题条只剩「限时秒杀」（高度仍 44px，场次栏 `sticky top:44px` 不变） |
+| script | 删除 `countdownLabel` / `countdownTarget` / `countdownText` 三个 computed（只服务于顶部倒计时）；`activeSession`、`sessionStatus`、`formatDuration` 保留 |
+| 卡片 | `.sk-card__body` 顶部新增 `.sk-card__time` 一行：左 `HH:mm-HH:mm`（活动自身的 `startTime`-`endTime`，11px `#646566`），右本场倒计时（10px，进行中 `rgb(107,163,200)`，其余 `#969799`） |
+| 新增函数 | `timeRange(activity)` → `18:00-20:00`；`cardCountdown(activity)` → 未开始「距开抢 hh:mm:ss」/ 进行中「距结束 hh:mm:ss」/ 结束「已结束」 |
+| 样式 | 删 `.sk-head__countdown` / `.sk-head__time`；新增 `.sk-card__time`（flex 两端对齐 + `tabular-nums` 防每秒抖动）、`.sk-card__time-range`、`.sk-card__time-cd`、`.sk-card__time-cd--on` |
+
+要点：
+- 卡片时间取自**活动自身**，不读 `activeIndex`，所以切场次时随 `sessionItems` 换切片自然刷新，不会串场。
+- 倒计时仍由 `now`（每秒 setInterval）驱动，到点自动从「距开抢」变「距结束」再变「已结束」。
+- 场次栏（`van-tabs` 两行标题）保留不动 —— 它是导航，不是「右上角那个时间」。
+
+### 11.3 验证（`seckill-card-time-verify.mjs`，390×844 CDP）
+
+| 用例 | 结果 | 证据 |
+| --- | --- | --- |
+| 标题条无倒计时 | ✅ | `hasCountdown=false`、`innerText === '限时秒杀'`、子节点 1 个 |
+| 标题条高度不变 | ✅ | `height=44`（吸顶区配套） |
+| 每张卡有时间区间 | ✅ | `00:00-00:00` / `00:00-23:59`，均匹配 `^\d{2}:\d{2}-\d{2}:\d{2}$` |
+| 时间块在盒子内 | ✅ | 每张卡 `rangeRect` 落在 `cardRect` 垂直范围内 |
+| 倒计时非空且进行中为浅蓝 | ✅ | 「距结束 30:39:45」等，`color: rgb(107,163,200)` |
+| 与选中场次一致 | ✅ | 卡片区间前缀 === 当前 tab 时刻 |
+| 无红色 | ✅ | 新增样式只用 `#646566/#969799/rgb(107,163,200)` |
+
+`vue-tsc --noEmit` 仍只有那 2 个既有错误，无新增。
