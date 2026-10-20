@@ -518,6 +518,18 @@ onBeforeUnmount(() => {
               ¥{{ formatPrice(item.originalPrice) }}
             </div>
           </div>
+          <!-- 不足 3 个时补一格「查看全部」占住剩余列：
+               ★ 列数必须写死 3 —— 之前用 flex: 1，只有 1 个活动时那一项会被拉满整行，
+                 正方形缩略图跟着变成 344px，模块高度飙到 429px（占半屏）。
+                 固定 3 列后单项恒为 1/3 宽，数量多少都不影响模块高度。 -->
+          <div
+            v-if="seckillItems.length < 3"
+            class="seckill-module__more"
+            :style="{ gridColumn: `span ${3 - seckillItems.length}` }"
+          >
+            <span>查看全部</span>
+            <van-icon name="arrow" class="seckill-module__more-arrow" />
+          </div>
         </div>
       </div>
 
@@ -871,13 +883,34 @@ onBeforeUnmount(() => {
 }
 
 .seckill-module__list {
-  display: flex;
+  /* ★ 固定 3 列，不用 flex：flex:1 会让「只有 1 个活动」时那一项拉满整行，
+     正方形缩略图随之变成 344px，模块高度直接涨到 429px（半个屏幕）。
+     固定列后单项恒为 1/3 宽，无论 1/2/3 个活动，模块高度都稳定在 ~150px。 */
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
 .seckill-module__item {
-  flex: 1;
   min-width: 0;
+}
+
+/* 不足 3 个时补的「查看全部」格子：占住剩余列，避免右侧留一大片空白 */
+.seckill-module__more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: 8px;
+  background: #f7f8fa;
+  color: rgb(107, 163, 200);
+  font-size: 12px;
+}
+
+.seckill-module__more-arrow {
+  font-size: 12px;
+  color: #c8c9cc;
 }
 
 /* 缩略图：正方形 8px 圆角，无图时留浅灰底占位（不塌高） */
