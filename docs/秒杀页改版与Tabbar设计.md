@@ -80,7 +80,11 @@
 - 分组逻辑（前端按 `startTime` 的 `HH:mm` 分组、默认选中第一个「已开抢」、
   零后端改动）与 v1 完全一致。
 - 吸顶：`van-tabs sticky`（订单页同款）；祖先链不得有 `overflow: hidden`。
-- 切场次锁商品区最小高度，防文档塌高（同首页分类切换写法）。
+  **实施时改为 CSS sticky**（Vant 的 prop 本项目不生效，见 §9.2）。
+- 切场次**不需要**锁商品区最小高度：场次数据是 `activities` 的内存切片，
+  切换只触发一次同步重渲染，没有「清空→等接口→再填」的空窗。
+  （初版按首页分类切换的写法加了 `minHeight` 锁，实施后复查发现下一帧就解锁、
+  实际挡不住任何塌高，属死代码，已删除。）
 
 ### 3.4 商品卡（双列）
 
@@ -221,3 +225,38 @@ tab→seckill: 路径 /seckill、active=秒杀、data-page-dir=tab-left、tabbar
 验证脚本：`seckill-page-verify.mjs`（已同步选择器）、`seckill-tab-verify.mjs`（新增，
 含 tabbar / 页签跳转 / 场次切换 / 吸顶 / 首页模块；场次切换用例需要 ≥2 个不同 HH:mm 的活动，
 不足时打印 SKIP）。
+
+---
+
+## 10. 完成度复查（2026-10-20 15:20）
+
+### 10.1 验收项逐条
+
+| 验收项 | 结果 | 证据 |
+|---|---|---|
+| tabbar 4 项、图标为 SVG、无字体图标残留 | ✅ | `tabbar-icon-verify.mjs` PASS（含 seckill 页，viewBox 逐图标 1024/1024/1028/1024） |
+| 指示条落在第 2 格中心 | ✅ | `indicatorLeft = calc(37.5%)` |
+| 点「秒杀」进专场页且 tabbar 仍在 | ✅ | `seckill-tab-verify.mjs`：path=/seckill、active=秒杀、tabbarVisible=true、dir=tab-left |
+| 场次按 `HH:mm` 分组、默认第一个已开抢 | ✅ | 2 场时 `[00:00 已开抢][21:30 即将开始]`，默认选中 00:00 |
+| 切场次联动倒计时与按钮 | ✅ | 切 21:30 → 「距开抢」+「21:30 开抢」disabled；切回 → 「距本场结束」+「立即抢购」 |
+| 场次栏吸顶 | ✅ | 滚动后 `.sk-head` top=0、场次栏 top=44 |
+| 倒计时不抖动 | ✅ | 连续 3 秒测量宽度恒 114.98px、右缘位置不变（`tabular-nums`） |
+| 双列卡片 / 无红色 | ✅ | 前两张卡 rect.top 相同；`hasRed=false` |
+| 抢购确认层 | ✅ | `seckill-confirm-verify.mjs`：标题/商品/规格/价格/地址/两按钮齐全，确认键品牌浅蓝 |
+| 无活动空态 | ✅ | `enabled=0` 时首页模块整块不渲染（分类栏上移到 54）、秒杀页显示「暂无秒杀活动」，验后已恢复 |
+| 未选地址不发请求 | 沿用 B4 | 逻辑未改动（`onBuyClick` 在 `selectedAddress` 为空时 return），本次只改外观 |
+| 抢购成功跳订单详情 | 沿用 B4 | 轮询与跳转逻辑未改动 |
+
+### 10.2 复查中修掉的问题
+
+- **删除死代码**：初版给商品区加了 `sectionMinHeight` 高度锁（照抄首页分类切换），
+  但场次数据在内存里、没有加载空窗，锁在 `nextTick` 就解除，挡不住任何塌高。
+  已删除 `sectionRef` / `sectionMinHeight` / `onSessionChange` 与模板上的 `:style`、`ref`。
+- `seckill-confirm-verify.mjs` 选择器同步为 `.sk-card__btn`；`tabbar-icon-verify.mjs`
+  断言 3 项 → 4 项并新增 seckill 页检查。
+
+### 10.3 遗留（非本次范围）
+
+- `vue-tsc` 仍有 2 个既有错误：`src/utils/request.ts:57`（拦截器返回类型）、
+  `vite.config.ts:3`（缺 `@types/node`），与本次改动无关，未顺手改。
+- `vite build` 因 dist/assets 文件数超过安全删除阈值被环境拦截，本次用 `vue-tsc --noEmit` 代偿。

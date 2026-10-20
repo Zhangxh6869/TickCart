@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import type { SeckillActivity, UserAddress } from '@tickcart/shared-types'
@@ -143,25 +143,12 @@ const countdownText = computed(() =>
 
 // ---------------- 场次切换 ----------------
 
-/** 商品区元素与切换期间锁定的最小高度（同首页分类切换，防文档塌高压掉滚动位置） */
-const sectionRef = ref<HTMLElement | null>(null)
-const sectionMinHeight = ref(0)
-
 /**
- * 切场次：先把当前高度锁住，等新场次的卡片渲染完再解除。
+ * 切场次。
  *
- * 数据已在内存里（不重新请求），所以 nextTick 后即可解锁；
- * 若不做这一步，新场次商品比旧场次少时文档会骤然变矮，浏览器把 scrollY 夹到 0，
- * 页面会「唰」地弹回顶部（首页切分类踩过同一个坑）。
- */
-async function onSessionChange() {
-  await nextTick()
-  sectionMinHeight.value = 0
-}
-
-/**
- * van-tabs 的 click-tab 回调载荷：未给 van-tab 设 name 时，`name` 就是该 tab 的下标。
- * 单独包一层而不是在模板里写箭头 —— 模板表达式不允许内联 TS 类型注解。
+ * <p>数据本来就在内存里（`sessions` 是 `activities` 的切片），切换只触发一次同步重渲染，
+ * 不存在「清空 → 等接口 → 再填」的空窗，所以**不需要**首页分类切换那套「锁定最小高度」
+ * 来防文档塌高：高度在新场次渲染的同一帧就是真实高度，加了只是死代码。</p>
  */
 function onTabClick(tab: { name: string | number }) {
   onSessionClick(Number(tab.name))
@@ -171,9 +158,7 @@ function onSessionClick(index: number) {
   // 抢购进行中禁止切场次：切走后回来状态会错乱（按钮 loading 挂在被切走的卡片上）
   if (buying.value) return
   if (index === activeIndex.value) return
-  sectionMinHeight.value = sectionRef.value?.offsetHeight ?? 0
   activeIndex.value = index
-  void onSessionChange()
 }
 
 // ---------------- 数据加载 ----------------
@@ -445,12 +430,8 @@ function sleep(ms: number) {
       </van-tab>
     </van-tabs>
 
-    <!-- 商品网格：双列白卡。minHeight 只在切场次的那一帧生效，防止文档塌高 -->
-    <div
-      ref="sectionRef"
-      class="sk-body"
-      :style="{ minHeight: sectionMinHeight ? `${sectionMinHeight}px` : '' }"
-    >
+    <!-- 商品网格：双列白卡。场次数据在内存里，切场次即换切片，无需高度锁 -->
+    <div class="sk-body">
       <van-loading v-if="loading && activities.length === 0" class="sk-body__loading" />
       <van-empty v-else-if="activities.length === 0" description="暂无秒杀活动" />
 
