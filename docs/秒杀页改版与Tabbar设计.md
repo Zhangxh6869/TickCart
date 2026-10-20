@@ -1,0 +1,223 @@
+# 秒杀页改版与 Tabbar 新增「秒杀」设计稿 · v2
+
+> 状态：**已实施并验证（2026-10-20）**
+> 关联：`秒杀专场页设计.md`（B4 原稿）
+> v2 变更：**弃用 v1 的墨黑 `#1C1C1E` 方案**，全页对齐现有界面的色彩与布局语言
+> （实测采样：白底 46px 导航、`#f7f8fa` 页面底、白卡 `radius 10~12px`、
+> 强调色一律 `rgb(107,163,200)`、按钮白字 `font-weight:600`、tab 用 `van-tabs`）。
+
+---
+
+## 1. 改版动机（不变）
+
+| 问题 | 具体表现 |
+|---|---|
+| 配色与全站冲突 | 秒杀页用 Vant 默认红 `#ee0a24`，全站唯一异类；价格/进度/按钮全是红 |
+| 信息层级平均 | 卡片标题比商品名还显眼；一屏只放 1.5 个商品 |
+| 倒计时语义错 | 顶部「距结束」与下方任一卡片无对应（多场次平铺） |
+
+**改版方向**：仍做「抢购现场」（场次分组 + 双列网格 + 密度提升），
+但**视觉完全融入全站**——紧迫感靠结构（场次、倒计时、进度条）表达，不靠换色系。
+
+## 2. 设计系统 v2（对齐全站实测值）
+
+| 角色 | 色值 | 全站出处 |
+|---|---|---|
+| 页面底 | `#f7f8fa`（`var(--van-background-2)`） | 购物车 / 订单列表 / 我的 |
+| 卡片 | `#fff`，`border-radius: 10px`，`padding: 12px`，卡间距 10px | 订单列表 `.order` |
+| 强调色 | `rgb(107,163,200)` 品牌浅蓝 | 订单状态字 / 结算按钮 / 退出登录 |
+| 按钮 | 浅蓝底 + 白字 + `font-weight: 600`（覆盖 `--van-button-primary-*` 两个变量） | `.cart__empty-btn--brand` |
+| 正文 / 价格 | `#323233`，价格 `font-weight: 500` | `ProductCard` / `.order__amount` |
+| 次要文字 | `#969799` | 全站统一 |
+| 分隔线 | `0.5px solid #f2f3f5` 或 `var(--van-border-color)` | `.member__card-head` |
+| 禁用态 | 底 `#f2f3f5`、字 `#969799` | Vant default button |
+| 导航 | `PageNavBar` 白底 46px，标题居中 | 所有二级页 |
+
+**红色彻底退场**：`#ee0a24` 在本页不再出现（订单页失效原因那种纯错误提示除外）。
+「即将开始 / 进行中」的紧迫感用浅蓝深浅与进度条表达。
+
+## 3. 秒杀页结构 v2
+
+```
+┌──────────────────────────────────────┐
+│ ←  限时秒杀        距结束 01:57:57     │  PageNavBar 白底（右槽倒计时）
+├──────────────────────────────────────┤
+│ 📍 张三 138****8000            ›      │  地址栏白条（沿用 B4 结构）
+│    广东省深圳市南山区科技园 8 号        │
+├──────────────────────────────────────┤
+│ 10:00    14:00    20:00    00:00      │  场次栏：van-tabs 样式
+│ 已开抢   即将开始  未开始   未开始      │  选中下划线 = 品牌浅蓝
+├──────────────────────────────────────┤  页面底 #f7f8fa
+│ ┌─────────┐  ┌─────────┐             │
+│ │  [图]    │  │  [图]    │            │  白卡 10px 圆角
+│ │ 精选牛油果│  │ 冷萃咖啡  │            │
+│ │¥9.90 ¥39.9│ │¥29.9     │            │  价格墨色 500
+│ │▓▓▓░░ 剩2 │  │▓▓▓▓▓ 剩0 │            │  进度条浅蓝填充
+│ │  [立即抢购]│ │ [已抢光]  │            │  浅蓝按钮 / 灰禁用
+│ └─────────┘  └─────────┘             │
+└──────────────────────────────────────┘
+```
+
+### 3.1 导航条
+
+- 沿用 `PageNavBar`（白底、居中标题、深灰返回箭头）——**不做人头图**，
+  与我的订单/收藏等二级页完全同构。
+- 倒计时放 `#right` 插槽：`距结束 01:57:57`，`color: rgb(107,163,200)`、
+  `font-variant-numeric: tabular-nums`、13px（同 B4，只把红色换成品牌蓝）。
+
+### 3.2 地址栏
+
+**保留 B4 的白条结构**（它与全站其他页面的「信息条」一致，且 `seckill-confirm-verify` 等脚本依赖其行为）：
+
+- 白底、`padding: 12px 16px`、下边 `0.5px #f2f3f5`；定位图标浅蓝（现状已是）。
+- 三态行为不变（未选 / 已选 / 无地址直跳）；未选点抢购仍 toast + 抖动高亮。
+- 抖动高亮底色 `#fff7f7` 改为 `#f0f7fb`（浅蓝提示底，与全站一致）。
+
+### 3.3 场次栏
+
+- **样式直接用 `van-tabs`**（与订单列表页同款：白底、选中加深、品牌色下划线
+  `line-width="20px"`），副标题「已开抢/即将开始」写进 `title` 插槽第二行。
+- 分组逻辑（前端按 `startTime` 的 `HH:mm` 分组、默认选中第一个「已开抢」、
+  零后端改动）与 v1 完全一致。
+- 吸顶：`van-tabs sticky`（订单页同款）；祖先链不得有 `overflow: hidden`。
+- 切场次锁商品区最小高度，防文档塌高（同首页分类切换写法）。
+
+### 3.4 商品卡（双列）
+
+`grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; padding: 12px;`，页面底 `#f7f8fa`。
+
+| 区域 | 规格 |
+|---|---|
+| 卡片 | 白底 `radius 10px`，`overflow: hidden` |
+| 图片 | `aspect-ratio: 1`，`object-fit: cover` |
+| 角标 | 左上「限购 N」：浅蓝底 `rgb(107,163,200)` 白字 10px，`radius 0 0 8px 0` |
+| 抢光蒙层 | `rgba(255,255,255,0.6)` + 居中「已抢光」12px `#969799` |
+| 商品名 | 13px `#323233` 单行省略，`padding: 8px 10px 0`（活动 title 不再单独展示，并进副行） |
+| 副行 | 活动标题 + 规格 11px `#969799` 单行省略 |
+| 价格行 | 秒杀价 16px/500 `#323233` + 原价 11px `#c8c9cc` 划线（同 `ProductCard` 层级） |
+| 进度条 | 高 4px，轨道 `#f2f3f5`，填充 `rgb(107,163,200)`；右侧 `剩 N 件` 11px `#969799` |
+| 按钮 | 通栏小按钮：进行中 = 浅蓝底白字 600（13px，`radius 999px`，高 30px）；其余 = 灰底 `#f2f3f5` 灰字禁用 |
+
+**按钮状态机（行为同 B4）**：
+
+| 场次状态 | 库存 | 文案 | 样式 |
+|---|---|---|---|
+| 即将开始 | — | `14:00 开抢` | 灰底 `#f2f3f5` / `#969799` 禁用 |
+| 进行中 | > 0 | `立即抢购` | 浅蓝 `rgb(107,163,200)` 白字 600 |
+| 进行中 | 0 | `已抢光` | 灰底禁用 + 图蒙层 |
+| 已结束 | — | `已结束` | 灰底禁用 |
+
+已抢光整卡 `opacity: .6`（同购物车失效项 `.cart-item--invalid`）。
+
+### 3.5 抢购确认层
+
+沿用 B4 结构，仅对齐色板：标题 15/500；商品块底 `#f7f8fa`；确认按钮改为
+浅蓝底白字（`--van-button-primary-background: rgb(107,163,200)`），取消键保持
+plain 白底。
+
+### 3.6 交互细节（全部延续 B4 已验证行为）
+
+轮询 200/400/800/1600/2000 总 15s 失活即停；成功跳订单详情；`submitting`/`buying`
+防连点；抢购中（`buying`）禁切场次并置灰场次栏。
+
+## 4. 首页秒杀模块 v2
+
+位置不变（`.home__sticky` 内、搜索栏与分类栏之间），替换红色渐变横条：
+
+```
+┌────────────────────────────────────┐
+│ ⚡ 限时秒杀      距结束 01:57:57  ›  │  14/600 #323233 + 浅蓝倒计时
+│ ┌────┐┌────┐┌────┐                 │
+│ │ 图 ││ 图 ││ 图 │                 │  72px，radius 8px
+│ │¥9.9││¥19.9││¥29.9│              │  12/500 #323233 + 9px 划线
+│ └────┘└────┘└────┘                 │
+└────────────────────────────────────┘
+```
+
+- 外壳：白底 `radius 10px`，`margin: 0 12px 8px`，`border: 0.5px solid #f2f3f5`
+  （比红色渐变横条轻一档，与分类栏的白底区分靠卡片描边）。
+- 标题行：左「限时秒杀」14/600 + 小闪电 SVG（浅蓝）；右倒计时 12px 浅蓝 `tabular-nums`；
+  无进行中活动时显示「下一场 14:00 开抢」；无任何活动整块不渲染。
+- 数据与点击行为同 v1：`onActivated` 拉 3 个进行中活动；整块与单品点击都进 `/seckill`。
+
+## 5. Tabbar 新增「秒杀」（与 v1 一致，未变）
+
+顺序 **首页 · 秒杀 · 购物车 · 我的**，四项均分。改动清单照旧：
+
+| 文件 | 改动 | 漏掉的后果 |
+|---|---|---|
+| `layouts/TabBarLayout.vue` | `TAB_ITEMS` 第 2 位插入 | — |
+| 同上 | `indicatorLeft` 的 `/3→/4`、`/6→/8` | ★ 指示条位置全错 |
+| 同上 | `FULLSCREEN_ROUTES` 删 `'seckill'` | ★ 秒杀页 tabbar 消失 |
+| `router/index.ts` | `TAB_ORDER` → `home:0, seckill:1, cart:2, member:3`；`seckill` 路由 `depth: 2→1` | ★ 滑动方向反 / tab 互切走 forward |
+| `components/TabBarIcon.vue` | `IconDef` 改 `paths: string[]`；接入 `限时.svg` 两条 path | — |
+
+图标接入规范不变：删元数据、保留 `viewBox 0 0 1024 1024`、`d` 逐字符照抄、`fill: currentColor`。
+
+## 6. 文件改动清单（同 v1）
+
+`SeckillView.vue`（重写 template/style，script 逻辑保留 + 场次分组 computed）、
+`HomeView.vue`（换秒杀模块）、`TabBarLayout.vue`、`router/index.ts`、`TabBarIcon.vue`、
+本设计稿对应更新。**后端 / 数据库 / api / shared-types 零改动**。
+
+## 7. 验证计划
+
+| 脚本 | 改动 |
+|---|---|
+| `seckill-page-verify.mjs` | `.addr-bar` 保留；`.card`→`.sk-card`、`.card__btn`→`.sk-card__btn`、`.card__progress-bar`→`.sk-card__bar` |
+| `seckill-confirm-verify.mjs` | 类名 `.confirm*` 不变，确认按钮文案不变 |
+| `tabbar-icon-verify.mjs` / `tabbar-layout-probe.mjs` | 3 项 → 4 项 |
+| 新增 `seckill-tab-verify.mjs` | 4 项等宽、指示条中心在 2/4 处、点「秒杀」进 `/seckill` 且 tabbar 仍在、方向 `tab-left` |
+| 新增 `seckill-session-verify.mjs` | 场次按 `HH:mm` 升序、默认选中第一个已开抢、切未开始场次倒计时变「距开抢」 |
+
+手动验收（390×844）：导航倒计时不抖动；地址三态 + 未选不发请求；场次栏吸顶
+`rect.top === 0`；切场次不塌高；抢购成功跳订单详情可返回；首页模块无活动不渲染；
+全页**无一处 `#ee0a24`**（截图比色）。
+
+## 8. 实施顺序（不变）
+
+① tabbar 加项+图标 → ② 秒杀页改版 → ③ 首页模块 → ④ 脚本同步 + 新增验证 → ⑤ 文档更新。
+每步一条 commit。
+
+---
+
+## 9. 实施记录（2026-10-20，390×844 CDP 实测）
+
+### 9.1 实际改动
+
+| 文件 | 内容 |
+|---|---|
+| `components/TabBarIcon.vue` | `IconDef.path` → `paths: string[]`；新增 `seckill` 图标（限时.svg 两条 path，d 逐字符照抄） |
+| `layouts/TabBarLayout.vue` | `TAB_ITEMS` 4 项；`indicatorLeft` 分母改 `/4`、`/8`；`FULLSCREEN_ROUTES` 删 `seckill` |
+| `router/index.ts` | `TAB_ORDER` 加 `seckill:1`（cart→2、member→3）；`seckill` 路由 `depth` 2→1 |
+| `App.vue` | `CACHED_VIEWS` 加 `SeckillView`（秒杀页成为 tab 页，切回保留滚动位置与数据） |
+| `views/SeckillView.vue` | 按 v2 重写 template/style；script 逻辑保留 B4 全部行为，新增场次分组与倒计时联动 |
+| `views/HomeView.vue` | `.seckill-entry` 红色横条 → `.seckill-module` 白卡模块；`onActivated` 拉活动 + 启动秒级时钟，`onDeactivated` 停 |
+
+### 9.2 实施中发现并修正的两处（与设计稿有出入）
+
+1. **Vant `van-tabs` 的 `sticky` prop 在本项目不生效**：DOM 里有 `.van-sticky` 包裹层，
+   但计算样式恒为 `static`，滚动后不会切 fixed（`.sk-head` 的 `position: sticky` 却验证可用）。
+   → 改为在 `.sk-tabs` 根上直接写 `position: sticky; top: 44px; z-index: 2`，去掉 prop 与 offset-top。
+2. **`.van-tab__text` 高度只按一行算（实测 18px）且 `overflow: hidden`**：两行标题
+   （时刻 + 状态）会被整行裁掉，视觉上只剩一行加省略号。
+   → 用 `:deep(.van-tab__text) { display: block; height: auto; padding: 4px 0 }` 放开高度。
+
+另：抢购进行中（`buying`）禁止切场次的逻辑，实现改为在 `onSessionClick` 入口直接 return
+（设计稿提的「置灰场次栏」未做，光标与禁用反馈由按钮自己的 disabled 承担）。
+
+### 9.3 实测结果
+
+```
+tabbar: 4 项 [首页 秒杀 购物车 我的]，选中指示条 left = calc(37.5%)（第 2 格中心）
+tab→seckill: 路径 /seckill、active=秒杀、data-page-dir=tab-left、tabbar 仍在
+场次分组: 2 条活动 → [00:00 已开抢][21:30 即将开始]，默认选中第一个已开抢
+切到未开始场次: 倒计时变「距开抢」、按钮「21:30 开抢」且 disabled；切回恢复「距本场结束」+「立即抢购」
+吸顶: 滚动到中部 .sk-head top=0、场次栏 top=44（两者组成吸顶区，不重叠）
+商品卡: 双列（前两张 rect.top 相同=172）、限购角标/划线价/进度条/浅蓝按钮；整页无 #ee0a24
+首页模块: 渲染在 top=54（搜索栏下）、标题行含倒计时、点击整块进 /seckill
+```
+
+验证脚本：`seckill-page-verify.mjs`（已同步选择器）、`seckill-tab-verify.mjs`（新增，
+含 tabbar / 页签跳转 / 场次切换 / 吸顶 / 首页模块；场次切换用例需要 ≥2 个不同 HH:mm 的活动，
+不足时打印 SKIP）。

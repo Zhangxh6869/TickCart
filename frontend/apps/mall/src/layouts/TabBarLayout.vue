@@ -13,9 +13,11 @@ const cartStore = useCartStore()
 /**
  * tab 顺序的唯一来源：既驱动 v-for 渲染，也决定选中指示条的位置。
  * as const 让 name 收窄成字面量联合，正好对上 TabBarIcon 的 name 入参类型。
+ * 「秒杀」插在第二位：必须与 router 的 TAB_ORDER（滑动方向依据）保持一致。
  */
 const TAB_ITEMS = [
   { name: 'home', label: '首页' },
+  { name: 'seckill', label: '秒杀' },
   { name: 'cart', label: '购物车' },
   { name: 'member', label: '我的' },
 ] as const
@@ -29,10 +31,11 @@ const activeIndex = computed(() => {
 })
 
 /**
- * 选中指示条的水平位置：每个 tab 均分 1/3 宽，取该格的中心点。
+ * 选中指示条的水平位置：每个 tab 均分 1/4 宽，取该格的中心点。
  * 条自身宽 24px，靠样式里的 margin-left: -12px 居中，所以这里只算中心。
+ * ★ 分母 = TAB_ITEMS.length（现 4）；增删 tab 时必须同步改这两个数字。
  */
-const indicatorLeft = computed(() => `calc(${activeIndex.value} * 100% / 3 + 100% / 6)`)
+const indicatorLeft = computed(() => `calc(${activeIndex.value} * 100% / 4 + 100% / 8)`)
 
 /**
  * 自带全屏层级的页面隐藏 tabbar：
@@ -62,6 +65,8 @@ const indicatorLeft = computed(() => `calc(${activeIndex.value} * 100% / 3 + 100
  *   search         —— 独立搜索页。顶部自带「返回 + 输入框 + 搜索」，
  *                     属于从首页往下的独立层级；结果列表是无限滚动的，
  *                     底部压着 tabbar 既挡内容又容易被误点跳走。
+ *  ★ `seckill` **不在**这里：它是 tabbar 的第二个页签（见 TAB_ITEMS），
+ *    必须让 tabbar 正常显示，否则进秒杀页底部导航直接消失。
  * 顺带 .layout--tabbar 的 50px 底部内边距也会一起去掉，登录页正好占满一屏。
  */
 const FULLSCREEN_ROUTES = [
@@ -77,7 +82,6 @@ const FULLSCREEN_ROUTES = [
   'pay',
   'pay-channel',
   'search',
-  'seckill',
 ]
 const showTabbar = computed(() => !FULLSCREEN_ROUTES.includes(route.name as string))
 

@@ -5,15 +5,16 @@ import { pageTransition } from '@/router'
 
 /**
  * 需要缓存的页面，按组件名匹配（<script setup> 由文件名推断组件名）。
- * 底部 tabbar 的三个页面全部缓存：切走再切回不再重新请求、滚动位置也还在。
- * 购物车的数据新鲜度由页面自身的 onActivated 静默刷新兜底（见 CartView）。
+ * 底部 tabbar 的四个页面全部缓存：切走再切回不再重新请求、滚动位置也还在。
+ * 购物车的数据新鲜度由页面自身的 onActivated 静默刷新兜底（见 CartView）；
+ * 秒杀页同理，切回来时 onActivated 静默重拉活动与库存（见 SeckillView）。
  *
  * CheckoutView（确认订单）也在这里：它跟收货地址页之间是「底部上滑层」关系，
  * 不缓存的话每次从地址页返回都要重新挂载并重拉购物车 + 地址列表，
  * 上滑露出的那一瞬间下面还是空的，比硬切更明显。
  * 缓存后返回时商品与地址立刻就在，再由它自己的 onActivated 静默刷新（见 CheckoutView）。
  */
-const CACHED_VIEWS = ['HomeView', 'CartView', 'MemberView', 'CheckoutView']
+const CACHED_VIEWS = ['HomeView', 'SeckillView', 'CartView', 'MemberView', 'CheckoutView']
 </script>
 
 <template>

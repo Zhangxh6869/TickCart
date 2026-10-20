@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import type { SeckillActivity, UserAddress } from '@tickcart/shared-types'
@@ -7,8 +7,10 @@ import { formatPrice } from '@tickcart/shared-utils'
 import { fetchAddresses } from '@/api/address'
 import { buySeckill, fetchSeckillActivities, fetchSeckillResult } from '@/api/seckill'
 import { useUserStore } from '@/stores/user'
-import PageNavBar from '@/components/PageNavBar.vue'
 import AddressPickerSheet from '@/components/AddressPickerSheet.vue'
+
+// 显式声明组件名：App.vue 里用 <KeepAlive include="SeckillView"> 缓存秒杀页（tab 页之一）
+defineOptions({ name: 'SeckillView' })
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -28,7 +30,7 @@ let tickTimer: ReturnType<typeof setInterval> | undefined
 /** 待确认的抢购活动 */
 const confirming = ref<SeckillActivity | null>(null)
 const submitting = ref(false)
-/** 抢购请求发出后到拿到结果之前，禁止再次点击 */
+/** 抢购请求发出后到拿到结果之前，禁止再次点击 / 切场次 */
 const buying = ref(false)
 /** 页面失活/卸载后停止轮询，避免后台页面继续打接口 */
 let active = true
@@ -37,28 +39,166 @@ const selectedAddress = computed(
   () => addresses.value.find((item) => item.id === selectedAddressId.value) ?? null,
 )
 
-/** 顶部倒计时：取最近一个「未结束」活动的结束时间 */
-const nearestEndAt = computed(() => {
-  const timestamps = activities.value
-    .map((item) => parseTime(item.endTime))
-    .filter((ts) => ts > now.value)
-  return timestamps.length > 0 ? Math.min(...timestamps) : 0
+// ---------------- 时间与状态 ----------------
+
+/** 解析后端返回的无时区时间（`2026-10-19T18:00:00`），按本地时区解释 */
+function parseTime(value: string): number {
+  return value ? new Date(value).getTime() : 0
+}
+
+function formatClock(value: string): string {
+  const date = new Date(value)
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+/**
+ * 本地按时间推导状态：到点自动从「即将开始」变「立即抢购」，不必重新请求。
+ * 0 已下线 / 1 即将开始 / 2 进行中 / 3 已结束（与 B4 的卡片状态机一一对应）。
+ */
+function statusOf(activity: SeckillActivity): number {
+  if (activity.enabled !== 1) return 0
+  if (now.value < parseTime(activity.startTime)) return 1
+  if (now.value < parseTime(activity.endTime)) return 2
+  return 3
+}
+
+function formatDuration(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':')
+}
+
+// ---------------- 场次分组 ----------------
+
+interface Session {
+  /** 场次开始时刻 HH:mm；同组活动的开始时间落在同一分钟 */
+  time: string
+  items: SeckillActivity[]
+}
+
+/**
+ * 把活动按开始时刻（HH:mm）分组成「场次」。
+ *
+ * <p>后端没有场次表（`seckill_activity` 只有 start_time / end_time），这里纯前端推导：
+ * 同一分钟开抢的活动视为同一场，按时间升序排列。这样不用改表、不用改接口，
+ * 又能让顶部倒计时与下方商品产生确定的对应关系（B4 的「距结束」与任一张卡都对不上）。</p>
+ */
+const sessions = computed<Session[]>(() => {
+  const map = new Map<string, SeckillActivity[]>()
+  for (const item of activities.value) {
+    const key = formatClock(item.startTime)
+    const list = map.get(key)
+    if (list) list.push(item)
+    else map.set(key, [item])
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([time, items]) => ({ time, items }))
 })
 
-const countdownText = computed(() => {
-  if (nearestEndAt.value === 0) return ''
-  return formatDuration(nearestEndAt.value - now.value)
+/** 场次状态：同组活动开始时间一致，取第一条即可 */
+function sessionStatus(session: Session): number {
+  return session.items.length > 0 ? statusOf(session.items[0]) : 0
+}
+
+function sessionStatusLabel(session: Session): string {
+  const status = sessionStatus(session)
+  if (status === 1) return '即将开始'
+  if (status === 2) return '已开抢'
+  return '已结束'
+}
+
+/** van-tabs 的选中下标；数据刷新后由 load 负责收敛到合法范围 */
+const activeIndex = ref(0)
+
+const activeSession = computed<Session | null>(() => sessions.value[activeIndex.value] ?? null)
+
+const sessionItems = computed<SeckillActivity[]>(() => activeSession.value?.items ?? [])
+
+/** 顶部倒计时：跟随选中场次 —— 未开始显示「距开抢」，进行中显示「距本场结束」 */
+const countdownLabel = computed(() => {
+  const session = activeSession.value
+  if (!session) return ''
+  const status = sessionStatus(session)
+  if (status === 1) return '距开抢'
+  if (status === 2) return '距本场结束'
+  return ''
 })
+
+const countdownTarget = computed(() => {
+  const session = activeSession.value
+  if (!session) return 0
+  const status = sessionStatus(session)
+  if (status === 1) return parseTime(session.items[0].startTime)
+  // 进行中：取该场最晚的结束时刻（同一场通常一致，取 max 更稳）
+  if (status === 2) return Math.max(...session.items.map((item) => parseTime(item.endTime)))
+  return 0
+})
+
+const countdownText = computed(() =>
+  countdownTarget.value === 0 ? '' : formatDuration(countdownTarget.value - now.value),
+)
+
+// ---------------- 场次切换 ----------------
+
+/** 商品区元素与切换期间锁定的最小高度（同首页分类切换，防文档塌高压掉滚动位置） */
+const sectionRef = ref<HTMLElement | null>(null)
+const sectionMinHeight = ref(0)
+
+/**
+ * 切场次：先把当前高度锁住，等新场次的卡片渲染完再解除。
+ *
+ * 数据已在内存里（不重新请求），所以 nextTick 后即可解锁；
+ * 若不做这一步，新场次商品比旧场次少时文档会骤然变矮，浏览器把 scrollY 夹到 0，
+ * 页面会「唰」地弹回顶部（首页切分类踩过同一个坑）。
+ */
+async function onSessionChange() {
+  await nextTick()
+  sectionMinHeight.value = 0
+}
+
+/**
+ * van-tabs 的 click-tab 回调载荷：未给 van-tab 设 name 时，`name` 就是该 tab 的下标。
+ * 单独包一层而不是在模板里写箭头 —— 模板表达式不允许内联 TS 类型注解。
+ */
+function onTabClick(tab: { name: string | number }) {
+  onSessionClick(Number(tab.name))
+}
+
+function onSessionClick(index: number) {
+  // 抢购进行中禁止切场次：切走后回来状态会错乱（按钮 loading 挂在被切走的卡片上）
+  if (buying.value) return
+  if (index === activeIndex.value) return
+  sectionMinHeight.value = sectionRef.value?.offsetHeight ?? 0
+  activeIndex.value = index
+  void onSessionChange()
+}
+
+// ---------------- 数据加载 ----------------
 
 async function load() {
   loading.value = true
   try {
     const [list] = await Promise.all([fetchSeckillActivities(), loadAddresses()])
     activities.value = list
+    // 首屏默认落在第一个「已开抢」的场次；都还没开始则第一场；都结束了则最后一场。
+    // 之后刷新（onActivated / 抢购后）保持用户当前选中的场次，越界时才重新收敛。
+    const started = sessions.value.findIndex((session) => sessionStatus(session) === 2)
+    if (activeIndex.value >= sessions.value.length) {
+      activeIndex.value = sessions.value.length > 0 ? sessions.value.length - 1 : 0
+    } else if (started >= 0 && !userPickedSession) {
+      activeIndex.value = started
+    }
+    userPickedSession = true
   } finally {
     loading.value = false
   }
 }
+
+/** 用户是否手动切过场次：切过之后刷新不再自动跳回「进行中」那一场 */
+let userPickedSession = false
 
 /**
  * 加载地址并默认选中默认地址。
@@ -101,33 +241,7 @@ onUnmounted(() => {
   if (tickTimer) clearInterval(tickTimer)
 })
 
-// ---------------- 状态推导 ----------------
-
-/** 解析后端返回的无时区时间（`2026-10-19T18:00:00`），按本地时区解释 */
-function parseTime(value: string): number {
-  return value ? new Date(value).getTime() : 0
-}
-
-function formatDuration(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const h = Math.floor(total / 3600)
-  const m = Math.floor((total % 3600) / 60)
-  const s = total % 60
-  return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':')
-}
-
-function formatClock(value: string): string {
-  const date = new Date(value)
-  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
-}
-
-/** 本地按时间推导状态：到点自动从「即将开始」变「立即抢购」，不必重新请求 */
-function statusOf(activity: SeckillActivity): number {
-  if (activity.enabled !== 1) return 0
-  if (now.value < parseTime(activity.startTime)) return 1
-  if (now.value < parseTime(activity.endTime)) return 2
-  return 3
-}
+// ---------------- 卡片展示 ----------------
 
 function canBuy(activity: SeckillActivity): boolean {
   return statusOf(activity) === 2 && activity.remainingStock > 0
@@ -266,13 +380,18 @@ function sleep(ms: number) {
 
 <template>
   <div class="seckill">
-    <PageNavBar title="限时秒杀" @click-left="router.back()">
-      <template #right>
-        <span v-if="countdownText" class="seckill__countdown">距结束 {{ countdownText }}</span>
-      </template>
-    </PageNavBar>
+    <!-- 标题条：白底吸顶，与下方场次栏组成吸顶区（两者高度必须配套：
+         这里 44px，场次栏的 sticky offset-top 也是 44）。
+         倒计时跟随选中场次：未开始显示「距开抢」，进行中显示「距本场结束」。 -->
+    <div class="sk-head">
+      <span class="sk-head__title">限时秒杀</span>
+      <span v-if="countdownText" class="sk-head__countdown">
+        {{ countdownLabel }}
+        <em class="sk-head__time">{{ countdownText }}</em>
+      </span>
+    </div>
 
-    <!-- 地址栏：页面级状态，一进页面就能看到、能改 -->
+    <!-- 地址栏：页面级状态，一进页面就能看到、能改（三态与 B4 一致） -->
     <div
       class="addr-bar"
       :class="{ 'addr-bar--hint': addressHint }"
@@ -299,40 +418,83 @@ function sleep(ms: number) {
       <van-icon name="arrow" class="addr-bar__arrow" />
     </div>
 
-    <div class="seckill__body">
-      <van-loading v-if="loading && activities.length === 0" class="seckill__loading" />
+    <!-- 场次栏：与订单列表页同款 van-tabs（白底、品牌浅蓝下划线）。
+         ★ 这里只借它做「场次导航」，内容区在 tabs 外面自己渲染 ——
+           场次切换不需要滑动面板，也不需要请求，换的是同一份内存数据的切片。
+         ★ 吸顶用 CSS sticky 自己写，**不用 Vant 的 `sticky` prop**：
+           实测 prop 传了但 .van-sticky 的计算样式一直是 static（Vant 的 sticky
+           靠 JS 在滚动后切 fixed，本项目里没被触发），而标题条 .sk-head 的
+           position: sticky 是验证过能用的。top: 44px = .sk-head 的高度。 -->
+    <van-tabs
+      class="sk-tabs"
+      :model-value="activeIndex"
+      :line-width="20"
+      color="rgb(107, 163, 200)"
+      @click-tab="onTabClick"
+    >
+      <van-tab v-for="session in sessions" :key="session.time">
+        <template #title>
+          <span class="sk-tabs__time">{{ session.time }}</span>
+          <span
+            class="sk-tabs__state"
+            :class="{ 'sk-tabs__state--on': sessionStatus(session) === 2 }"
+          >
+            {{ sessionStatusLabel(session) }}
+          </span>
+        </template>
+      </van-tab>
+    </van-tabs>
+
+    <!-- 商品网格：双列白卡。minHeight 只在切场次的那一帧生效，防止文档塌高 -->
+    <div
+      ref="sectionRef"
+      class="sk-body"
+      :style="{ minHeight: sectionMinHeight ? `${sectionMinHeight}px` : '' }"
+    >
+      <van-loading v-if="loading && activities.length === 0" class="sk-body__loading" />
       <van-empty v-else-if="activities.length === 0" description="暂无秒杀活动" />
 
-      <div v-for="item in activities" :key="item.id" class="card">
-        <div class="card__main">
-          <van-image :src="item.productImage || ''" fit="cover" class="card__img" />
-          <div class="card__info">
-            <div class="card__title">{{ item.title }}</div>
-            <div class="card__sub">{{ item.productName }} {{ item.specValue || '' }}</div>
-            <div class="card__price">
-              <span class="card__price-now">¥{{ formatPrice(item.seckillPrice) }}</span>
-              <span class="card__price-origin">¥{{ formatPrice(item.originalPrice) }}</span>
-            </div>
-            <div class="card__progress">
-              <div class="card__progress-track">
-                <div class="card__progress-bar" :style="{ width: `${soldPercent(item)}%` }" />
-              </div>
-              <span class="card__progress-text">
-                {{ item.remainingStock > 0 ? `剩 ${item.remainingStock} 件` : '已抢光' }}
-              </span>
-            </div>
-          </div>
+      <div
+        v-for="item in sessionItems"
+        :key="item.id"
+        class="sk-card"
+        :class="{ 'sk-card--sold-out': item.remainingStock <= 0 }"
+      >
+        <div class="sk-card__img-wrap">
+          <van-image :src="item.productImage || ''" fit="cover" class="sk-card__img" />
+          <span class="sk-card__limit">限购 {{ item.limitPerUser }}</span>
+          <span v-if="item.remainingStock <= 0" class="sk-card__mask">已抢光</span>
         </div>
-        <van-button
-          class="card__btn"
-          round
-          :type="canBuy(item) ? 'danger' : 'default'"
-          :disabled="!canBuy(item) || buying"
-          :loading="buying && confirming?.id === item.id"
-          @click="onBuyClick(item)"
-        >
-          {{ buttonText(item) }}
-        </van-button>
+        <div class="sk-card__body">
+          <div class="sk-card__title">{{ item.productName || item.title }}</div>
+          <div class="sk-card__sub">
+            {{ item.title }}<template v-if="item.specValue"> · {{ item.specValue }}</template>
+          </div>
+          <div class="sk-card__price">
+            <span class="sk-card__price-now">¥{{ formatPrice(item.seckillPrice) }}</span>
+            <span v-if="item.originalPrice" class="sk-card__price-origin">
+              ¥{{ formatPrice(item.originalPrice) }}
+            </span>
+          </div>
+          <div class="sk-card__progress">
+            <div class="sk-card__progress-track">
+              <div class="sk-card__progress-bar" :style="{ width: `${soldPercent(item)}%` }" />
+            </div>
+            <span class="sk-card__progress-text">
+              {{ item.remainingStock > 0 ? `剩 ${item.remainingStock} 件` : '已抢光' }}
+            </span>
+          </div>
+          <van-button
+            class="sk-card__btn"
+            round
+            :class="canBuy(item) ? 'sk-card__btn--buy' : 'sk-card__btn--off'"
+            :disabled="!canBuy(item) || buying"
+            :loading="buying && confirming?.id === item.id"
+            @click="onBuyClick(item)"
+          >
+            {{ buttonText(item) }}
+          </van-button>
+        </div>
       </div>
     </div>
 
@@ -356,7 +518,7 @@ function sleep(ms: number) {
         <div class="confirm__goods">
           <van-image :src="confirming.productImage || ''" fit="cover" class="confirm__img" />
           <div class="confirm__goods-info">
-            <div class="confirm__name">{{ confirming.productName }}</div>
+            <div class="confirm__name">{{ confirming.productName || confirming.title }}</div>
             <div class="confirm__spec">{{ confirming.specValue || '无规格' }} × 1</div>
             <div class="confirm__price">¥{{ formatPrice(confirming.seckillPrice) }}</div>
           </div>
@@ -369,13 +531,7 @@ function sleep(ms: number) {
         </div>
         <div class="confirm__actions">
           <van-button block round plain @click="confirming = null">取消</van-button>
-          <van-button
-            block
-            round
-            type="danger"
-            :loading="submitting"
-            @click="onConfirmBuy"
-          >
+          <van-button class="confirm__submit" block round :loading="submitting" @click="onConfirmBuy">
             确认抢购
           </van-button>
         </div>
@@ -385,29 +541,61 @@ function sleep(ms: number) {
 </template>
 
 <style scoped>
+/* 页面根：必须「不透明 + 至少一屏高」（与 .home / .cart / .member 同一条约定）——
+   tab 互切时旧页是 fixed 留在视口里让位的（见 App.vue 的 .page-slide-tab-*），
+   进入页不盖住视口的话旧页会从下面透出来。
+   高度按 tabbar 的 50px 占位算（.layout--tabbar 的 padding-bottom）。 */
 .seckill {
-  min-height: 100vh;
-  background: #f7f8fa;
+  min-height: calc(100vh - 50px);
+  background: var(--van-background-2, #f7f8fa);
 }
 
-.seckill__countdown {
-  font-size: 13px;
-  color: #ee0a24;
+/* ── 标题条 ────────────────────────────────────────────────────────
+   白底、44px、吸顶。场次栏的 sticky offset-top 依赖这个高度，改高度必须同步改模板里的 44。 */
+.sk-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  padding: 0 16px;
+  background: #fff;
+  border-bottom: 0.5px solid #f2f3f5;
+}
+
+.sk-head__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #323233;
+}
+
+/* 倒计时：品牌浅蓝（与订单状态字、结算按钮同源），等宽数字避免每秒跳动时宽度抖 */
+.sk-head__countdown {
+  font-size: 12px;
+  color: rgb(107, 163, 200);
   font-variant-numeric: tabular-nums;
 }
 
-/* 地址栏 */
+.sk-head__time {
+  font-style: normal;
+  font-weight: 600;
+  margin-left: 2px;
+}
+
+/* ── 地址栏（沿用 B4 的白条结构，只把提示底色换成浅蓝） ── */
 .addr-bar {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
   background: #fff;
-  border-bottom: 1px solid #f2f3f5;
+  border-bottom: 0.5px solid #f2f3f5;
 }
 
 .addr-bar--hint {
-  background: #fff7f7;
+  background: #f0f7fb;
   animation: addr-shake 0.4s;
 }
 
@@ -437,7 +625,7 @@ function sleep(ms: number) {
 
 .addr-bar__name {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   color: #323233;
 }
 
@@ -466,114 +654,220 @@ function sleep(ms: number) {
   color: #c8c9cc;
 }
 
-/* 活动列表 */
-.seckill__body {
-  padding: 12px;
-}
+/* ── 场次栏 ────────────────────────────────────────────────────────
+   与订单列表页的 van-tabs 同款，只是把 title 换成两行（时刻 + 状态）。
+   --van-tabs-line-height 放大到 52px 以容纳两行文字；下划线由 Vant 自己定位。
 
-.seckill__loading {
-  display: block;
-  margin: 48px auto;
-}
-
-.card {
-  padding: 12px;
-  margin-bottom: 12px;
-  border-radius: 12px;
+   ★ 吸顶：CSS sticky，top = .sk-head 的 44px（两者组成吸顶区）。
+   不用 Vant 的 `sticky` prop —— 实测该 prop 下 .van-sticky 的计算样式恒为 static，
+   滚动后不会切 fixed（本项目里 .sk-head 的 position: sticky 验证可用，故同一套写法）。
+   z-index 2：高于卡片，低于标题条（3）。 */
+.sk-tabs {
+  position: sticky;
+  top: 44px;
+  z-index: 2;
+  --van-tabs-line-height: 52px;
   background: #fff;
 }
 
-.card__main {
-  display: flex;
-  gap: 12px;
+/* 两行标题：时刻 14/500，状态 10/400；进行中那一场状态字用品牌蓝 */
+/* 两行标题：时刻 14/500，状态 10/400；进行中那一场状态字用品牌蓝。
+   ★ 必须把 .van-tab__text 改成 block 并放开高度：它默认是 inline 级盒子，
+     高度只按一行算（实测 18px）且 overflow: hidden，第二行会被整行裁掉
+     （表现为标题只剩一行、尾部出现省略号点）。 */
+.sk-tabs :deep(.van-tab__text) {
+  display: block;
+  height: auto;
+  padding: 4px 0;
+  line-height: normal;
 }
 
-.card__img {
-  width: 96px;
-  height: 96px;
-  flex: none;
-  border-radius: 8px;
+.sk-tabs__time {
+  display: block;
+  font-size: 14px;
+  line-height: 18px;
+  color: #323233;
+}
+
+.sk-tabs__state {
+  display: block;
+  font-size: 10px;
+  line-height: 14px;
+  color: #969799;
+}
+
+.sk-tabs__state--on {
+  color: rgb(107, 163, 200);
+}
+
+/* 场次栏自身白底、下边发丝线；吸顶后要盖住下面的卡片 */
+.sk-tabs :deep(.van-tabs__wrap) {
+  border-bottom: 0.5px solid #f2f3f5;
+}
+
+/* ── 商品网格 ── */
+.sk-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+
+.sk-body__loading {
+  display: block;
+  grid-column: 1 / -1;
+  margin: 48px auto;
+}
+
+/* 空态也要跨两列，否则会被挤在左半格 */
+.sk-body :deep(.van-empty) {
+  grid-column: 1 / -1;
+}
+
+.sk-card {
   overflow: hidden;
+  border-radius: 10px;
+  background: #fff;
+}
+
+/* 已抢光整卡降透明（同购物车失效项 .cart-item--invalid），图片另有蒙层 */
+.sk-card--sold-out {
+  opacity: 0.6;
+}
+
+.sk-card__img-wrap {
+  position: relative;
+  aspect-ratio: 1;
   background: #f2f3f5;
 }
 
-.card__info {
-  flex: 1;
-  min-width: 0;
+.sk-card__img {
+  width: 100%;
+  height: 100%;
 }
 
-.card__title {
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.3;
+/* 限购角标：品牌浅蓝底白字，贴在图片左上角 */
+.sk-card__limit {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 2px 7px;
+  border-radius: 0 0 8px 0;
+  background: rgb(107, 163, 200);
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+}
+
+/* 抢光蒙层：盖在图片上，文案居中 */
+.sk-card__mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.6);
+  color: #969799;
+  font-size: 12px;
+}
+
+.sk-card__body {
+  padding: 8px 10px 10px;
+}
+
+.sk-card__title {
+  font-size: 13px;
   color: #323233;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.card__sub {
-  margin-top: 4px;
-  font-size: 12px;
+.sk-card__sub {
+  margin-top: 2px;
+  font-size: 11px;
   color: #969799;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.card__price {
+.sk-card__price {
   display: flex;
   align-items: baseline;
-  gap: 6px;
-  margin-top: 6px;
+  gap: 5px;
+  margin-top: 5px;
 }
 
-.card__price-now {
-  font-size: 18px;
-  font-weight: 700;
-  color: #ee0a24;
+/* 价格用正文色（与 ProductCard 同源，勿改回红色） */
+.sk-card__price-now {
+  font-size: 16px;
+  font-weight: 500;
+  color: #323233;
 }
 
-.card__price-origin {
-  font-size: 12px;
+.sk-card__price-origin {
+  font-size: 11px;
   color: #c8c9cc;
   text-decoration: line-through;
 }
 
-.card__progress {
+.sk-card__progress {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 6px;
+  margin-top: 7px;
 }
 
-.card__progress-track {
+.sk-card__progress-track {
   flex: 1;
-  height: 6px;
-  border-radius: 3px;
-  background: #ffe1e1;
+  height: 4px;
+  border-radius: 2px;
+  background: #f2f3f5;
   overflow: hidden;
 }
 
-.card__progress-bar {
+/* 进度条填充：品牌浅蓝（替代原红色），与按钮同色系 */
+.sk-card__progress-bar {
   height: 100%;
-  border-radius: 3px;
-  background: #ee0a24;
+  border-radius: 2px;
+  background: rgb(107, 163, 200);
   transition: width 0.3s;
 }
 
-.card__progress-text {
+.sk-card__progress-text {
+  flex: none;
   font-size: 11px;
   color: #969799;
   white-space: nowrap;
 }
 
-.card__btn {
+/* 卡片按钮：通栏小胶囊，高 30px。
+   ★ 不用 type="primary"：Vant 的 primary 会把禁用态也染成蓝，而这里「未开始 / 已抢光」
+     必须是灰底。两个修饰类直接给背景与文字色，禁用时的透明度由 Vant 自己处理。 */
+.sk-card__btn {
   width: 100%;
-  margin-top: 12px;
+  height: 30px;
+  margin-top: 8px;
+  font-size: 13px;
 }
 
-/* 确认层 */
+.sk-card__btn--buy {
+  --van-button-primary-background: rgb(107, 163, 200);
+  --van-button-primary-border-color: rgb(107, 163, 200);
+  border-color: rgb(107, 163, 200);
+  background: rgb(107, 163, 200);
+  color: #fff;
+  font-weight: 600;
+}
+
+.sk-card__btn--off {
+  border-color: #f2f3f5;
+  background: #f2f3f5;
+  color: #969799;
+}
+
+/* ── 确认层（结构沿用 B4，只换色） ── */
 .confirm {
   padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
 }
@@ -609,7 +903,7 @@ function sleep(ms: number) {
 
 .confirm__name {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   color: #323233;
 }
 
@@ -622,8 +916,8 @@ function sleep(ms: number) {
 .confirm__price {
   margin-top: 6px;
   font-size: 16px;
-  font-weight: 700;
-  color: #ee0a24;
+  font-weight: 500;
+  color: #323233;
 }
 
 .confirm__addr {
@@ -647,5 +941,15 @@ function sleep(ms: number) {
   display: flex;
   gap: 12px;
   margin-top: 20px;
+}
+
+/* 确认键：品牌浅蓝底白字 600（与「结算」「退出登录」同一套变量覆盖方式） */
+.confirm__submit {
+  --van-button-primary-background: rgb(107, 163, 200);
+  --van-button-primary-border-color: rgb(107, 163, 200);
+  border-color: rgb(107, 163, 200);
+  background: rgb(107, 163, 200);
+  color: #fff;
+  font-weight: 600;
 }
 </style>

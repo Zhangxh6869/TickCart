@@ -62,11 +62,13 @@ const PAGE_DIR: Record<PageTransition, string> = {
  * 底部 tabbar 的平级页面。**值就是它们的左右顺序**，用来决定滑动方向：
  * 切到序号更大的 tab → 新页从右侧滑入；更小则从左侧滑入。
  * 同时这组页面之间互切会各自记住滚动位置（见下方 tabScrollPositions）。
+ * ★ 顺序必须与 TabBarLayout.TAB_ITEMS 一致：首页(0) / 秒杀(1) / 购物车(2) / 我的(3)。
  */
 const TAB_ORDER = new Map([
   ['home', 0],
-  ['cart', 1],
-  ['member', 2],
+  ['seckill', 1],
+  ['cart', 2],
+  ['member', 3],
 ])
 
 /** 路由层级：数字越大表示页面越深，用于判断本次导航是「前进」还是「后退」。
@@ -163,12 +165,14 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '搜索', depth: 2 },
   },
   {
-    // 秒杀专场：从首页顶部入口进来，属于首页的下一层（depth 2 → 右滑前进、返回左滑）。
-    // 全屏层（无 tabbar），见 layouts/TabBarLayout.vue 的 FULLSCREEN_ROUTES。
+    // 秒杀专场：tabbar 第二个页签（见 TabBarLayout.TAB_ITEMS / 上面 TAB_ORDER）。
+    // ★ depth 必须为 1（与首页同级）—— 否则 tab 互切会被判成「前进」，
+    //   走整页左右滑动而不是 tab 平移动画；同时 tabbar 才会正常显示
+    //   （它不在 TabBarLayout.FULLSCREEN_ROUTES 里）。
     path: '/seckill',
     name: 'seckill',
     component: () => import('@/views/SeckillView.vue'),
-    meta: { title: '限时秒杀', depth: 2 },
+    meta: { title: '限时秒杀', depth: 1 },
   },
   {
     path: '/products/:id',
