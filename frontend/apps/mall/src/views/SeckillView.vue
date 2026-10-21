@@ -834,7 +834,7 @@ function sleep(ms: number) {
 }
 
 .sk-card__title {
-  font-size: 13px;
+  font-size: 15px;
   color: #323233;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -843,7 +843,7 @@ function sleep(ms: number) {
 
 .sk-card__sub {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: 12px;
   color: #969799;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -864,9 +864,10 @@ function sleep(ms: number) {
   color: #323233;
 }
 
+/* 划线原价（秒杀前的价格）：与副行同灰 #969799，比秒杀价更「退后」 */
 .sk-card__price-origin {
   font-size: 11px;
-  color: #c8c9cc;
+  color: #969799;
   text-decoration: line-through;
 }
 
@@ -885,11 +886,14 @@ function sleep(ms: number) {
   overflow: hidden;
 }
 
-/* 进度条填充：品牌浅蓝（替代原红色），与按钮同色系 */
+/* 进度条填充：中性灰 #969799（与划线原价、副行同一灰阶）。
+   ★ 从品牌浅蓝改为灰色后，蓝色在卡片里只剩「立即抢购」按钮一个落点，
+     进度条的语义变成「售出量」这一客观数据，不再抢按钮的视觉优先级。
+     轨道保持 #f2f3f5，靠明度差区分已售/未售。 */
 .sk-card__progress-bar {
   height: 100%;
   border-radius: 2px;
-  background: rgb(107, 163, 200);
+  background: #969799;
   transition: width 0.3s;
 }
 
