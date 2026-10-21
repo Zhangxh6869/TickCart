@@ -723,21 +723,18 @@ function sleep(ms: number) {
   grid-column: 1 / -1;
 }
 
-/* 商品卡：白底 + 发丝描边。
-   ★ 加描边的原因：页面背景 `--van-background-2` 在 Vant 4 里就是 #fff
-     （不是 #f7f8fa），白卡压白底等于没有边界 —— 用户反馈「没有区分度」。
-     描边是纯局部方案，不动页面背景，不会和首页/购物车（同样白底白卡）产生割裂。
-   ★ 写 1px 而不是 0.5px：实测 Blink 会把 0.5px 的 border 吸附成 1px
-     （dsf 1/2/3 下 borderTopWidth 均为 1px、内容宽都是 176），
-     声明 0.5px 只是让代码和渲染不一致。真想要半像素发丝线得用
-     `box-shadow: 0 0 0 0.5px`（阴影不吸附），目前不需要。
-   ★ 全局有 `* { box-sizing: border-box }`（App.vue），描边吃内尺寸，
-     卡片外框仍是网格那一格 178px，不会把双列挤歪。 */
+/* 商品卡：白底 + 轻投影（去掉描边）。
+   ★ 现在页面底是灰的（--tc-bg-page #f7f8fa），边界已经由明度差拉开，
+     再加描边就成三重区分、显得硬。改投影让卡片「浮」在灰底上，
+     边界交给阴影的柔和过渡，观感比描边轻。
+   ★ 参数：y 偏移 2px + 模糊 8px + 8% 黑。双列 10px 间隙下两卡的阴影不会糊在一起；
+     再大（如 0 4px 12px）在密集网格里就会显脏。
+   ★ 不加描边后内容盒回到 178px（之前 1px 描边吃掉 2px）。 */
 .sk-card {
   overflow: hidden;
-  border: 1px solid #dfe2e7;
   border-radius: 10px;
   background: #fff;
+  box-shadow: 0 2px 8px rgba(48, 49, 51, 0.08);
 }
 
 /* 已抢光整卡降透明（同购物车失效项 .cart-item--invalid），图片另有蒙层 */
