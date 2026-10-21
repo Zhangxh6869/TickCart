@@ -78,72 +78,19 @@ function formatDuration(ms: number): string {
   return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':')
 }
 
-// ---------------- 场次分组 ----------------
-
-interface Session {
-  /** 场次开始时刻 HH:mm；同组活动的开始时间落在同一分钟 */
-  time: string
-  items: SeckillActivity[]
-}
+// ---------------- 商品列表 ----------------
 
 /**
- * 把活动按开始时刻（HH:mm）分组成「场次」。
+ * 秒杀商品列表：全部活动平铺，按开抢时刻升序。
  *
- * <p>后端没有场次表（`seckill_activity` 只有 start_time / end_time），这里纯前端推导：
- * 同一分钟开抢的活动视为同一场，按时间升序排列。这样不用改表、不用改接口，
- * 又能让顶部倒计时与下方商品产生确定的对应关系（B4 的「距结束」与任一张卡都对不上）。</p>
+ * <p>这里原来是「按 HH:mm 分组成场次 + 顶部 van-tabs 切场次」，卡片只显示所属场次的时间。
+ * 后来场次时间与倒计时都下沉到卡片上（每张卡自带「10-19 00:00 ~ 10-22 00:00」+ 倒计时），
+ * 场次栏退化成纯导航；按用户要求删掉后，直接平铺全部活动即可，不需要再按场次筛。
+ * 排序保留：不同场次的商品仍按开抢时间先后排列，早开的在前。</p>
  */
-const sessions = computed<Session[]>(() => {
-  const map = new Map<string, SeckillActivity[]>()
-  for (const item of activities.value) {
-    const key = formatClock(item.startTime)
-    const list = map.get(key)
-    if (list) list.push(item)
-    else map.set(key, [item])
-  }
-  return [...map.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([time, items]) => ({ time, items }))
-})
-
-/** 场次状态：同组活动开始时间一致，取第一条即可 */
-function sessionStatus(session: Session): number {
-  return session.items.length > 0 ? statusOf(session.items[0]) : 0
-}
-
-function sessionStatusLabel(session: Session): string {
-  const status = sessionStatus(session)
-  if (status === 1) return '即将开始'
-  if (status === 2) return '已开抢'
-  return '已结束'
-}
-
-/** van-tabs 的选中下标；数据刷新后由 load 负责收敛到合法范围 */
-const activeIndex = ref(0)
-
-const activeSession = computed<Session | null>(() => sessions.value[activeIndex.value] ?? null)
-
-const sessionItems = computed<SeckillActivity[]>(() => activeSession.value?.items ?? [])
-
-// ---------------- 场次切换 ----------------
-
-/**
- * 切场次。
- *
- * <p>数据本来就在内存里（`sessions` 是 `activities` 的切片），切换只触发一次同步重渲染，
- * 不存在「清空 → 等接口 → 再填」的空窗，所以**不需要**首页分类切换那套「锁定最小高度」
- * 来防文档塌高：高度在新场次渲染的同一帧就是真实高度，加了只是死代码。</p>
- */
-function onTabClick(tab: { name: string | number }) {
-  onSessionClick(Number(tab.name))
-}
-
-function onSessionClick(index: number) {
-  // 抢购进行中禁止切场次：切走后回来状态会错乱（按钮 loading 挂在被切走的卡片上）
-  if (buying.value) return
-  if (index === activeIndex.value) return
-  activeIndex.value = index
-}
+const sortedItems = computed<SeckillActivity[]>(() =>
+  [...activities.value].sort((a, b) => parseTime(a.startTime) - parseTime(b.startTime)),
+)
 
 // ---------------- 数据加载 ----------------
 
@@ -152,22 +99,10 @@ async function load() {
   try {
     const [list] = await Promise.all([fetchSeckillActivities(), loadAddresses()])
     activities.value = list
-    // 首屏默认落在第一个「已开抢」的场次；都还没开始则第一场；都结束了则最后一场。
-    // 之后刷新（onActivated / 抢购后）保持用户当前选中的场次，越界时才重新收敛。
-    const started = sessions.value.findIndex((session) => sessionStatus(session) === 2)
-    if (activeIndex.value >= sessions.value.length) {
-      activeIndex.value = sessions.value.length > 0 ? sessions.value.length - 1 : 0
-    } else if (started >= 0 && !userPickedSession) {
-      activeIndex.value = started
-    }
-    userPickedSession = true
   } finally {
     loading.value = false
   }
 }
-
-/** 用户是否手动切过场次：切过之后刷新不再自动跳回「进行中」那一场 */
-let userPickedSession = false
 
 /**
  * 加载地址并默认选中默认地址。
@@ -418,40 +353,15 @@ function sleep(ms: number) {
       <van-icon name="arrow" class="addr-bar__arrow" />
     </div>
 
-    <!-- 场次栏：与订单列表页同款 van-tabs（白底、品牌浅蓝下划线）。
-         ★ 这里只借它做「场次导航」，内容区在 tabs 外面自己渲染 ——
-           场次切换不需要滑动面板，也不需要请求，换的是同一份内存数据的切片。
-         ★ 吸顶用 CSS sticky 自己写，**不用 Vant 的 `sticky` prop**：
-           实测 prop 传了但 .van-sticky 的计算样式一直是 static（Vant 的 sticky
-           靠 JS 在滚动后切 fixed，本项目里没被触发），而标题条 .sk-head 的
-           position: sticky 是验证过能用的。top: 44px = .sk-head 的高度。 -->
-    <van-tabs
-      class="sk-tabs"
-      :model-value="activeIndex"
-      :line-width="20"
-      color="rgb(107, 163, 200)"
-      @click-tab="onTabClick"
-    >
-      <van-tab v-for="session in sessions" :key="session.time">
-        <template #title>
-          <span class="sk-tabs__time">{{ session.time }}</span>
-          <span
-            class="sk-tabs__state"
-            :class="{ 'sk-tabs__state--on': sessionStatus(session) === 2 }"
-          >
-            {{ sessionStatusLabel(session) }}
-          </span>
-        </template>
-      </van-tab>
-    </van-tabs>
-
-    <!-- 商品网格：双列白卡。场次数据在内存里，切场次即换切片，无需高度锁 -->
+    <!-- 商品网格：双列白卡。
+         顶部原有一栏 van-tabs「场次导航」（00:00 / 已开抢），时间与倒计时下沉到卡片后
+         它退化成纯导航，按用户要求整块删除 —— 现在所有活动平铺，卡片自带时间区间与倒计时。 -->
     <div class="sk-body">
       <van-loading v-if="loading && activities.length === 0" class="sk-body__loading" />
       <van-empty v-else-if="activities.length === 0" description="暂无秒杀活动" />
 
       <div
-        v-for="item in sessionItems"
+        v-for="item in sortedItems"
         :key="item.id"
         class="sk-card"
         :class="{ 'sk-card--sold-out': item.remainingStock <= 0 }"
@@ -651,57 +561,6 @@ function sleep(ms: number) {
 .addr-bar__arrow {
   flex: none;
   color: #c8c9cc;
-}
-
-/* ── 场次栏 ────────────────────────────────────────────────────────
-   与订单列表页的 van-tabs 同款，只是把 title 换成两行（时刻 + 状态）。
-   --van-tabs-line-height 放大到 52px 以容纳两行文字；下划线由 Vant 自己定位。
-
-   ★ 吸顶：CSS sticky，top = .sk-head 的 44px（两者组成吸顶区）。
-   不用 Vant 的 `sticky` prop —— 实测该 prop 下 .van-sticky 的计算样式恒为 static，
-   滚动后不会切 fixed（本项目里 .sk-head 的 position: sticky 验证可用，故同一套写法）。
-   z-index 2：高于卡片，低于标题条（3）。 */
-.sk-tabs {
-  position: sticky;
-  top: 44px;
-  z-index: 2;
-  --van-tabs-line-height: 52px;
-  background: #fff;
-}
-
-/* 两行标题：时刻 14/500，状态 10/400；进行中那一场状态字用品牌蓝 */
-/* 两行标题：时刻 14/500，状态 10/400；进行中那一场状态字用品牌蓝。
-   ★ 必须把 .van-tab__text 改成 block 并放开高度：它默认是 inline 级盒子，
-     高度只按一行算（实测 18px）且 overflow: hidden，第二行会被整行裁掉
-     （表现为标题只剩一行、尾部出现省略号点）。 */
-.sk-tabs :deep(.van-tab__text) {
-  display: block;
-  height: auto;
-  padding: 4px 0;
-  line-height: normal;
-}
-
-.sk-tabs__time {
-  display: block;
-  font-size: 14px;
-  line-height: 18px;
-  color: #323233;
-}
-
-.sk-tabs__state {
-  display: block;
-  font-size: 10px;
-  line-height: 14px;
-  color: #969799;
-}
-
-.sk-tabs__state--on {
-  color: rgb(107, 163, 200);
-}
-
-/* 场次栏自身白底、下边发丝线；吸顶后要盖住下面的卡片 */
-.sk-tabs :deep(.van-tabs__wrap) {
-  border-bottom: 0.5px solid #f2f3f5;
 }
 
 /* ── 商品网格 ── */

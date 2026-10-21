@@ -602,3 +602,39 @@ background: var(--tc-bg-page, #f7f8fa);
 1. 只有白卡 + 白底 → 无边界（原始 bug，`--van-background-2` 的 fallback 是死代码）
 2. 白卡 + 灰底 → 有边界（`--tc-bg-page`，§11.12）
 3. 白卡 + 灰底 + 轻投影 → 有边界且有层次（当前，§11.13）
+
+### 11.14 删除顶部场次栏（van-tabs）
+
+需求：删掉秒杀页上方那排 `<div class="van-tab">00:00 / 已开抢</div>`。
+
+**为什么可以删**：场次栏原本承担两件事 —— ① 按场次筛选商品；② 显示该场时刻与状态。
+在 §11.6 把「时间区间 + 倒计时」下沉到每张卡片之后，② 已经由卡片自己承担（每张卡都有
+`10-19 00:00 ~ 10-22 00:00` 和「距结束 hh:mm:ss」），场次栏只剩导航作用，
+而按场次切来切去在「一屏能看完所有活动」的体量下没有收益。删掉后**所有活动平铺**。
+
+**改动清单（`SeckillView.vue`）**：
+
+| 位置 | 处理 |
+| --- | --- |
+| 模板 | 删除 `<van-tabs class="sk-tabs">` 整块（含 `van-tab` 两行标题：时刻 + 状态） |
+| 模板 | `v-for="item in sessionItems"` → `v-for="item in sortedItems"` |
+| script | 删除 `Session` 接口、`sessions`（按 HH:mm 分组）、`sessionStatus` / `sessionStatusLabel`、`activeIndex` / `activeSession` / `sessionItems`、`onTabClick` / `onSessionClick`、`userPickedSession` |
+| script | 新增 `sortedItems`：`activities` 按 `startTime` 升序平铺 |
+| script | `load()` 去掉「默认落在第一个已开抢场次 / 收敛下标」那一段，只负责取数 |
+| 样式 | 删除 `.sk-tabs` / `.sk-tabs :deep(.van-tab__text)` / `.sk-tabs__time` / `.sk-tabs__state` / `.sk-tabs__state--on` / `.sk-tabs :deep(.van-tabs__wrap)` 六条 |
+
+保留的：`.sk-head` 的 `position: sticky; top: 0`（原来与场次栏组成吸顶区，现在自己吸顶），
+`formatClock`（`buttonText` 里的「21:30 开抢」还要用）。
+
+验证（`seckill-no-tabs-verify.mjs`，390×844）：
+
+| 用例 | 结果 | 证据 |
+| --- | --- | --- |
+| 场次栏已删 | ✅ | 页面上 `.sk-tabs` / `.van-tabs` 数量 = 0 |
+| 全部活动平铺 | ✅ | 页面卡片数 === 接口 `/api/seckill/activities` 返回条数 |
+| 排序保留 | ✅ | 卡片时间区间首段按开抢时刻单调不减 |
+| 布局衔接 | ✅ | `.sk-body` 顶 = `.addr-bar` 底（108），中间没有残留空白 |
+| 标题条仍吸顶 | ✅ | 滚动 300px 后 `.sk-head` top = 0 |
+
+★ 遗留：`buttonText()` 在「未开始」时仍显示 `HH:mm 开抢`（如「21:30 开抢」），
+与卡片上的完整日期不冲突，保留。
