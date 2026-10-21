@@ -51,6 +51,14 @@ function formatClock(value: string): string {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
+/** 带日期的时刻：`10-21 18:00`（卡片时间区用，年月在秒杀场景里是噪音，只保留月-日） */
+function formatDateTime(value: string): string {
+  const date = new Date(value)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${month}-${day} ${formatClock(value)}`
+}
+
 /**
  * 本地按时间推导状态：到点自动从「即将开始」变「立即抢购」，不必重新请求。
  * 0 已下线 / 1 即将开始 / 2 进行中 / 3 已结束（与 B4 的卡片状态机一一对应）。
@@ -224,9 +232,14 @@ function soldPercent(activity: SeckillActivity): number {
   return Math.min(100, Math.round((sold / total) * 100))
 }
 
-/** 卡片内的场次时间：`18:00-20:00`（取活动自身的开抢/结束时刻，不依赖选中的场次） */
+/**
+ * 卡片内的场次时间区间：`10-21 00:00 ~ 10-22 00:00`（取活动自身的开抢/结束时刻）。
+ *
+ * <p>带日期后一行到 ~130px，和倒计时挤同一行会互相顶掉，所以卡片时间区改成两行：
+ * 第一行区间、第二行倒计时（见 .sk-card__time 的 column 布局）。</p>
+ */
 function timeRange(activity: SeckillActivity): string {
-  return `${formatClock(activity.startTime)}-${formatClock(activity.endTime)}`
+  return `${formatDateTime(activity.startTime)} ~ ${formatDateTime(activity.endTime)}`
 }
 
 /**
@@ -451,7 +464,8 @@ function sleep(ms: number) {
           <span v-if="item.remainingStock <= 0" class="sk-card__mask">已抢光</span>
         </div>
         <div class="sk-card__body">
-          <!-- 场次时间下沉到卡片：左「18:00-20:00」区间，右本场倒计时/状态 -->
+          <!-- 场次时间下沉到卡片：第一行「10-21 00:00 ~ 10-22 00:00」区间，
+               第二行本场倒计时/状态（带日期后一行放不下，改列排） -->
           <div class="sk-card__time">
             <span class="sk-card__time-range">{{ timeRange(item) }}</span>
             <span
@@ -771,40 +785,42 @@ function sleep(ms: number) {
 }
 
 /* ── 卡片内的场次时间 ──
-   一行两段：左「18:00-20:00」区间（次要灰），右本场倒计时（走秒时标红）。
-   卡片宽度只有 ~170px，区间用 tabular-nums 等宽数字防抖，倒计时单行不换行。 */
+   两行：第一行「10-21 00:00 ~ 10-22 00:00」区间（10px 次要灰），
+   第二行本场倒计时（11px，走秒时标红）。
+   ★ 为什么不再挤一行：带上日期后区间约 126px，卡片内容区只有 158px，
+     再和倒计时抢同一行必有一方被截断。列排后两段各占一行，谁都不用省略号。
+   数字用 tabular-nums 等宽，每秒跳动时不会左右抖。 */
 .sk-card__time {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 6px;
+  flex-direction: column;
+  gap: 2px;
   margin-bottom: 4px;
   font-variant-numeric: tabular-nums;
 }
 
+/* 时间区间：10px 次要灰，单行不换行（放不下才省略，正常数据不会触发） */
 .sk-card__time-range {
-  flex: none;
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 10px;
+  line-height: 14px;
   color: #646566;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 默认灰：只给「已结束」这类静态结论用 */
 .sk-card__time-cd {
-  flex: 1;
-  min-width: 0;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 14px;
   color: #969799;
-  text-align: right;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* 走秒中（距开抢 / 距结束）：红色强调紧迫感。
    ★ 这里用 Vant 的标准红 #ee0a24，与页面其它装饰色（品牌浅蓝）刻意区分：
-     蓝色是「品牌/可点」，红色只表示「时间在跑」。10px 小字加 500 才压得住。 */
+     蓝色是「品牌/可点」，红色只表示「时间在跑」。11px 小字加 500 才压得住。 */
 .sk-card__time-cd--live {
   color: #ee0a24;
   font-weight: 500;
