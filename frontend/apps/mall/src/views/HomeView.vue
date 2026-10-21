@@ -1,11 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import type { Category, ProductListItem, SeckillActivity } from '@tickcart/shared-types'
-import { formatPrice } from '@tickcart/shared-utils'
+import type { Category, ProductListItem } from '@tickcart/shared-types'
 import { fetchCategories, fetchProducts } from '@/api/product'
-import { fetchSeckillActivities } from '@/api/seckill'
 import BackToTop from '@/components/BackToTop.vue'
 import ProductCard from '@/components/ProductCard.vue'
 
@@ -333,99 +331,8 @@ function selectCategory(id: number | null) {
  * 原先跳列表页既带不上关键词、也没有历史/热搜，用户以为能搜却搜不了。
  * 现在统一进 `/search`（空态给历史 + 热搜，提交后同页出结果）。
  */
-function goSeckill() {
-  router.push({ name: 'seckill' })
-}
-
 function goSearch() {
   router.push({ name: 'search' })
-}
-
-// ---------------- 秒杀模块 ----------------
-
-/**
- * 首页秒杀模块的数据。
- *
- * <p>只拉一次活动列表，展示「进行中」的最多 3 个；没有进行中的就用「即将开始」的补位，
- * 让入口始终有具体商品可看（纯文字横条的点击率远低于带图带价的）。</p>
- *
- * <p>失败时保持空数组 —— 模块整块不渲染即可，不能让首页因为秒杀接口挂了而报错。</p>
- */
-const seckillActivities = ref<SeckillActivity[]>([])
-/** 秒杀模块自己的秒级时钟：驱动倒计时。只在页面激活时走，切走就停。 */
-const seckillNow = ref(Date.now())
-let seckillTimer: ReturnType<typeof setInterval> | undefined
-
-function seckillStatusOf(activity: SeckillActivity): number {
-  if (activity.enabled !== 1) return 0
-  if (seckillNow.value < parseSeckillTime(activity.startTime)) return 1
-  if (seckillNow.value < parseSeckillTime(activity.endTime)) return 2
-  return 3
-}
-
-function parseSeckillTime(value: string): number {
-  return value ? new Date(value).getTime() : 0
-}
-
-/** 模块里展示的商品：进行中优先，不足 3 个用即将开始的补齐 */
-const seckillItems = computed<SeckillActivity[]>(() => {
-  const ongoing = seckillActivities.value.filter((item) => seckillStatusOf(item) === 2)
-  const upcoming = seckillActivities.value.filter((item) => seckillStatusOf(item) === 1)
-  return [...ongoing, ...upcoming].slice(0, 3)
-})
-
-/** 倒计时文案：有进行中就「距结束 xx:xx:xx」，否则「下一场 14:00 开抢」 */
-const seckillCountdown = computed(() => {
-  const ongoing = seckillActivities.value.filter((item) => seckillStatusOf(item) === 2)
-  if (ongoing.length > 0) {
-    const endAt = Math.min(...ongoing.map((item) => parseSeckillTime(item.endTime)))
-    return `距结束 ${formatSeckillDuration(endAt - seckillNow.value)}`
-  }
-  const upcoming = seckillActivities.value
-    .filter((item) => seckillStatusOf(item) === 1)
-    .sort((a, b) => parseSeckillTime(a.startTime) - parseSeckillTime(b.startTime))
-  if (upcoming.length > 0) {
-    const date = new Date(upcoming[0].startTime)
-    const clock = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
-    return `下一场 ${clock} 开抢`
-  }
-  return ''
-})
-
-function formatSeckillDuration(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const h = Math.floor(total / 3600)
-  const m = Math.floor((total % 3600) / 60)
-  const s = total % 60
-  return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':')
-}
-
-/**
- * 拉秒杀活动。放在 onActivated 里（首页被 KeepAlive 缓存）：
- * 每次切回首页都刷新一次剩余库存与倒计时基准，又不至于在别的 tab 上白跑接口。
- */
-async function loadSeckill() {
-  try {
-    seckillActivities.value = await fetchSeckillActivities()
-  } catch {
-    // 秒杀接口失败不影响首页：模块保持不渲染
-    seckillActivities.value = []
-  }
-}
-
-function startSeckillTick() {
-  stopSeckillTick()
-  seckillNow.value = Date.now()
-  seckillTimer = setInterval(() => {
-    seckillNow.value = Date.now()
-  }, 1000)
-}
-
-function stopSeckillTick() {
-  if (seckillTimer) {
-    clearInterval(seckillTimer)
-    seckillTimer = undefined
-  }
 }
 
 onMounted(async () => {
@@ -441,20 +348,13 @@ onMounted(async () => {
   // 这里若再手动拉一次只会白打一次接口（随机种子在 setup 阶段就已就绪，首屏随机性不受影响）。
 })
 
-// 从商品详情等页面返回时，浏览器会恢复分类栏的横向滚动位置但不触发 scroll 事件，这里补一次；
-// 同时刷新秒杀模块（库存/场次可能已经变了）并重启它的秒级时钟。
+// 从商品详情等页面返回时，浏览器会恢复分类栏的横向滚动位置但不触发 scroll 事件，这里补一次。
 onActivated(() => {
   syncActiveUnderPinned()
-  void loadSeckill()
-  startSeckillTick()
 })
-
-// 切到别的 tab：停掉秒级时钟，避免后台页面每秒空跑一次响应式更新
-onDeactivated(stopSeckillTick)
 
 onBeforeUnmount(() => {
   catBarRef.value?.removeEventListener('scroll', syncActiveUnderPinned)
-  stopSeckillTick()
 })
 </script>
 
@@ -487,51 +387,6 @@ onBeforeUnmount(() => {
           <button class="search-btn" type="button" @click.stop="goSearch">搜索</button>
         </template>
       </van-search>
-
-      <!-- 限时秒杀模块：标题行 + 3 个横向商品，点整块或任一单品都进秒杀专场。
-           ★ 没有可展示的活动时整块不渲染（不留空白占位）—— 空盒子比没有更难看。
-           ★ 单品点击也进专场而不是商品详情：秒杀商品必须走抢购链路，
-             进详情页看到的是原价，容易让人以为秒杀不存在。 -->
-      <div v-if="seckillItems.length > 0" class="seckill-module" @click="goSeckill">
-        <div class="seckill-module__head">
-          <svg class="seckill-module__bolt" viewBox="0 0 1024 1024" aria-hidden="true">
-            <path
-              d="M767.808647 485.861148l-161.587889-16.085672 73.116692-469.409161L255.991804 531.924664l157.932055 10.236337L335.688998 1024l432.119649-538.138852z"
-              fill="currentColor"
-            />
-          </svg>
-          <span class="seckill-module__title">限时秒杀</span>
-          <span class="seckill-module__countdown">{{ seckillCountdown }}</span>
-          <van-icon name="arrow" class="seckill-module__arrow" />
-        </div>
-        <div class="seckill-module__list">
-          <div v-for="item in seckillItems" :key="item.id" class="seckill-module__item">
-            <div class="seckill-module__thumb">
-              <img
-                v-if="item.productImage"
-                :src="item.productImage"
-                :alt="item.productName || item.title"
-              />
-            </div>
-            <div class="seckill-module__price">¥{{ formatPrice(item.seckillPrice) }}</div>
-            <div v-if="item.originalPrice" class="seckill-module__origin">
-              ¥{{ formatPrice(item.originalPrice) }}
-            </div>
-          </div>
-          <!-- 不足 3 个时补一格「查看全部」占住剩余列：
-               ★ 列数必须写死 3 —— 之前用 flex: 1，只有 1 个活动时那一项会被拉满整行，
-                 正方形缩略图跟着变成 344px，模块高度飙到 429px（占半屏）。
-                 固定 3 列后单项恒为 1/3 宽，数量多少都不影响模块高度。 -->
-          <div
-            v-if="seckillItems.length < 3"
-            class="seckill-module__more"
-            :style="{ gridColumn: `span ${3 - seckillItems.length}` }"
-          >
-            <span>查看全部</span>
-            <van-icon name="arrow" class="seckill-module__more-arrow" />
-          </div>
-        </div>
-      </div>
 
       <!-- 分类栏：搜索栏下方一行；「全部」钉在左侧不动，其余分类横向滑动，点击后原地切换下方商品 -->
       <div ref="catBarRef" class="cat-bar">
@@ -835,118 +690,6 @@ onBeforeUnmount(() => {
   }
 }
 /* 分类栏：紧贴搜索栏下方，单行横向排列，超出部分横向滚动（隐藏滚动条） */
-/* 限时秒杀模块：白卡 + 细描边（替换原来的红色渐变横条）。
-   与下面的分类栏同为白底，靠 0.5px 描边与 8px 间距区分层次，不再用高饱和色抢视线。 */
-.seckill-module {
-  margin: 0 12px 8px;
-  padding: 10px;
-  border: 0.5px solid #f2f3f5;
-  border-radius: 10px;
-  background: #fff;
-  cursor: pointer;
-}
-
-.seckill-module__head {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-bottom: 9px;
-}
-
-/* 闪电图标：品牌浅蓝，14px，与标题基线视觉对齐 */
-.seckill-module__bolt {
-  width: 14px;
-  height: 14px;
-  flex: none;
-  color: rgb(107, 163, 200);
-}
-
-.seckill-module__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #323233;
-}
-
-/* 倒计时靠右：等宽数字，避免每秒跳动时右侧箭头跟着抖 */
-.seckill-module__countdown {
-  margin-left: auto;
-  font-size: 12px;
-  color: rgb(107, 163, 200);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.seckill-module__arrow {
-  flex: none;
-  font-size: 12px;
-  color: #c8c9cc;
-}
-
-.seckill-module__list {
-  /* ★ 固定 3 列，不用 flex：flex:1 会让「只有 1 个活动」时那一项拉满整行，
-     正方形缩略图随之变成 344px，模块高度直接涨到 429px（半个屏幕）。
-     固定列后单项恒为 1/3 宽，无论 1/2/3 个活动，模块高度都稳定在 ~150px。 */
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.seckill-module__item {
-  min-width: 0;
-}
-
-/* 不足 3 个时补的「查看全部」格子：占住剩余列，避免右侧留一大片空白 */
-.seckill-module__more {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  border-radius: 8px;
-  background: #f7f8fa;
-  color: rgb(107, 163, 200);
-  font-size: 12px;
-}
-
-.seckill-module__more-arrow {
-  font-size: 12px;
-  color: #c8c9cc;
-}
-
-/* 缩略图：正方形 8px 圆角，无图时留浅灰底占位（不塌高） */
-.seckill-module__thumb {
-  aspect-ratio: 1;
-  border-radius: 8px;
-  overflow: hidden;
-  background: #f2f3f5;
-}
-
-.seckill-module__thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-/* 价格用正文色（与 ProductCard 同源），不加红 */
-.seckill-module__price {
-  margin-top: 4px;
-  font-size: 12px;
-  font-weight: 500;
-  color: #323233;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.seckill-module__origin {
-  font-size: 9px;
-  color: #c8c9cc;
-  text-decoration: line-through;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .cat-bar {
   display: flex;
   /* 项间距用 .cat-bar__item 的 margin-right 实现，不用 gap：

@@ -638,3 +638,36 @@ background: var(--tc-bg-page, #f7f8fa);
 
 ★ 遗留：`buttonText()` 在「未开始」时仍显示 `HH:mm 开抢`（如「21:30 开抢」），
 与卡片上的完整日期不冲突，保留。
+
+---
+
+## 12. 后续调整（2026-10-21）：移除首页秒杀模块
+
+首页 `.seckill-module` 原先在 `.home__sticky` 内，与搜索栏、分类栏一起常驻吸顶：
+390px 视口下整块约 190px（3 个正方形缩略图边长 =(屏宽−56)/3），滚动时一直压住商品，
+且有无活动会在 98px / 190px 之间跳变。秒杀入口已由 tabbar 第 2 项承担，首页模块属于重复入口。
+
+处理：整块删除，不做折叠。
+
+| 位置 | 删除内容 |
+| --- | --- |
+| template | `.seckill-module` 整块（标题行 + 3 商品 + 「查看全部」补位） |
+| script | `seckillActivities` / `seckillNow` / `seckillTimer`、`seckillStatusOf` / `parseSeckillTime` / `seckillItems` / `seckillCountdown` / `formatSeckillDuration` / `loadSeckill` / `startSeckillTick` / `stopSeckillTick`、`goSeckill` |
+| import | `SeckillActivity`、`fetchSeckillActivities`、`formatPrice`、`onDeactivated` |
+| 生命周期 | `onActivated` 只保留 `syncActiveUnderPinned()`；删 `onDeactivated`；`onBeforeUnmount` 去掉 `stopSeckillTick()` |
+| style | `.seckill-module*` 共 13 条 |
+
+验证（390×844，`seckill-tab-verify.mjs` 已同步）：
+
+| 用例 | 结果 |
+| --- | --- |
+| `.seckill-module` 数量 | 0 |
+| 吸顶区子节点 | `van-search` + `cat-bar`（2 个） |
+| 吸顶区高度 | 190 → **98px** |
+| 分类栏 top | 54（紧贴搜索栏） |
+| 首屏首张商品卡 top | 122（原约 310） |
+| 滚动 400px 后吸顶 | `.home__sticky` top = 0 |
+| tabbar 秒杀入口 | 4 项不变，点击进 `/seckill` |
+
+★ 以后若要在首页重新加秒杀曝光位，别再放回 `.home__sticky`：吸顶区只应放搜索 + 分类，
+促销模块应随内容滚走（或做成 ≤40px 的单行条）。
