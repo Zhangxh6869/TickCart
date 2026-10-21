@@ -23,7 +23,7 @@
 
 | 角色 | 色值 | 全站出处 |
 |---|---|---|
-| 页面底 | `#f7f8fa`（`var(--van-background-2)`） | 购物车 / 订单列表 / 我的 |
+| 页面底 | `#f7f8fa`（**设计意图**；实际渲染是 `#fff`，见 §11.11 ⚠️） | 购物车 / 订单列表 / 我的 |
 | 卡片 | `#fff`，`border-radius: 10px`，`padding: 12px`，卡间距 10px | 订单列表 `.order` |
 | 强调色 | `rgb(107,163,200)` 品牌浅蓝 | 订单状态字 / 结算按钮 / 退出登录 |
 | 按钮 | 浅蓝底 + 白字 + `font-weight: 600`（覆盖 `--van-button-primary-*` 两个变量） | `.cart__empty-btn--brand` |
@@ -481,3 +481,47 @@ v2 把倒计时放在标题条右槽（`#right` 插槽 / `.sk-head__countdown`�
 ★ 当前 id=17 的活动 `sold_count = 0`（进度条 0%，截图上看不到填充），
 所以另截了一张 `seckill-progress-gray.png`：只在 DOM 里临时把宽度改成 60%、文案改成
 「剩 40 件」看颜色，**没有改数据库**。
+
+### 11.11 卡片与背景区分度：加发丝描边（方案 B）
+
+现象：用户反馈「商品框和页面背景颜色非常接近，没有区分度」。
+
+**根因（比想象中严重）**：页面底色实际是**纯白 `#fff`**，不是设计稿写的 `#f7f8fa`。
+白卡压白底，等于完全没有边界，只靠 10px 间隙暗示。
+
+为什么会这样 —— 两个原因叠加：
+
+1. Vant 4 里 `--van-background-2` 的默认值就是 `#fff`（不是 `#f7f8fa`），
+   所以 `background: var(--van-background-2, #f7f8fa)` 的 fallback 是**死代码**，永远不生效。
+   受影响：`SeckillView` / `CartView` / `OrderListView`（三者同一写法）。
+2. `App.vue` 的 `:root` 把 `--van-background` 覆盖成了 `#fff`（为免 van-image 用灰底），
+   而 `HomeView` 根节点写的是 `var(--van-background, #fff)` → 首页也是白底。
+
+实测（CDP 采样 4 个页面根节点 `backgroundColor`）：
+
+| 页面 | 根节点写法 | 实际底色 |
+| --- | --- | --- |
+| `/seckill` | `var(--van-background-2, #f7f8fa)` | **#fff** |
+| `/`（首页） | `var(--van-background, #fff)` | **#fff** |
+| `/cart` | `var(--van-background-2, #f7f8fa)` | **#fff** |
+| `/member` | 字面量 `#f7f8fa` | #f7f8fa ✅ |
+
+**本次改动（只做 B，不动背景）**：`.sk-card` 加 `border: 1px solid #dfe2e7`。
+选 B 的理由：纯局部，不会让秒杀页和首页/购物车（同样白底白卡）产生割裂。
+
+★ **0.5px 会被吸附**：先写的是 `0.5px`，实测 Blink 在 dsf 1/2/3 下 `borderTopWidth` 全是 `1px`、
+内容宽都是 176（= 178 − 2×1），说明 0.5px 声明只是让代码和渲染不一致，最终写成 `1px`。
+真要半像素发丝线得用 `box-shadow: 0 0 0 0.5px`（阴影不做整像素吸附），当前不需要。
+
+验证（`seckill-card-border-verify.mjs`，390×844）：
+
+| 用例 | 结果 | 证据 |
+| --- | --- | --- |
+| 描边生效 | ✅ | `border-top: 1px solid rgb(223, 226, 231)` |
+| 外框不被撑大 | ✅ | 卡片宽仍 178（`box-sizing: border-box` 吃内尺寸） |
+| 圆角不变 | ✅ | `border-radius: 10px` |
+| 背景未动 | ✅ | `.seckill` 底色仍 `rgb(255,255,255)`，`--van-background-2 = #fff` |
+
+**待定（未做）**：若想让设计稿的 `#f7f8fa` 真正生效，最小改法是在 `App.vue` 的 `:root` 里加
+`--van-background-2: #f7f8fa`（一处生效，三个页面同时变灰）；但首页用的是 `--van-background`，
+要不要一起改、以及「我的」页已经灰底会不会显得不一致，需要产品确认后再动。
