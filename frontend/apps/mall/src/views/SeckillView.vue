@@ -743,12 +743,13 @@ function sleep(ms: number) {
 }
 
 /* 限购角标：品牌浅蓝底白字，贴在图片左上角。
-   ★ 固定 30×20（原为 padding 撑出的 41.8×18）：宽高写死 + flex 居中，
-     不再靠 padding 撑，改字号时盒子不会跟着变形。
-   ★ 字号 10 → 11px：跟着高度 18 → 20 的同比例（20/18≈1.11）放大；
-     11px 下「限购N」实测约 28px，30px 宽度刚好装下。
-   ★ overflow: hidden 是兜底 —— 限购是两位数（限购10）时会到 34px，
-     宁可裁掉半个字也不许撑破盒子盖住商品图。 */
+   ★ 30×20 是「最小值」而不是死尺寸：min-width + 固定 height + flex 居中。
+     一位数限购（限购1，内容约 28px）正好落在 30×20；两位数（限购10，约 34px）
+     自动长宽到 34×20 而不会裁字 —— 商品图角上，宁可宽 4px 也不要半个字。
+   ★ 不加左右 padding：加了会把一位数也撑到 36px，30×20 就守不住了。
+     两位数时文字正好填满盒子，视觉上反而更像「角标」。
+   ★ 字号 10 → 11px：跟着高度 18 → 20 的同比例（20/18≈1.11）放大。
+   ★ overflow: hidden 仍留着做最后兜底（极端长文案不许盖住商品图）。 */
 .sk-card__limit {
   position: absolute;
   top: 0;
@@ -756,7 +757,7 @@ function sleep(ms: number) {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
+  min-width: 30px;
   height: 20px;
   border-radius: 0 0 8px 0;
   background: rgb(107, 163, 200);
