@@ -743,26 +743,31 @@ function sleep(ms: number) {
 }
 
 /* 限购角标：品牌浅蓝底白字，贴在图片左上角。
-   ★ 30×20 是「最小值」而不是死尺寸：min-width + 固定 height + flex 居中。
-     一位数限购（限购1，内容约 28px）正好落在 30×20；两位数（限购10，约 34px）
-     自动长宽到 34×20 而不会裁字 —— 商品图角上，宁可宽 4px 也不要半个字。
-   ★ 不加左右 padding：加了会把一位数也撑到 36px，30×20 就守不住了。
-     两位数时文字正好填满盒子，视觉上反而更像「角标」。
-   ★ 字号 10 → 11px：跟着高度 18 → 20 的同比例（20/18≈1.11）放大。
+   ★ 尺寸由 **一个变量** 推导，三者锁死在同一比例上（原设计 30:20:11）：
+       --sk-badge-h  →  height
+       × 1.5         →  min-width（30/20 = 1.5，角标是 3:2 的扁盒子）
+       × 0.55        →  font-size（11/20 = 0.55）
+     以后想放大角标只改 --sk-badge-h 一个值，宽和字号自动跟着走，
+     不会出现「盒子变大了字还是原来那么小」的脱节。
+   ★ 当前 24px → 36×24、字号 13.2px：比最初的 30×20/11px 整体放大 1.2 倍，
+     一位数「限购1」在 13.2px 下约 33.6px，36px 宽刚好留出左右各 1px 的呼吸位
+     （30×20 时是 0 呼吸位，字贴边）。
+   ★ min-width 而不是 width：两位数「限购10」约 41.5px 时自动撑宽，不裁字。
    ★ overflow: hidden 仍留着做最后兜底（极端长文案不许盖住商品图）。 */
 .sk-card__limit {
+  --sk-badge-h: 24px;
   position: absolute;
   top: 0;
   left: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 30px;
-  height: 20px;
+  min-width: calc(var(--sk-badge-h) * 1.5);
+  height: var(--sk-badge-h);
   border-radius: 0 0 8px 0;
   background: rgb(107, 163, 200);
   color: #fff;
-  font-size: 11px;
+  font-size: calc(var(--sk-badge-h) * 0.55);
   line-height: 1;
   font-weight: 500;
   white-space: nowrap;

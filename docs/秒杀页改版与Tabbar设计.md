@@ -94,7 +94,7 @@
 |---|---|
 | 卡片 | 白底 `radius 10px`，`overflow: hidden` |
 | 图片 | `aspect-ratio: 1`，`object-fit: cover` |
-| 角标 | 左上「限购N」：**最小 30×20px**（`min-width:30px` + 固定高 + flex 居中，两位数自动撑宽），浅蓝底 `rgb(107,163,200)` 白字 11px/500，`radius 0 0 8px 0`，`overflow: hidden` 兜底 |
+| 角标 | 左上「限购N」：**36×24px**（`--sk-badge-h:24px` 单变量推导：高 24 / `min-width` = 24×1.5 = 36 / 字号 = 24×0.55 = 13.2px，flex 居中，两位数自动撑宽），浅蓝底 `rgb(107,163,200)` 白字 500，`radius 0 0 8px 0`，`overflow: hidden` 兜底 |
 | 抢光蒙层 | `rgba(255,255,255,0.6)` + 居中「已抢光」12px `#969799` |
 | 商品名 | 13px `#323233` 单行省略，`padding: 8px 10px 0`（活动 title 不再单独展示，并进副行） |
 | 副行 | 活动标题 + 规格 11px `#969799` 单行省略 |
@@ -387,3 +387,36 @@ v2 把倒计时放在标题条右槽（`#right` 插槽 / `.sk-head__countdown`�
 | 两位数自动撑宽 | ✅ | 临时把文案改成「限购10」→ 34.55 × 20 |
 | 两位数不裁切 | ✅ | `scrollWidth <= clientWidth`（改前会裁半个字） |
 | 变宽后仍贴角 | ✅ | `left` 仍等于 `.sk-card__img-wrap` 的 `left` |
+
+### 11.8 后续微调：角标尺寸与字号锁在同一比例（单变量驱动）
+
+用户反馈：「盒子可以比 30×20 大，但如果尺寸变了，字号也要跟着变」——
+即不允许出现「盒子放大、字还是原来那么小」的脱节。
+
+做法：**不给三组写死的数，给一个变量 + 两条比例**（比例取自原设计 30 : 20 : 11）：
+
+```css
+.sk-card__limit {
+  --sk-badge-h: 24px;                                  /* 唯一要调的值 */
+  height: var(--sk-badge-h);
+  min-width: calc(var(--sk-badge-h) * 1.5);            /* 30/20，3:2 扁盒子 */
+  font-size: calc(var(--sk-badge-h) * 0.55);           /* 11/20，字随盒走 */
+}
+```
+
+当前 `24px` → 盒子 **36×24**、字号 **13.2px**（相对 30×20/11px 整体放大 1.2 倍）。
+顺带解决了 §11.7 里「30×20 时文字贴边」的问题：13.2px 下「限购1」约 33.6px，
+36px 宽度留出左右各约 1.2px 的呼吸位。
+
+验证（`seckill-limit-badge-once.mjs`，自带 Chrome 生命周期，390×844）：
+
+| 用例 | 结果 | 证据 |
+| --- | --- | --- |
+| 盒子 36×24 | ✅ | `getBoundingClientRect()` = 36 × 24 |
+| 字号随高度推导 | ✅ | `font-size` = 13.2px，`fontSize / height = 0.55` |
+| 宽高比锁定 | ✅ | `width / height = 1.5` |
+| 改一个变量三项同步 | ✅ | 临时把 `--sk-badge-h` 设成 30px → 45×30、字号 16.5px（改完已还原） |
+| 两位数不裁字 | ✅ | 「限购10」→ 41.45×24，`scrollWidth <= clientWidth` |
+| 仍贴图片左上角 | ✅ | 角标 `left/top` === `.sk-card__img-wrap` 的 `left/top` |
+
+★ 以后想再放大/缩小角标：只改 `--sk-badge-h`，宽与字号自动跟。
