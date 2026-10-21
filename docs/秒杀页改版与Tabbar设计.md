@@ -284,7 +284,7 @@ v2 把倒计时放在标题条右槽（`#right` 插槽 / `.sk-head__countdown`�
 | --- | --- |
 | `.sk-head` | 删除右上角 `{{ countdownLabel }} {{ countdownText }}`，标题条只剩「限时秒杀」（高度仍 44px，场次栏 `sticky top:44px` 不变） |
 | script | 删除 `countdownLabel` / `countdownTarget` / `countdownText` 三个 computed（只服务于顶部倒计时）；`activeSession`、`sessionStatus`、`formatDuration` 保留 |
-| 卡片 | `.sk-card__body` 顶部新增 `.sk-card__time` 一行：左 `HH:mm-HH:mm`（活动自身的 `startTime`-`endTime`，11px `#646566`），右本场倒计时（10px，进行中 `rgb(107,163,200)`，其余 `#969799`） |
+| 卡片 | `.sk-card__body` 顶部新增 `.sk-card__time` 一行：左 `HH:mm-HH:mm`（活动自身的 `startTime`-`endTime`，11px `#646566`），右本场倒计时（10px，走秒时红 `#ee0a24`/500，`已结束` 用 `#969799`） |
 | 新增函数 | `timeRange(activity)` → `18:00-20:00`；`cardCountdown(activity)` → 未开始「距开抢 hh:mm:ss」/ 进行中「距结束 hh:mm:ss」/ 结束「已结束」 |
 | 样式 | 删 `.sk-head__countdown` / `.sk-head__time`；新增 `.sk-card__time`（flex 两端对齐 + `tabular-nums` 防每秒抖动）、`.sk-card__time-range`、`.sk-card__time-cd`、`.sk-card__time-cd--on` |
 
@@ -301,8 +301,19 @@ v2 把倒计时放在标题条右槽（`#right` 插槽 / `.sk-head__countdown`�
 | 标题条高度不变 | ✅ | `height=44`（吸顶区配套） |
 | 每张卡有时间区间 | ✅ | `00:00-00:00` / `00:00-23:59`，均匹配 `^\d{2}:\d{2}-\d{2}:\d{2}$` |
 | 时间块在盒子内 | ✅ | 每张卡 `rangeRect` 落在 `cardRect` 垂直范围内 |
-| 倒计时非空且进行中为浅蓝 | ✅ | 「距结束 30:39:45」等，`color: rgb(107,163,200)` |
+| 倒计时非空且走秒时为红 | ✅ | 「距结束 02:28:02」等，`color: rgb(238, 10, 36)`；`已结束` 为 `rgb(150,151,153)` |
 | 与选中场次一致 | ✅ | 卡片区间前缀 === 当前 tab 时刻 |
-| 无红色 | ✅ | 新增样式只用 `#646566/#969799/rgb(107,163,200)` |
+| 红色只出现在倒计时 | ✅ | 整页唯一 `#ee0a24` 是 `.sk-card__time-cd--live`，按钮/进度条/下划线仍是浅蓝 |
+
+### 11.4 后续微调：倒计时改红（同 commit 追加）
+
+用户要求「倒计时的颜色改为红色」，把 `.sk-card__time-cd` 从浅蓝改为 Vant 标准红 `#ee0a24`。
+
+- 新增 `isCounting(activity)`（status 1/2）驱动 `--live` 类，替换原来的 `--on`（原语义只覆盖「进行中」）；
+  未开始的「距开抢」也在走秒，一并标红。
+- `已结束` 不标红 —— 它是静态结论，跟着红会让人误以为还在跑，保持 `#969799`。
+- 10px 小字加 `font-weight: 500`，红色在浅底上才压得住。
+- 红色语义收窄为「时间在跑」：品牌浅蓝仍是可点/强调色（按钮、进度条、下划线、tab 状态字），
+  两套色分工明确，不复用。
 
 `vue-tsc --noEmit` 仍只有那 2 个既有错误，无新增。

@@ -243,6 +243,17 @@ function cardCountdown(activity: SeckillActivity): string {
   return '已结束'
 }
 
+/**
+ * 是否在「走秒」中（未开始 / 进行中）。
+ *
+ * <p>只有真正在倒数的两种状态才标红：「已结束」是静态结论，跟着标红会让人
+ * 误以为还在跑，所以保持次要灰。</p>
+ */
+function isCounting(activity: SeckillActivity): boolean {
+  const status = statusOf(activity)
+  return status === 1 || status === 2
+}
+
 function maskPhone(phone: string): string {
   return phone && phone.length >= 7 ? `${phone.slice(0, 3)}****${phone.slice(-4)}` : phone ?? ''
 }
@@ -443,7 +454,7 @@ function sleep(ms: number) {
             <span class="sk-card__time-range">{{ timeRange(item) }}</span>
             <span
               class="sk-card__time-cd"
-              :class="{ 'sk-card__time-cd--on': statusOf(item) === 2 }"
+              :class="{ 'sk-card__time-cd--live': isCounting(item) }"
             >
               {{ cardCountdown(item) }}
             </span>
@@ -745,7 +756,7 @@ function sleep(ms: number) {
 }
 
 /* ── 卡片内的场次时间 ──
-   一行两段：左「18:00-20:00」区间（次要灰），右本场倒计时（品牌浅蓝）。
+   一行两段：左「18:00-20:00」区间（次要灰），右本场倒计时（走秒时标红）。
    卡片宽度只有 ~170px，区间用 tabular-nums 等宽数字防抖，倒计时单行不换行。 */
 .sk-card__time {
   display: flex;
@@ -763,6 +774,7 @@ function sleep(ms: number) {
   color: #646566;
 }
 
+/* 默认灰：只给「已结束」这类静态结论用 */
 .sk-card__time-cd {
   flex: 1;
   min-width: 0;
@@ -775,9 +787,12 @@ function sleep(ms: number) {
   white-space: nowrap;
 }
 
-/* 进行中的场次：倒计时用品牌浅蓝强调（与按钮、进度条同色系） */
-.sk-card__time-cd--on {
-  color: rgb(107, 163, 200);
+/* 走秒中（距开抢 / 距结束）：红色强调紧迫感。
+   ★ 这里用 Vant 的标准红 #ee0a24，与页面其它装饰色（品牌浅蓝）刻意区分：
+     蓝色是「品牌/可点」，红色只表示「时间在跑」。10px 小字加 500 才压得住。 */
+.sk-card__time-cd--live {
+  color: #ee0a24;
+  font-weight: 500;
 }
 
 .sk-card__title {
