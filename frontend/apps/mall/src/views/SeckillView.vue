@@ -804,11 +804,12 @@ function sleep(ms: number) {
   font-variant-numeric: tabular-nums;
 }
 
-/* 时间区间：10px 次要灰，单行不换行（放不下才省略，正常数据不会触发） */
+/* 时间区间：13px 正文黑（#323233，与商品名同色，从「次要灰」升级为可读信息），
+   单行不换行；宽度不够时省略号兜底（正常数据 158px 内能放下，见 §11.9 实测） */
 .sk-card__time-range {
-  font-size: 10px;
-  line-height: 14px;
-  color: #646566;
+  font-size: 13px;
+  line-height: 16px;
+  color: #323233;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -816,8 +817,8 @@ function sleep(ms: number) {
 
 /* 默认灰：只给「已结束」这类静态结论用 */
 .sk-card__time-cd {
-  font-size: 11px;
-  line-height: 14px;
+  font-size: 12px;
+  line-height: 16px;
   color: #969799;
   white-space: nowrap;
   overflow: hidden;
@@ -826,7 +827,7 @@ function sleep(ms: number) {
 
 /* 走秒中（距开抢 / 距结束）：红色强调紧迫感。
    ★ 这里用 Vant 的标准红 #ee0a24，与页面其它装饰色（品牌浅蓝）刻意区分：
-     蓝色是「品牌/可点」，红色只表示「时间在跑」。11px 小字加 500 才压得住。 */
+     蓝色是「品牌/可点」，红色只表示「时间在跑」。12px 小字加 500 才压得住。 */
 .sk-card__time-cd--live {
   color: #ee0a24;
   font-weight: 500;
