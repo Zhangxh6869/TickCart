@@ -525,3 +525,46 @@ v2 把倒计时放在标题条右槽（`#right` 插槽 / `.sk-head__countdown`�
 **待定（未做）**：若想让设计稿的 `#f7f8fa` 真正生效，最小改法是在 `App.vue` 的 `:root` 里加
 `--van-background-2: #f7f8fa`（一处生效，三个页面同时变灰）；但首页用的是 `--van-background`，
 要不要一起改、以及「我的」页已经灰底会不会显得不一致，需要产品确认后再动。
+
+### 11.12 试做：灰底白卡真正生效（--tc-bg-page）
+
+§11.11 末尾提到的「最小改法」有个陷阱，实测后改了方案。
+
+**❌ 不能直接改 `--van-background-2`**：它是 Vant 的「白色表面」变量，有 **34 个组件**继承它 ——
+
+```
+--van-nav-bar-background / --van-tabbar-background / --van-tabs-nav-background
+--van-cell-background / --van-search-background / --van-popup-background
+--van-button-default-background / --van-submit-bar-background / --van-action-bar-background
+...（共 34 条）
+```
+
+在 `:root` 里把它改成 `#f7f8fa`，等于把 tabbar、吸顶导航、场次栏、搜索框、cell、弹层
+全部染灰。所以「一行搞定」这个想法是错的。
+
+**✅ 实际做法**：项目自己定义一个变量，只给页面根节点用。
+
+```css
+/* App.vue :root */
+--tc-bg-page: #f7f8fa;
+
+/* SeckillView .seckill */
+background: var(--tc-bg-page, #f7f8fa);
+```
+
+本次**只接了秒杀页**（先看效果），首页 / 购物车 / 订单列表仍是白底。
+要全站统一，把它们的根节点也换成 `var(--tc-bg-page)` 即可（首页写的是
+`var(--van-background, #fff)`，购物车与订单列表是那个失效的 `--van-background-2` 写法）。
+
+验证（`seckill-gray-bg-verify.mjs`，390×844）：
+
+| 用例 | 结果 | 证据 |
+| --- | --- | --- |
+| 页面底变灰 | ✅ | `.seckill` = `rgb(247, 248, 250)`，`--tc-bg-page = #f7f8fa` |
+| 卡片仍纯白 | ✅ | `.sk-card` = `rgb(255, 255, 255)` |
+| 吸顶条没被染灰 | ✅ | `.sk-head` / `.sk-tabs` / `.addr-bar` 均 `rgb(255,255,255)` |
+| tabbar 没被染灰 | ✅ | `.van-tabbar` = `rgb(255,255,255)`（这就是不能改 `--van-background-2` 的原因） |
+| 首页未受影响 | ✅ | `.home` 仍 `rgb(255,255,255)`（本次未接） |
+
+★ 现在的观感：灰底 + 白卡 + 1px 描边三重区分，描边其实已经有点多余（灰底已经拉开边界）。
+是否去掉描边，等确认。

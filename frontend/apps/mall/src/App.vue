@@ -50,6 +50,14 @@ body {
 :root {
   /* 页面背景色：同步覆盖 Vant 的页面背景变量，避免 van-image 等组件仍用旧的灰色底 */
   --van-background: rgb(255, 255, 255);
+  /* 页面底色（灰底白卡用的那一层灰）。
+     ★★ 不要用 Vant 的 --van-background-2 当页面底色：它是「白色表面」变量，
+       nav-bar / tabbar / tabs 导航 / cell / search / popup 等 34 个组件都继承它
+       （`--van-nav-bar-background: var(--van-background-2)` 之类），
+       改它等于把 tabbar、吸顶导航、搜索框、弹层一起染灰。
+     ★ 各页面根节点（.home / .seckill / .cart / .order-list）用它，
+       目前只有 .seckill 接上；其余仍是白底，见 docs/秒杀页改版与Tabbar设计.md §11.12。 */
+  --tc-bg-page: #f7f8fa;
   /* 底部 tabbar 选中项颜色（图标与文字同源，改这一个变量即可）。
      Vant 默认取 --van-primary-color（蓝 #1989fa），这里直接改掉选中态变量。
      注意：与首页搜索框描边用的 --color-brand（rgb(107,163,200)）目前**不是同一个色值**，

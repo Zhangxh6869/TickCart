@@ -556,7 +556,10 @@ function sleep(ms: number) {
    高度按 tabbar 的 50px 占位算（.layout--tabbar 的 padding-bottom）。 */
 .seckill {
   min-height: calc(100vh - 50px);
-  background: var(--van-background-2, #f7f8fa);
+  /* 灰底白卡：用项目自己的 --tc-bg-page，不用 Vant 的 --van-background-2。
+     后者在 Vant 4 里默认就是 #fff，写 var(--van-background-2, #f7f8fa) 的 fallback
+     永远不触发 —— 这就是之前「页面底其实是纯白、卡片和背景没区分度」的根因。 */
+  background: var(--tc-bg-page, #f7f8fa);
 }
 
 /* ── 标题条 ────────────────────────────────────────────────────────
