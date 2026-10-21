@@ -94,7 +94,7 @@
 |---|---|
 | 卡片 | 白底 `radius 10px`，`overflow: hidden` |
 | 图片 | `aspect-ratio: 1`，`object-fit: cover` |
-| 角标 | 左上「限购 N」：浅蓝底 `rgb(107,163,200)` 白字 10px，`radius 0 0 8px 0` |
+| 角标 | 左上「限购N」：**固定 30×20px**（flex 居中，不靠 padding 撑），浅蓝底 `rgb(107,163,200)` 白字 11px/500，`radius 0 0 8px 0`，`overflow: hidden` 兜底 |
 | 抢光蒙层 | `rgba(255,255,255,0.6)` + 居中「已抢光」12px `#969799` |
 | 商品名 | 13px `#323233` 单行省略，`padding: 8px 10px 0`（活动 title 不再单独展示，并进副行） |
 | 副行 | 活动标题 + 规格 11px `#969799` 单行省略 |
@@ -317,3 +317,29 @@ v2 把倒计时放在标题条右槽（`#right` 插槽 / `.sk-head__countdown`�
   两套色分工明确，不复用。
 
 `vue-tsc --noEmit` 仍只有那 2 个既有错误，无新增。
+
+### 11.5 后续微调：限购角标改为 30×20（commit 见 git log）
+
+需求：「左上角的限购框改为 30*20px，里面的文字也按此比例放大」。
+
+改前尺寸是 **padding 撑出来的 41.8×18**（`padding: 2px 7px` + `font-size: 10px` + `line-height: 14px`），
+不是设计给定的值，所以这次直接写死盒子：
+
+| 项 | 改前 | 改后 |
+| --- | --- | --- |
+| 盒子 | 41.8×18（padding 撑开，改字号会跟着变形） | **30×20**（`width/height` 写死 + flex 居中，`padding` 归零） |
+| 字号 | 10px | **11px**（高度 18→20 约 1.11 倍，字号同比例放大） |
+| 文案 | `限购 {{ n }}` → 渲染为「限购 1」 | `限购{{ n }}` → 「限购1」（30px 宽度装不下空格） |
+| 兜底 | 无 | `white-space: nowrap` + `overflow: hidden`（两位限购会到 34px，宁裁半个字也不许撑破盒子盖住图） |
+
+验证（`seckill-limit-badge-verify.mjs`，390×844 CDP）：
+
+| 用例 | 结果 | 证据 |
+| --- | --- | --- |
+| 盒子恒 30×20 | ✅ | `getBoundingClientRect()` = `30 × 20` |
+| 字号 11px | ✅ | `fontSize: 11px` |
+| 文案不裁切 | ✅ | `scrollWidth <= clientWidth`（「限购1」实测约 28px） |
+| 仍贴图左上角 | ✅ | 角标 `top/left` === `.sk-card__img-wrap` 的 `top/left`（171.8 / 12） |
+
+★ 已知取舍：`limit_per_user ≥ 10` 时（当前数据只有 1）「限购10」约 34px，会被 `overflow: hidden`
+裁掉半个字。若以后要支持两位数，把 `width: 30px` 换成 `min-width: 30px` 即可，其余不用动。

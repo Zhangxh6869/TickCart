@@ -445,7 +445,9 @@ function sleep(ms: number) {
       >
         <div class="sk-card__img-wrap">
           <van-image :src="item.productImage || ''" fit="cover" class="sk-card__img" />
-          <span class="sk-card__limit">限购 {{ item.limitPerUser }}</span>
+          <!-- 限购角标：固定 30×20 的盒子，文案「限购N」不留空格（30px 宽度只够
+               3 个字宽，11px 字号下正好 28px，留 1px 呼吸位） -->
+          <span class="sk-card__limit">限购{{ item.limitPerUser }}</span>
           <span v-if="item.remainingStock <= 0" class="sk-card__mask">已抢光</span>
         </div>
         <div class="sk-card__body">
@@ -726,17 +728,30 @@ function sleep(ms: number) {
   height: 100%;
 }
 
-/* 限购角标：品牌浅蓝底白字，贴在图片左上角 */
+/* 限购角标：品牌浅蓝底白字，贴在图片左上角。
+   ★ 固定 30×20（原为 padding 撑出的 41.8×18）：宽高写死 + flex 居中，
+     不再靠 padding 撑，改字号时盒子不会跟着变形。
+   ★ 字号 10 → 11px：跟着高度 18 → 20 的同比例（20/18≈1.11）放大；
+     11px 下「限购N」实测约 28px，30px 宽度刚好装下。
+   ★ overflow: hidden 是兜底 —— 限购是两位数（限购10）时会到 34px，
+     宁可裁掉半个字也不许撑破盒子盖住商品图。 */
 .sk-card__limit {
   position: absolute;
   top: 0;
   left: 0;
-  padding: 2px 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 20px;
   border-radius: 0 0 8px 0;
   background: rgb(107, 163, 200);
   color: #fff;
-  font-size: 10px;
-  line-height: 14px;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 /* 抢光蒙层：盖在图片上，文案居中 */
