@@ -20,7 +20,8 @@ async function onSubmit() {
   try {
     await adminStore.login(form.username, form.password)
     ElMessage.success('登录成功')
-    const redirect = (route.query.redirect as string) || '/products'
+    // 没有 redirect 参数时进搜索分析（与侧边栏首项、路由默认 redirect 保持一致）
+    const redirect = (route.query.redirect as string) || '/search-analytics'
     router.replace(redirect)
   } catch (e) {
     ElMessage.error((e as Error).message || '登录失败')
