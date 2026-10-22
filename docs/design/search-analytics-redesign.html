@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>TickCart 后台 · 搜索分析界面重设计（三方案）</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#f0f2f5; --surface:#fff; --border:#ebeef5; --border-2:#e4e7ed;
+    --t1:#303133; --t2:#606266; --t3:#909399; --t4:#c0c4cc;
+    --primary:#409eff; --success:#67c23a; --warn:#e6a23c; --danger:#f56c6c;
+    --radius:6px;
+    --shadow:0 1px 2px rgba(0,0,0,.04),0 2px 8px rgba(0,0,0,.03);
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  html,body{height:100%}
+  body{font-family:var(--font);background:var(--bg);color:var(--t1);font-size:14px;-webkit-font-smoothing:antialiased}
+  .app{display:flex;min-height:100vh;min-width:1180px}
+
+  /* ============ 侧边栏 / 顶栏（复用现有 AdminLayout 视觉） ============ */
+  .aside{width:210px;flex:0 0 210px;background:#001529;color:#fff;display:flex;flex-direction:column}
+  .aside__logo{height:60px;line-height:60px;text-align:center;font-size:15px;font-weight:600;border-bottom:1px solid #1f2d3d;letter-spacing:.5px}
+  .aside__logo em{font-style:normal;color:#409eff}
+  .menu{padding:8px 0}
+  .menu__item{display:flex;align-items:center;gap:10px;height:48px;padding:0 20px;color:#b7c0cd;font-size:14px;cursor:pointer;border-left:3px solid transparent;transition:.15s}
+  .menu__item:hover{color:#fff;background:#0c2135}
+  .menu__item.is-active{color:#fff;background:#1890ff;border-left-color:#69c0ff}
+  .menu__item svg{width:16px;height:16px;flex:0 0 16px;opacity:.85}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{height:60px;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px;flex:0 0 60px}
+  .topbar__title{font-size:16px;font-weight:600}
+  .topbar__user{display:flex;align-items:center;gap:14px;color:var(--t2);font-size:14px}
+  .topbar__user b{color:var(--t1);font-weight:500}
+  .link{color:var(--primary);cursor:pointer;font-size:13px}
+
+  .content{padding:20px 24px 40px;overflow:auto}
+
+  /* ============ 方案切换器 ============ */
+  .switcher{background:#fff;border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:18px;box-shadow:var(--shadow)}
+  .switcher__tabs{display:flex;gap:10px;flex-wrap:wrap}
+  .tab{flex:1;min-width:250px;text-align:left;padding:12px 14px;border:1px solid var(--border-2);border-radius:6px;cursor:pointer;background:#fafbfc;transition:.18s;position:relative}
+  .tab:hover{border-color:#c6e2ff;background:#f4f9ff}
+  .tab.is-on{border-color:var(--primary);background:#ecf5ff;box-shadow:0 0 0 3px rgba(64,158,255,.1)}
+  .tab__kicker{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--t3);margin-bottom:5px}
+  .tab.is-on .tab__kicker{color:var(--primary)}
+  .tab__name{font-size:15px;font-weight:600;margin-bottom:4px}
+  .tab__desc{font-size:12px;color:var(--t3);line-height:1.55}
+  .tab__cost{position:absolute;top:12px;right:14px;font-size:11px;padding:1px 7px;border-radius:9px;background:#f0f2f5;color:var(--t3);border:1px solid var(--border)}
+  .tab__cost--zero{background:#f0f9eb;color:#529b2e;border-color:#e1f3d8}
+
+  .proposal{display:none}
+  .proposal.is-on{display:block}
+
+  /* ============ 通用卡片 ============ */
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .card__head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);gap:12px}
+  .card__title{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .card__title i{width:3px;height:14px;background:var(--primary);border-radius:2px;display:inline-block}
+  .card__sub{font-size:12px;color:var(--t3);font-weight:400}
+  .card__body{padding:18px}
+
+  .seg{display:inline-flex;border:1px solid var(--border-2);border-radius:4px;overflow:hidden}
+  .seg button{border:0;background:#fff;padding:5px 13px;font-size:13px;color:var(--t2);cursor:pointer;font-family:var(--font);border-right:1px solid var(--border-2)}
+  .seg button:last-child{border-right:0}
+  .seg button.is-on{background:var(--primary);color:#fff}
+  .seg button:not(.is-on):hover{color:var(--primary)}
+
+  .btn{border:1px solid var(--border-2);background:#fff;color:var(--t2);border-radius:4px;padding:5px 12px;font-size:13px;cursor:pointer;font-family:var(--font);transition:.15s;white-space:nowrap}
+  .btn:hover{color:var(--primary);border-color:#c6e2ff;background:#ecf5ff}
+  .btn--primary{background:var(--primary);border-color:var(--primary);color:#fff}
+  .btn--primary:hover{background:#66b1ff;border-color:#66b1ff;color:#fff}
+  .btn--sm{padding:3px 9px;font-size:12px}
+  .btn--ghost{border-color:transparent;background:transparent;color:var(--primary);padding:3px 6px}
+  .btn--ghost:hover{background:#ecf5ff}
+
+  .tag{display:inline-block;padding:1px 7px;border-radius:3px;font-size:12px;line-height:18px;border:1px solid transparent}
+  .tag--danger{background:#fef0f0;color:#f56c6c;border-color:#fde2e2}
+  .tag--warn{background:#fdf6ec;color:#e6a23c;border-color:#faecd8}
+  .tag--success{background:#f0f9eb;color:#67c23a;border-color:#e1f3d8}
+  .tag--info{background:#f4f4f5;color:#909399;border-color:#e9e9eb}
+  .tag--primary{background:#ecf5ff;color:#409eff;border-color:#d9ecff}
+
+  /* ============ 表格 ============ */
+  .tbl{width:100%;border-collapse:collapse;font-size:13px}
+  .tbl th{text-align:left;font-weight:500;color:var(--t2);background:#fafafa;padding:10px 14px;border-bottom:1px solid var(--border);white-space:nowrap;font-size:13px}
+  .tbl td{padding:11px 14px;border-bottom:1px solid var(--border);color:var(--t1)}
+  .tbl tbody tr:hover td{background:#f5f7fa}
+  .tbl tbody tr:last-child td{border-bottom:0}
+  .tbl .num{text-align:right;font-variant-numeric:tabular-nums}
+  .tbl .mono{font-variant-numeric:tabular-nums}
+
+  /* ================================================================
+     方案 A · 诊断台
+     ================================================================ */
+  .pa{--accent:#409eff}
+  .pa__hero{display:flex;align-items:center;gap:32px;padding:20px 24px;background:linear-gradient(135deg,#fff 0%,#f7fbff 100%);border:1px solid #d9ecff;border-radius:8px;margin-bottom:16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .pa__hero::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:linear-gradient(180deg,#409eff,#79bbff)}
+  .pa__hero-main{flex:0 0 auto}
+  .pa__hero-num{font-size:44px;font-weight:700;line-height:1;letter-spacing:-1px;color:#f56c6c;font-variant-numeric:tabular-nums}
+  .pa__hero-num small{font-size:20px;font-weight:600;margin-left:2px}
+  .pa__hero-label{font-size:13px;color:var(--t3);margin-top:8px}
+  .pa__hero-mid{flex:1;min-width:0}
+  .pa__verdict{font-size:15px;line-height:1.7;color:var(--t1)}
+  .pa__verdict b{color:#f56c6c}
+  .pa__verdict .hl{background:linear-gradient(180deg,transparent 62%,#ffe9c7 62%);padding:0 2px}
+  .pa__split{display:flex;gap:10px;margin-top:14px;font-size:12px;color:var(--t3);align-items:center;white-space:nowrap}
+  .pa__split-bar{flex:0 0 150px;height:8px;border-radius:5px;overflow:hidden;display:flex;background:#f0f2f5}
+  .pa__split-bar i{display:block;height:100%}
+  .pa__split-bar i:first-child{background:#409eff}
+  .pa__split-bar i:last-child{background:#f56c6c}
+  /* 迷你趋势：从方案 B 借来的 sparkline，放在占比条右侧 —— 左边当期快照、右边走势 */
+  .pa__trend{display:flex;align-items:center;gap:7px;margin-left:6px;padding-left:12px;border-left:1px solid #e4e7ed}
+  .pa__trend-txt{font-size:11px;color:var(--t3)}
+  .pa__trend-txt b{color:#f56c6c;font-variant-numeric:tabular-nums}
+  .pa__trend-txt b.down{color:#67c23a}
+  .pa__hero-right{flex:0 0 auto;display:flex;flex-direction:column;gap:10px;align-items:flex-end}
+
+  .pa__grid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;margin-bottom:16px}
+  .pa__list{padding:6px 0}
+  .pa__row{display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid #f5f7fa;transition:.15s;position:relative}
+  .pa__row:last-child{border-bottom:0}
+  .pa__row:hover{background:#fafcff}
+  .pa__row:hover .pa__acts{opacity:1}
+  .pa__rank{flex:0 0 22px;height:22px;line-height:22px;text-align:center;border-radius:4px;font-size:12px;font-weight:600;background:#f4f4f5;color:#909399;font-variant-numeric:tabular-nums}
+  .pa__row:nth-child(1) .pa__rank{background:#fef0f0;color:#f56c6c}
+  .pa__row:nth-child(2) .pa__rank{background:#fdf6ec;color:#e6a23c}
+  .pa__row:nth-child(3) .pa__rank{background:#fdf6ec;color:#e6a23c;opacity:.8}
+  .pa__kw{flex:0 0 108px;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pa__bar{flex:1;min-width:0;height:6px;background:#f0f2f5;border-radius:4px;overflow:hidden}
+  .pa__bar i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,#ffb3b3,#f56c6c)}
+  .pa__cnt{flex:0 0 58px;text-align:right;font-size:13px;font-weight:600;color:#f56c6c;font-variant-numeric:tabular-nums}
+  .pa__time{flex:0 0 96px;text-align:right;font-size:12px;color:var(--t4);font-variant-numeric:tabular-nums}
+  .pa__acts{flex:0 0 auto;display:flex;gap:4px;opacity:.45;transition:.15s}
+  .pa__row:hover .pa__acts{opacity:1}
+
+  .pa__hot{padding:8px 18px}
+  .pa__hotrow{display:flex;align-items:center;gap:10px;padding:8px 0}
+  .pa__hotkw{flex:0 0 92px;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pa__hotbar{flex:1;height:8px;background:#f5f7fa;border-radius:4px;overflow:hidden}
+  .pa__hotbar i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,#a0cfff,#409eff)}
+  .pa__hotbar i.low{background:linear-gradient(90deg,#f8d9a0,#e6a23c)}
+  .pa__hotval{flex:0 0 46px;text-align:right;font-size:12px;color:var(--t2);font-variant-numeric:tabular-nums}
+  .pa__hotrate{flex:0 0 52px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums}
+
+  .pa__footer{margin-top:16px}
+  .pa__collapse{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+  .pa__collapse span{font-size:13px;color:var(--t2)}
+  .pa__chev{transition:.2s;color:var(--t3);font-size:11px}
+  .pa__footer.is-open .pa__chev{transform:rotate(90deg)}
+
+  /* ================================================================
+     方案 B · 趋势看板
+     ================================================================ */
+  .pb__kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px}
+  .pb__kpi{background:#fff;border:1px solid var(--border);border-radius:8px;padding:16px 18px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .pb__kpi-label{font-size:13px;color:var(--t3);display:flex;align-items:center;gap:6px}
+  .pb__kpi-val{font-size:30px;font-weight:700;line-height:1.2;margin-top:8px;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+  .pb__kpi-val small{font-size:14px;font-weight:500;color:var(--t3);margin-left:3px}
+  .pb__kpi-foot{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:var(--t3)}
+  .pb__delta{font-weight:600;font-variant-numeric:tabular-nums}
+  .pb__delta.up{color:#f56c6c}
+  .pb__delta.down{color:#67c23a}
+  .pb__spark{position:absolute;right:10px;top:16px;opacity:.5;pointer-events:none}
+
+  .pb__chartcard{margin-bottom:16px}
+  .pb__legend{display:flex;gap:18px;font-size:12px;color:var(--t2)}
+  .pb__legend span{display:flex;align-items:center;gap:6px}
+  .pb__legend i{width:10px;height:10px;border-radius:2px;display:block}
+
+  .pb__grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+  .pb__hrow{display:flex;align-items:center;gap:10px;padding:7px 0}
+  .pb__hrank{flex:0 0 18px;font-size:12px;color:var(--t4);font-variant-numeric:tabular-nums;text-align:center}
+  .pb__hkw{flex:0 0 96px;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pb__hbar{flex:1;height:20px;background:#fafafa;border-radius:3px;position:relative;overflow:hidden}
+  .pb__hbar i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:linear-gradient(90deg,#5b8def,#8fb4ff)}
+  .pb__hbar i.miss{background:linear-gradient(90deg,#ffb1b1,#f56c6c)}
+  .pb__hbar em{position:absolute;right:8px;top:0;line-height:20px;font-size:12px;font-style:normal;color:var(--t2);font-variant-numeric:tabular-nums}
+  .pb__hbar em.on-bar{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.15)}
+
+  /* ================================================================
+     方案 C · 机会矩阵
+     ================================================================ */
+  .pc__funnel{display:flex;align-items:stretch;gap:0;margin-bottom:16px;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);overflow:hidden}
+  .pc__fstep{flex:1;padding:16px 20px;position:relative;border-right:1px solid var(--border)}
+  .pc__fstep:last-child{border-right:0}
+  .pc__fstep::after{content:"";position:absolute;right:-7px;top:50%;width:12px;height:12px;background:#fff;border-top:1px solid var(--border);border-right:1px solid var(--border);transform:translateY(-50%) rotate(45deg);z-index:1}
+  .pc__fstep:last-child::after{display:none}
+  .pc__fnum{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+  .pc__flabel{font-size:12px;color:var(--t3);margin-top:4px}
+  .pc__frate{font-size:11px;color:var(--t4);margin-top:2px;font-variant-numeric:tabular-nums}
+  .pc__fstep--miss .pc__fnum{color:#f56c6c}
+  .pc__fstep--todo{flex:.72;opacity:.5}
+
+  .pc__grid{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px;align-items:start}
+  .pc__quad-legend{display:flex;gap:14px;font-size:12px;color:var(--t2);flex-wrap:wrap}
+  .pc__quad-legend span{display:flex;align-items:center;gap:5px}
+  .pc__quad-legend i{width:8px;height:8px;border-radius:50%;display:block}
+
+  .pc__insight{padding:0}
+  .pc__ins{padding:14px 18px;border-bottom:1px solid #f5f7fa}
+  .pc__ins:last-child{border-bottom:0}
+  .pc__ins-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .pc__ins-title{font-size:13px;font-weight:600}
+  .pc__ins-body{font-size:12px;color:var(--t2);line-height:1.7}
+  .pc__ins-body b{color:var(--t1)}
+  .pc__ins-act{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
+
+  .heat{display:inline-block;padding:1px 8px;border-radius:3px;font-size:12px;font-variant-numeric:tabular-nums;font-weight:500}
+
+  /* 提示条 */
+  .note{display:flex;gap:10px;padding:12px 16px;border-radius:6px;background:#f4f8ff;border:1px solid #d9ecff;font-size:12.5px;color:#4a6fa5;line-height:1.7;margin-bottom:16px}
+  .note b{color:#2c5b96}
+  .note--warn{background:#fdf6ec;border-color:#faecd8;color:#8a6d3b}
+  .note--warn b{color:#7a5c2e}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 侧边栏 -->
+  <aside class="aside">
+    <div class="aside__logo">TickCart 管理<em>后台</em></div>
+    <nav class="menu">
+      <div class="menu__item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>商品管理</div>
+      <div class="menu__item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg>分类管理</div>
+      <div class="menu__item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5"/></svg>订单管理</div>
+      <div class="menu__item is-active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>搜索分析</div>
+      <div class="menu__item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>秒杀管理</div>
+    </nav>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar__title">搜索分析</div>
+      <div class="topbar__user"><span>admin</span><span class="link">退出</span></div>
+    </header>
+
+    <div class="content">
+      <!-- 方案切换 -->
+      <div class="switcher">
+        <div class="switcher__tabs">
+          <div class="tab is-on" data-p="a">
+            <div class="tab__kicker">方案 A</div>
+            <div class="tab__name">诊断台 · 待办优先</div>
+            <div class="tab__desc">回答「今天该补什么货」。无结果词做成可操作清单，健康条内嵌 7 天走势。</div>
+            <div class="tab__cost">+1 接口 · 可选</div>
+          </div>
+          <div class="tab" data-p="b">
+            <div class="tab__kicker">方案 B</div>
+            <div class="tab__name">趋势看板 · 数据优先</div>
+            <div class="tab__desc">回答「搜索在变好还是变坏」。KPI + 环比 + 按天趋势图。</div>
+            <div class="tab__cost">+1 接口</div>
+          </div>
+          <div class="tab" data-p="c">
+            <div class="tab__kicker">方案 C</div>
+            <div class="tab__name">机会矩阵 · 分析优先</div>
+            <div class="tab__desc">回答「哪些词值得投」。搜索量 × 无结果率四象限，找供给缺口。</div>
+            <div class="tab__cost">+1~2 接口</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= 方案 A ================= -->
+      <section class="proposal is-on pa" id="pa">
+        <div class="pa__hero">
+          <div class="pa__hero-main">
+            <div class="pa__hero-num">20.5<small>%</small></div>
+            <div class="pa__hero-label">无结果率 · 近 7 天</div>
+          </div>
+          <div class="pa__hero-mid">
+            <div class="pa__verdict">
+              7 天共 <b>12,480</b> 次搜索，其中 <b>2,564</b> 次什么都没搜到；
+              问题集中在 <span class="hl">「充电宝 / 散热器 / 鼠标垫」</span> 三个品类 ——
+              有需求、无供给。
+            </div>
+            <div class="pa__split">
+              <span>有结果 79.5%</span>
+              <div class="pa__split-bar"><i style="width:79.5%"></i><i style="width:20.5%"></i></div>
+              <span>无结果 20.5%</span>
+              <div class="pa__trend">
+                <svg id="pa-spark" width="96" height="26" style="display:block"></svg>
+                <span class="pa__trend-txt">近 7 天 <b class="down">20.0% → 19.0%</b></span>
+              </div>
+            </div>
+          </div>
+          <div class="pa__hero-right">
+            <div class="seg">
+              <button class="is-on">7 天</button><button>30 天</button><button>全部</button>
+            </div>
+            <button class="btn btn--sm">刷新数据</button>
+          </div>
+        </div>
+
+        <div class="pa__grid">
+          <!-- 搜不到的词 -->
+          <div class="card">
+            <div class="card__head">
+              <div class="card__title"><i></i>搜不到的词<span class="card__sub">按次数排序 · 前 20</span></div>
+              <div class="seg"><button class="is-on">全部</button><button>≥3 次</button><button>≥10 次</button></div>
+            </div>
+            <div class="pa__list" id="pa-list"></div>
+          </div>
+
+          <!-- 热搜词 -->
+          <div class="card">
+            <div class="card__head">
+              <div class="card__title"><i style="background:#67c23a"></i>热搜词<span class="card__sub">条长 = 搜索量 · 橙 = 命中率偏低</span></div>
+            </div>
+            <div class="pa__hot" id="pa-hot"></div>
+          </div>
+        </div>
+
+        <div class="card pa__footer">
+          <div class="card__head" style="border-bottom:0">
+            <div class="pa__collapse" onclick="this.parentNode.parentNode.classList.toggle('is-open')">
+              <span class="pa__chev">▶</span>
+              <span>原始搜索日志</span>
+              <span class="tag tag--info">近 20 条</span>
+            </div>
+            <button class="btn btn--sm">导出 CSV</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 方案 B ================= -->
+      <section class="proposal pb" id="pb">
+        <div class="pb__kpis">
+          <div class="pb__kpi">
+            <div class="pb__kpi-label">搜索总次数</div>
+            <div class="pb__kpi-val">12,480</div>
+            <div class="pb__kpi-foot"><span class="pb__delta up">↑ 8.2%</span><span>较上周期</span></div>
+            <svg class="pb__spark" width="104" height="36" id="spark1"></svg>
+          </div>
+          <div class="pb__kpi">
+            <div class="pb__kpi-label">无结果率</div>
+            <div class="pb__kpi-val" style="color:#f56c6c">20.5<small>%</small></div>
+            <div class="pb__kpi-foot"><span class="pb__delta up">↑ 1.3pt</span><span>较上周期 · 需关注</span></div>
+            <svg class="pb__spark" width="104" height="36" id="spark2"></svg>
+          </div>
+          <div class="pb__kpi">
+            <div class="pb__kpi-label">独立关键词</div>
+            <div class="pb__kpi-val">1,342</div>
+            <div class="pb__kpi-foot"><span class="pb__delta up">↑ 4.6%</span><span>较上周期</span></div>
+            <svg class="pb__spark" width="104" height="36" id="spark3"></svg>
+          </div>
+          <div class="pb__kpi">
+            <div class="pb__kpi-label">人均搜索次数</div>
+            <div class="pb__kpi-val">3.2<small>次</small></div>
+            <div class="pb__kpi-foot"><span class="pb__delta down">↓ 0.2</span><span>较上周期</span></div>
+            <svg class="pb__spark" width="104" height="36" id="spark4"></svg>
+          </div>
+        </div>
+
+        <div class="card pb__chartcard">
+          <div class="card__head">
+            <div class="card__title"><i></i>搜索量与无结果趋势
+              <span class="card__sub">堆叠面积 · 红色部分 = 白搜了</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:16px">
+              <div class="pb__legend">
+                <span><i style="background:#5b8def"></i>有结果</span>
+                <span><i style="background:#f56c6c"></i>无结果</span>
+              </div>
+              <div class="seg"><button class="is-on">7 天</button><button>30 天</button></div>
+            </div>
+          </div>
+          <div class="card__body" style="padding:8px 8px 0">
+            <svg id="pb-area" viewBox="0 0 960 300" style="display:block;width:100%;height:auto"></svg>
+          </div>
+        </div>
+
+        <div class="pb__grid">
+          <div class="card">
+            <div class="card__head">
+              <div class="card__title"><i style="background:#5b8def"></i>热搜词 TOP 10</div>
+              <span class="card__sub">条长 = 搜索次数</span>
+            </div>
+            <div class="card__body" id="pb-hot"></div>
+          </div>
+          <div class="card">
+            <div class="card__head">
+              <div class="card__title"><i style="background:#f56c6c"></i>无结果词 TOP 10</div>
+              <span class="card__sub">条长 = 无结果次数</span>
+            </div>
+            <div class="card__body" id="pb-miss"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 方案 C ================= -->
+      <section class="proposal pc" id="pc">
+        <div class="pc__funnel">
+          <div class="pc__fstep">
+            <div class="pc__fnum">12,480</div>
+            <div class="pc__flabel">发起搜索</div>
+            <div class="pc__frate">100%</div>
+          </div>
+          <div class="pc__fstep">
+            <div class="pc__fnum" style="color:#5b8def">9,916</div>
+            <div class="pc__flabel">搜到结果</div>
+            <div class="pc__frate">79.5% · 搜索成功率</div>
+          </div>
+          <div class="pc__fstep pc__fstep--miss">
+            <div class="pc__fnum">2,564</div>
+            <div class="pc__flabel">无结果流失</div>
+            <div class="pc__frate">20.5% · 供给缺口</div>
+          </div>
+          <div class="pc__fstep pc__fstep--todo">
+            <div class="pc__fnum" style="color:#c0c4cc">—</div>
+            <div class="pc__flabel">点击 / 加购 / 下单</div>
+            <div class="pc__frate">待埋点</div>
+          </div>
+        </div>
+
+        <div class="pc__grid">
+          <div class="card">
+            <div class="card__head">
+              <div class="card__title"><i style="background:#10b981"></i>关键词机会矩阵<span class="card__sub">标注重点词 · hover 看全部</span></div>
+              <div class="pc__quad-legend">
+                <span><i style="background:#f56c6c"></i>黑洞词</span>
+                <span><i style="background:#e6a23c"></i>潜力词</span>
+                <span><i style="background:#10b981"></i>明星词</span>
+                <span><i style="background:#c0c4cc"></i>长尾词</span>
+              </div>
+            </div>
+            <div class="card__body" style="padding:6px 8px 0">
+              <svg id="pc-matrix" viewBox="0 0 960 460" style="display:block;width:100%;height:auto"></svg>
+            </div>
+          </div>
+
+          <div class="card pc__insight">
+            <div class="card__head"><div class="card__title"><i style="background:#10b981"></i>自动洞察</div></div>
+            <div class="pc__ins">
+              <div class="pc__ins-head"><span class="tag tag--danger">黑洞词</span><span class="pc__ins-title">充电宝 / 磁吸充电宝</span></div>
+              <div class="pc__ins-body">搜索 <b>287 + 86</b> 次，命中率仅 <b>41.5%</b> 与 <b>0%</b>。同类「蓝牙音箱」命中率 94.5%，说明不是用户搜错，是<b>真的没货</b>。</div>
+              <div class="pc__ins-act"><button class="btn btn--sm btn--primary">去建商品</button><button class="btn btn--sm">加同义词</button></div>
+            </div>
+            <div class="pc__ins">
+              <div class="pc__ins-head"><span class="tag tag--warn">潜力词</span><span class="pc__ins-title">机械键盘</span></div>
+              <div class="pc__ins-body">搜索 <b>452</b> 次（排第 6），但命中率 <b>72.6%</b> —— 低于均值 8pt。多半是「静音」「客制化」这类修饰词过滤过严。</div>
+              <div class="pc__ins-act"><button class="btn btn--sm btn--primary">检查搜索分词</button></div>
+            </div>
+            <div class="pc__ins">
+              <div class="pc__ins-head"><span class="tag tag--success">明星词</span><span class="pc__ins-title">蓝牙耳机 / 手机</span></div>
+              <div class="pc__ins-body">贡献 <b>19.1%</b> 的搜索量，命中率 96%+。适合放首页运营位与秒杀选品。</div>
+            </div>
+            <div class="pc__ins">
+              <div class="pc__ins-head"><span class="tag tag--info">长尾词</span><span class="pc__ins-title">14 个词</span></div>
+              <div class="pc__ins-body">单次搜索 ≤2 次且全无结果，多为测试/爬虫噪音，可忽略。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card__head">
+            <div class="card__title"><i style="background:#10b981"></i>关键词明细<span class="card__sub">点表头排序</span></div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input placeholder="筛选关键词" style="border:1px solid var(--border-2);border-radius:4px;padding:5px 10px;font-size:13px;width:160px;outline:none;font-family:var(--font)">
+              <button class="btn btn--sm">导出</button>
+            </div>
+          </div>
+          <table class="tbl">
+            <thead><tr>
+              <th style="width:52px">#</th><th>关键词</th><th class="num" style="width:110px">搜索次数</th>
+              <th class="num" style="width:100px">命中次数</th><th class="num" style="width:110px">无结果率</th>
+              <th style="width:120px">象限</th><th style="width:150px">最近搜索</th>
+            </tr></thead>
+            <tbody id="pc-table"></tbody>
+          </table>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= 模拟数据（贴近 search_log 真实分布） ================= */
+const DAYS  = ['10-16','10-17','10-18','10-19','10-20','10-21','10-22']
+const TOTAL = [1580, 1720, 1490, 1830, 1960, 1740, 2160]
+const MISS  = [316, 361, 305, 393, 427, 352, 410]
+
+/* 热搜词：count / missCount（与 KeywordStat 一致） */
+const HOT = [
+  { k:'蓝牙耳机',   c:1284, m:49  },
+  { k:'手机',       c:1105, m:21  },
+  { k:'降噪耳机',   c:962,  m:63  },
+  { k:'智能手表',   c:741,  m:86  },
+  { k:'平板电脑',   c:689,  m:34  },
+  { k:'机械键盘',   c:452,  m:124 },
+  { k:'无线鼠标',   c:398,  m:35  },
+  { k:'微单相机',   c:344,  m:47  },
+  { k:'蓝牙音箱',   c:312,  m:17  },
+  { k:'充电宝',     c:287,  m:168 },
+]
+/* 无结果词：count / lastSearchedAt */
+const NO_RESULT = [
+  { k:'磁吸充电宝',   c:86, t:'10-22 21:14' },
+  { k:'手机散热器',   c:74, t:'10-22 20:38' },
+  { k:'电竞鼠标垫',   c:61, t:'10-22 19:52' },
+  { k:'骨传导耳机',   c:58, t:'10-21 22:07' },
+  { k:'静音机械键盘', c:47, t:'10-21 18:31' },
+  { k:'苹果手表表带', c:39, t:'10-21 15:20' },
+  { k:'相机三脚架',   c:36, t:'10-20 21:44' },
+  { k:'type-c 扩展坞',c:31, t:'10-20 16:09' },
+  { k:'平板保护壳',   c:28, t:'10-19 20:15' },
+  { k:'车载手机支架', c:24, t:'10-19 11:02' },
+]
+/* 矩阵用：count / missRate(%) */
+const MATRIX = [
+  { k:'蓝牙耳机', c:1284, r:3.8 },  { k:'手机', c:1105, r:1.9 },
+  { k:'降噪耳机', c:962, r:6.5 },   { k:'智能手表', c:741, r:11.6 },
+  { k:'平板电脑', c:689, r:5.0 },   { k:'机械键盘', c:452, r:27.4 },
+  { k:'无线鼠标', c:398, r:8.8 },   { k:'微单相机', c:344, r:13.7 },
+  { k:'蓝牙音箱', c:312, r:5.5 },   { k:'充电宝', c:287, r:58.5 },
+  { k:'磁吸充电宝', c:86, r:100 },  { k:'手机散热器', c:74, r:96.2 },
+  { k:'电竞鼠标垫', c:61, r:92.5 }, { k:'骨传导耳机', c:58, r:88.9 },
+  { k:'静音机械键盘', c:47, r:100 },
+]
+
+/* 通用迷你折线：方案 A 的健康条与方案 B 的 KPI 卡共用 */
+function sparkline(id, data, color, w = 104, h = 36) {
+  const el = document.getElementById(id)
+  if (!el) return
+  const mn = Math.min(...data), mx = Math.max(...data)
+  const px = i => 2 + (w - 6) * i / (data.length - 1)
+  const py = v => h - 3 - ((v - mn) / (mx - mn || 1)) * (h - 8)
+  const d = data.map((v, i) => `${i ? 'L' : 'M'}${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ')
+  el.innerHTML =
+    `<path d="${d} L${px(data.length - 1).toFixed(1)},${h} L2,${h} Z" fill="${color}" opacity=".1"/>` +
+    `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" opacity=".9"/>`
+}
+
+const rate = (hit, total) => (hit / total * 100)
+const fmtPct = v => v.toFixed(1) + '%'
+const cls = (r) => r >= 50 ? 'tag--danger' : r >= 20 ? 'tag--warn' : 'tag--success'
+
+/* ================= 方案 A ================= */
+;(function renderA(){
+  const max = NO_RESULT[0].c
+  document.getElementById('pa-list').innerHTML = NO_RESULT.slice(0, 8).map((it, i) => `
+    <div class="pa__row">
+      <div class="pa__rank">${i + 1}</div>
+      <div class="pa__kw" title="${it.k}">${it.k}</div>
+      <div class="pa__bar"><i style="width:${it.c / max * 100}%"></i></div>
+      <div class="pa__cnt">${it.c}</div>
+      <div class="pa__time">${it.t}</div>
+      <div class="pa__acts">
+        <button class="btn btn--ghost btn--sm" title="写入 search_synonym 表，下次搜这个词就能命中">+ 同义词</button>
+        <button class="btn btn--sm btn--primary">建商品</button>
+      </div>
+    </div>`).join('')
+
+  /* 健康条里的迷你趋势：画「每日无结果率」，口径与左侧 20.5% 一致 */
+  sparkline('pa-spark', MISS.map((m, i) => rate(m, TOTAL[i])), '#f56c6c', 96, 26)
+
+  const hotMax = HOT[0].c
+  document.getElementById('pa-hot').innerHTML = HOT.map(it => {
+    const hit = rate(it.c - it.m, it.c)
+    const low = hit < 90
+    return `<div class="pa__hotrow">
+      <div class="pa__hotkw" title="${it.k}">${it.k}</div>
+      <div class="pa__hotbar"><i class="${low ? 'low' : ''}" style="width:${it.c / hotMax * 100}%"></i></div>
+      <div class="pa__hotval">${it.c}</div>
+      <div class="pa__hotrate"><span class="tag ${cls(100 - hit)}">${fmtPct(hit)}</span></div>
+    </div>`
+  }).join('')
+})()
+
+/* ================= 方案 B ================= */
+;(function renderB(){
+  /* --- 堆叠面积图 --- */
+  const W = 960, H = 300, P = { l: 56, r: 20, t: 18, b: 34 }
+  const iw = W - P.l - P.r, ih = H - P.t - P.b
+  const maxY = 2400
+  const X = i => P.l + iw * i / (DAYS.length - 1)
+  const Y = v => P.t + ih - (v / maxY) * ih
+  const line = arr => arr.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ')
+  const solid = TOTAL.map((t, i) => t - MISS[i])   // 有结果
+
+  let g = ''
+  for (let v = 0; v <= maxY; v += 600) {
+    g += `<line x1="${P.l}" y1="${Y(v)}" x2="${W - P.r}" y2="${Y(v)}" stroke="#f0f2f5" stroke-width="1"/>
+          <text x="${P.l - 10}" y="${Y(v) + 4}" text-anchor="end" font-size="11" fill="#c0c4cc">${v}</text>`
+  }
+  DAYS.forEach((d, i) => {
+    g += `<text x="${X(i)}" y="${H - 12}" text-anchor="middle" font-size="11" fill="#909399">${d}</text>`
+  })
+
+  const defs = `<defs>
+    <linearGradient id="gSolid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5b8def" stop-opacity=".55"/><stop offset="100%" stop-color="#5b8def" stop-opacity=".08"/>
+    </linearGradient>
+    <linearGradient id="gMiss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f56c6c" stop-opacity=".6"/><stop offset="100%" stop-color="#f56c6c" stop-opacity=".28"/>
+    </linearGradient>
+  </defs>`
+
+  const areaSolid = `${line(solid)} L${X(DAYS.length - 1)},${Y(0)} L${X(0)},${Y(0)} Z`
+  const bandMiss  = `${line(solid)} ${line(TOTAL).replace('M', 'L')} Z`
+
+  let dots = ''
+  TOTAL.forEach((v, i) => {
+    dots += `<circle cx="${X(i)}" cy="${Y(v)}" r="4" fill="#fff" stroke="#5b8def" stroke-width="2"/>`
+  })
+
+  document.getElementById('pb-area').innerHTML = defs + g +
+    `<path d="${areaSolid}" fill="url(#gSolid)"/>` +
+    `<path d="${bandMiss}" fill="url(#gMiss)"/>` +
+    `<path d="${line(TOTAL)}" fill="none" stroke="#5b8def" stroke-width="2"/>` +
+    `<path d="${line(solid)}" fill="none" stroke="#5b8def" stroke-width="1.2" stroke-dasharray="4 3" opacity=".6"/>` +
+    dots
+
+  /* --- 迷你 sparkline --- */
+  sparkline('spark1', TOTAL, '#5b8def')
+  sparkline('spark2', MISS, '#f56c6c')
+  sparkline('spark3', [1180, 1210, 1205, 1268, 1290, 1301, 1342], '#10b981')
+  sparkline('spark4', [3.4, 3.5, 3.3, 3.4, 3.3, 3.2, 3.2], '#e6a23c')
+
+  /* --- 横向条形榜 --- */
+  const hotMax = HOT[0].c
+  document.getElementById('pb-hot').innerHTML = HOT.map((it, i) => {
+    const hit = rate(it.c - it.m, it.c)
+    return `<div class="pb__hrow">
+      <div class="pb__hrank">${i + 1}</div>
+      <div class="pb__hkw" title="${it.k}">${it.k}</div>
+      <div class="pb__hbar"><i style="width:${it.c / hotMax * 100}%"></i><em>${it.c}</em></div>
+      <div style="flex:0 0 52px;text-align:right"><span class="tag ${cls(100 - hit)}">${fmtPct(hit)}</span></div>
+    </div>`
+  }).join('')
+
+  const missMax = NO_RESULT[0].c
+  document.getElementById('pb-miss').innerHTML = NO_RESULT.map((it, i) => `
+    <div class="pb__hrow">
+      <div class="pb__hrank">${i + 1}</div>
+      <div class="pb__hkw" title="${it.k}">${it.k}</div>
+      <div class="pb__hbar"><i class="miss" style="width:${it.c / missMax * 100}%"></i><em>${it.c}</em></div>
+      <div style="flex:0 0 30px"></div>
+    </div>`).join('')
+})()
+
+/* ================= 方案 C ================= */
+;(function renderC(){
+  const W = 960, H = 460, P = { l: 70, r: 30, t: 40, b: 62 }
+  const iw = W - P.l - P.r, ih = H - P.t - P.b
+  const maxX = 1400, SPLIT_X = 400, SPLIT_Y = 25, maxY = 105
+  const X = v => P.l + (v / maxX) * iw
+  const Y = r => P.t + ih - (r / maxY) * ih
+
+  /* 象限底色（四块） */
+  const quad = (x1, y1, x2, y2, fill) =>
+    `<rect x="${x1}" y="${y1}" width="${x2 - x1}" height="${y2 - y1}" fill="${fill}"/>`
+  let bg = ''
+  bg += quad(X(0), Y(maxY), X(SPLIT_X), Y(SPLIT_Y), 'rgba(245,108,108,.075)')      // 左上 黑洞
+  bg += quad(X(SPLIT_X), Y(maxY), X(maxX), Y(SPLIT_Y), 'rgba(230,162,60,.075)')    // 右上 潜力
+  bg += quad(X(SPLIT_X), Y(SPLIT_Y), X(maxX), Y(0), 'rgba(16,185,129,.085)')       // 右下 明星
+  bg += quad(X(0), Y(SPLIT_Y), X(SPLIT_X), Y(0), 'rgba(144,147,153,.06)')          // 左下 长尾
+
+  /* 象限水印（先画，压在点下面） */
+  const wm = (cx, cy, text, color) =>
+    `<text x="${cx}" y="${cy}" text-anchor="middle" font-size="17" font-weight="700"
+           fill="${color}" fill-opacity=".16" letter-spacing="2">${text}</text>`
+  const midL = (P.l + X(SPLIT_X)) / 2, midR = (X(SPLIT_X) + W - P.r) / 2
+  const midT = (P.t + Y(SPLIT_Y)) / 2, midB = (Y(SPLIT_Y) + H - P.b) / 2
+  let wmLayer = wm(midL, midT + 6, '黑洞词', '#f56c6c') +
+                wm(midR, midT + 6, '潜力词', '#e6a23c') +
+                wm(midR, midB + 6, '明星词', '#10b981') +
+                wm(midL, midB + 6, '长尾词', '#909399')
+
+  /* 网格 + 轴刻度 */
+  let grid = ''
+  ;[0, 25, 50, 75, 100].forEach(v => {
+    grid += `<line x1="${P.l}" y1="${Y(v)}" x2="${W - P.r}" y2="${Y(v)}" stroke="#fff" stroke-width="1" stroke-opacity=".85"/>
+             <text x="${P.l - 10}" y="${Y(v) + 4}" text-anchor="end" font-size="11" fill="#909399">${v}%</text>`
+  })
+  ;[0, 350, 700, 1050, 1400].forEach(v => {
+    grid += `<line x1="${X(v)}" y1="${P.t}" x2="${X(v)}" y2="${H - P.b}" stroke="#fff" stroke-width="1" stroke-opacity=".85"/>
+             <text x="${X(v)}" y="${H - P.b + 18}" text-anchor="middle" font-size="11" fill="#909399">${v}</text>`
+  })
+
+  const split = `
+    <line x1="${X(SPLIT_X)}" y1="${P.t}" x2="${X(SPLIT_X)}" y2="${H - P.b}" stroke="#dcdfe6" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <line x1="${P.l}" y1="${Y(SPLIT_Y)}" x2="${W - P.r}" y2="${Y(SPLIT_Y)}" stroke="#dcdfe6" stroke-width="1.5" stroke-dasharray="5 4"/>`
+
+  const axisTitle = `
+    <text x="${W / 2}" y="${H - 12}" text-anchor="middle" font-size="12" fill="#606266">搜索次数 →</text>
+    <text x="16" y="${P.t + ih / 2}" text-anchor="middle" font-size="12" fill="#606266"
+          transform="rotate(-90 16 ${P.t + ih / 2})">无结果率 →</text>`
+
+  /* 只给关键点打标签，其余靠 hover，避免密集区标签互相压 */
+  const LABELED = {
+    '蓝牙耳机': 'up', '手机': 'up', '智能手表': 'up',
+    '机械键盘': 'up', '充电宝': 'right', '磁吸充电宝': 'up',
+  }
+  const colorOf = (p) => {
+    if (p.r >= 50) return '#f56c6c'
+    if (p.r >= SPLIT_Y) return p.c < SPLIT_X ? '#c0c4cc' : '#e6a23c'
+    return '#10b981'
+  }
+
+  let bubbles = ''
+  MATRIX.forEach(p => {
+    const cx = X(p.c), cy = Y(p.r), r = 4 + Math.sqrt(p.c) / 5
+    const col = colorOf(p)
+    const pos = LABELED[p.k]
+    bubbles += `<g style="cursor:pointer">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="${col}" fill-opacity="${pos ? .8 : .45}" stroke="#fff" stroke-width="1.5"/>
+      ${pos ? `<text x="${pos === 'right' ? cx + r + 5 : cx}" y="${pos === 'right' ? cy + 4 : cy - r - 7}"
+            text-anchor="${pos === 'right' ? 'start' : 'middle'}" font-size="11"
+            fill="#303133" font-weight="500" paint-order="stroke" stroke="#fff" stroke-width="3">${p.k}</text>` : ''}
+      <title>${p.k}｜搜索 ${p.c} 次｜无结果率 ${p.r}%</title>
+    </g>`
+  })
+
+  document.getElementById('pc-matrix').innerHTML = bg + wmLayer + grid + split + bubbles + axisTitle
+
+  /* --- 明细表（按无结果率降序） --- */
+  const rows = MATRIX.slice().sort((a, b) => b.r - a.r)
+  const heat = r => {
+    const bg = r >= 50 ? '#fde2e2' : r >= 20 ? '#faecd8' : r > 0 ? '#f0f9eb' : '#f4f4f5'
+    const fg = r >= 50 ? '#c45656' : r >= 20 ? '#b88230' : '#529b2e'
+    return `<span class="heat" style="background:${bg};color:${fg}">${fmtPct(r)}</span>`
+  }
+  const quadTag = r => {
+    if (r >= 50) return '<span class="tag tag--danger">黑洞词</span>'
+    if (r >= 25) return '<span class="tag tag--warn">潜力词</span>'
+    return '<span class="tag tag--success">明星词</span>'
+  }
+  document.getElementById('pc-table').innerHTML = rows.map((it, i) => `
+    <tr>
+      <td style="color:#c0c4cc">${i + 1}</td>
+      <td style="font-weight:500">${it.k}</td>
+      <td class="num">${it.c}</td>
+      <td class="num" style="color:#909399">${Math.round(it.c * (1 - it.r / 100))}</td>
+      <td class="num">${heat(it.r)}</td>
+      <td>${quadTag(it.r)}</td>
+      <td style="color:#909399;font-size:12px">10-22 ${String(21 - (i % 3)).padStart(2, '0')}:${String((10 + i * 7) % 60).padStart(2, '0')}</td>
+    </tr>`).join('')
+})()
+
+/* ================= 方案切换 ================= */
+function activate(p){
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('is-on', t.dataset.p === p))
+  document.querySelectorAll('.proposal').forEach(el => el.classList.toggle('is-on', el.id === 'p' + p))
+}
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    activate(tab.dataset.p)
+    try { history.replaceState(null, '', '#' + tab.dataset.p) } catch (e) { /* file:// 下忽略 */ }
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  })
+})
+/* 支持 #a / #b / #c 直接打开某个方案 */
+const initial = (window.location.hash || '').replace('#', '')
+if (['a','b','c'].includes(initial)) activate(initial)
+</script>
+</body>
+</html>

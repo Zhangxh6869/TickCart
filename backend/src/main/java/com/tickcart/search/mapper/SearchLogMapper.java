@@ -3,6 +3,7 @@ package com.tickcart.search.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.tickcart.search.dto.KeywordCount;
 import com.tickcart.search.dto.KeywordStat;
+import com.tickcart.search.dto.SearchTrendPoint;
 import com.tickcart.search.entity.SearchLog;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
@@ -88,6 +89,27 @@ public interface SearchLogMapper extends BaseMapper<SearchLog> {
             WHERE (#{since} IS NULL OR created_at >= #{since})
             """)
     int distinctKeywords(@Param("since") LocalDateTime since);
+
+    /**
+     * 按自然日聚合的搜索趋势（后台迷你趋势图用）。
+     *
+     * <p>只返回「有日志的日期」，缺失日期由 {@code SearchLogService#trend} 补 0 ——
+     * 补齐放在 Service 而非 SQL，是因为 MySQL 没有生成日期序列的简洁写法，
+     * 用递归 CTE 或日历表都会把一个看板查询搞复杂。</p>
+     *
+     * <p>{@code day} 用 {@code DATE_FORMAT} 产出字符串，避免 DATE → LocalDate 的
+     * JDBC 类型映射差异。{@code GROUP BY day} 用别名在 MySQL 下合法。</p>
+     */
+    @Select("""
+            SELECT DATE_FORMAT(created_at, '%Y-%m-%d')                  AS day,
+                   COUNT(*)                                             AS total,
+                   SUM(CASE WHEN result_count = 0 THEN 1 ELSE 0 END)    AS miss
+            FROM search_log
+            WHERE (#{since} IS NULL OR created_at >= #{since})
+            GROUP BY day
+            ORDER BY day
+            """)
+    List<SearchTrendPoint> trendByDay(@Param("since") LocalDateTime since);
 
     /**
      * 全局热门搜索词：按出现次数降序。

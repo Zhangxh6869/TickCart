@@ -3,6 +3,7 @@ package com.tickcart.search.service;
 import com.tickcart.search.dto.KeywordCount;
 import com.tickcart.search.dto.KeywordStat;
 import com.tickcart.search.dto.SearchStatsVO;
+import com.tickcart.search.dto.SearchTrendPoint;
 import com.tickcart.search.buffer.SearchLogBuffer;
 import com.tickcart.search.entity.SearchLog;
 import com.tickcart.search.mapper.SearchLogMapper;
@@ -10,7 +11,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 搜索日志服务。
@@ -88,5 +94,52 @@ public class SearchLogService {
             return null; // 全部时间
         }
         return LocalDateTime.now().minusDays(days);
+    }
+
+    /**
+     * 搜索趋势：按自然日返回连续的数据点，缺失日期补 0。
+     *
+     * <p>口径与 {@link #stats} 略有差异，这是刻意的：stats 用「滚动 N×24 小时」，
+     * 而趋势必须落在自然日边界上，否则首日只有半天数据、折线首点会莫名塌陷。
+     * 两者差异不到一个自然日，都落在「最近 N 天」的语义内。</p>
+     *
+     * @param days 时间范围（天），<=0 表示按现有数据的首尾日补齐
+     */
+    public List<SearchTrendPoint> trend(int days) {
+        LocalDate start;
+        LocalDate end;
+        if (days > 0) {
+            end = LocalDate.now();
+            start = end.minusDays(days - 1L);
+        } else {
+            // 全部时间：先取数据边界，空表直接返回空列表（不臆造日期）
+            List<SearchTrendPoint> raw = searchLogMapper.trendByDay(null);
+            if (raw.isEmpty()) {
+                return List.of();
+            }
+            return fillMissingDays(raw, LocalDate.parse(raw.get(0).getDay()),
+                    LocalDate.parse(raw.get(raw.size() - 1).getDay()));
+        }
+        return fillMissingDays(searchLogMapper.trendByDay(start.atStartOfDay()), start, end);
+    }
+
+    /**
+     * 把「只有有日志的日期」补齐成连续日期序列，缺失日给 0。
+     *
+     * <p>补 0 而不是跳过，是因为前端要直接按点画折线：跳过缺失日会让折线把
+     * 两个不相邻的日期连成一条斜线，视觉上像「一直有人在搜」。</p>
+     */
+    private List<SearchTrendPoint> fillMissingDays(List<SearchTrendPoint> raw,
+                                                   LocalDate start, LocalDate end) {
+        Map<String, SearchTrendPoint> byDay = new HashMap<>(raw.size() * 2);
+        for (SearchTrendPoint p : raw) {
+            byDay.put(p.getDay(), p);
+        }
+        List<SearchTrendPoint> result = new ArrayList<>();
+        for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
+            String key = d.toString();
+            result.add(byDay.getOrDefault(key, new SearchTrendPoint(key, 0, 0)));
+        }
+        return result;
     }
 }

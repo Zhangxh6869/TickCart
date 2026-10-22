@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type UploadFile } from 'element-plus'
 import { ArrowLeft, ArrowRight, Close, Plus } from '@element-plus/icons-vue'
 import type { Category, ProductListItem } from '@tickcart/shared-types'
@@ -20,6 +21,7 @@ const loading = ref(false)
 const list = ref<ProductListItem[]>([])
 const total = ref(0)
 const categories = ref<Category[]>([])
+const route = useRoute()
 
 const query = reactive({
   page: 1,
@@ -42,6 +44,11 @@ async function load() {
 }
 
 onMounted(async () => {
+  // 从「搜索分析 · 建商品」跳过来时带着关键词，直接预填筛选条件
+  const keywordFromQuery = route.query.keyword
+  if (typeof keywordFromQuery === 'string' && keywordFromQuery.trim()) {
+    query.keyword = keywordFromQuery.trim()
+  }
   categories.value = await fetchCategories()
   await load()
 })
