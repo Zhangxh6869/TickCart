@@ -53,12 +53,19 @@ const trendRange = computed(() => {
   return `${pct(rateOf(list[0]))} → ${pct(rateOf(list[list.length - 1]))}`
 })
 
-/** 末点低于首点 = 在变好 */
-const trendImproved = computed(() => {
+/** 趋势线颜色跟随健康度（SVG 的 stroke 属性不解析 CSS 变量，只能传具体色值） */
+const sparkColor = computed(() => {
+  if (heroLevel.value === 'danger') return '#f56c6c'
+  if (heroLevel.value === 'warn') return '#e6a23c'
+  return '#67c23a'
+})
+
+/** 首尾差值：<0 在变好、>0 在变坏、=0 持平（持平不标色，避免 0%→0% 被误标成红色） */
+const trendDelta = computed(() => {
   const list = trend.value
-  if (list.length < 2) return false
+  if (list.length < 2) return 0
   const rateOf = (p: SearchTrendPoint) => (p.total > 0 ? p.miss / p.total : 0)
-  return rateOf(list[list.length - 1]) < rateOf(list[0])
+  return rateOf(list[list.length - 1]) - rateOf(list[0])
 })
 
 /** 结论：把 TOP3 无结果词直接点出来，省得运营自己从榜里找 */
@@ -203,10 +210,12 @@ function hitTagType(rate: number): 'danger' | 'warning' | 'success' {
           <span>无结果 {{ pct(noResultRate) }}</span>
 
           <div v-if="trendRates.length > 1" class="sa-hero__trend">
-            <SparkLine :data="trendRates" :width="96" :height="26" color="#f56c6c" />
+            <SparkLine :data="trendRates" :width="96" :height="26" :color="sparkColor" />
             <span class="sa-hero__trend-txt">
               {{ rangeLabel }}
-              <b :class="trendImproved ? 'is-good' : 'is-bad'">{{ trendRange }}</b>
+              <b :class="trendDelta < 0 ? 'is-good' : trendDelta > 0 ? 'is-bad' : ''">
+                {{ trendRange }}
+              </b>
             </span>
           </div>
         </div>
@@ -467,7 +476,7 @@ function hitTagType(rate: number): 'danger' | 'warning' | 'success' {
   display: grid;
   grid-template-columns: 1.35fr 1fr;
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
 }
 .sa-card {
   border-radius: 8px;
@@ -477,6 +486,10 @@ function hitTagType(rate: number): 'danger' | 'warning' | 'success' {
 }
 .sa-card :deep(.el-card__body) {
   padding: 6px 0;
+}
+/* 空状态给足呼吸空间，两栏等高时不会贴在卡片顶部 */
+.sa-card :deep(.el-empty) {
+  padding: 56px 0;
 }
 .sa-card__head {
   display: flex;

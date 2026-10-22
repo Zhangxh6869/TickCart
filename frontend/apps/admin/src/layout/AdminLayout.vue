@@ -23,6 +23,10 @@ async function onLogout() {
     <el-aside width="210px" class="layout__aside">
       <div class="layout__logo">TickCart 管理后台</div>
       <el-menu :default-active="activeMenu" router class="layout__menu">
+        <el-menu-item index="/search-analytics">
+          <el-icon><Search /></el-icon>
+          <span>搜索分析</span>
+        </el-menu-item>
         <el-menu-item index="/products">
           <el-icon><Goods /></el-icon>
           <span>商品管理</span>
@@ -34,10 +38,6 @@ async function onLogout() {
         <el-menu-item index="/orders">
           <el-icon><Tickets /></el-icon>
           <span>订单管理</span>
-        </el-menu-item>
-        <el-menu-item index="/search-analytics">
-          <el-icon><Search /></el-icon>
-          <span>搜索分析</span>
         </el-menu-item>
         <el-menu-item index="/seckill">
           <el-icon><AlarmClock /></el-icon>
