@@ -501,7 +501,12 @@ onBeforeUnmount(() => {
      box-sizing: border-box 下内容盒正好 100vh - 50px，剩下的 50px 由不透明的 tabbar 补。
      （写成 min-height: 100vh 会凭空多出 50px 滚动条，别照抄 .cart 的历史写法。） */
   min-height: calc(100vh - 50px);
-  background: var(--van-background, #fff);
+  /* 页面底色：灰底白卡，与秒杀页（.seckill）同一套做法 —— 都用项目自己的 --tc-bg-page。
+     ★ 别改回 --van-background / --van-background-2：前者是「白色表面」变量（吸顶区、pinned
+       分类项都在用它），后者在 Vant 4 里本身就是 #fff、fallback 是死代码。
+     白色留给商品卡（.product-card），容器 .section / .cat-panel 一律透明，
+     卡片之间那 10px 间隙才露得出这层灰、卡片边界才立得住。 */
+  background: var(--tc-bg-page, #f7f8fa);
 
   /* ── 纵向 flex 只为一件事：让下拉刷新的包裹层撑满「吸顶区以下」的剩余视口 ──
      包裹层只包商品区（这样指示条才落在分类条下方），而它的高度若随内容走，
@@ -605,19 +610,19 @@ onBeforeUnmount(() => {
   font-size: 14px;
   cursor: pointer;
 }
-/* 商品区所在的白底卡片。
+/* 商品区容器（**透明**，白底留给 .product-card —— 页面是灰底，容器再涂白的话
+   卡片与容器同色，卡片之间就看不出边界了；见 .home 里那段底色说明）。
    position: relative 是旧面板（绝对定位滑出）的包含块；
    overflow: clip 一举两得 —— 收口新面板从 left: ±100% 滑入时的横向溢出
    （不夹住会把文档 scrollWidth 撑到两倍宽、还能横向拖动），
    同时裁掉旧面板滑出期间溢出卡片的那部分（它绝对定位后不再撑高 .section）。
    必须是 clip 不是 hidden：hidden 会创建滚动容器，程序化 scrollTo 仍能滚过去。
    两个方向都用 clip 是安全的：.section 内没有 sticky / fixed 后代，
-   首页吸顶区是它的兄弟节点，不在这个裁剪范围内。 */
+   首页吸顶区是它的兄弟节点，不在这个裁剪范围内。
+   ★ 卡片投影（blur 8px + y 2px）落在 .cat-panel 的 12px 内边距里，不会被这里裁掉。 */
 .section {
   position: relative;
-  background: #fff;
   margin: 12px;
-  border-radius: 8px;
   overflow: clip;
 }
 
@@ -625,12 +630,11 @@ onBeforeUnmount(() => {
    旧面板绝对定位时，包含块是 .section 的 padding box；.section 自己没有 padding，
    所以旧面板 left: 0 / width: 100% 的内容位置和新面板逐像素一致，滑动时不会横向错位。
 
-   必须给不透明底色：滑动途中两块面板一上一下叠着，面板本身是透明的，
-   卡片之间那 10px 间隙就会透出下层内容 —— 观感就是「上一页的残留」。
-   .section 的白底挡不住，因为两块面板都在它内部、盖在白底之上。 */
+   面板本身**透明**（白底只给 .product-card）：两块面板同速整块平移、始终首尾相接互不重叠
+   （见下面 cat-slide-* 的位移量说明），所以不再需要一层不透明底来挡「上一页的残留」——
+   滑动途中露出来的那 10px 间隙本来就该是页面灰底，和静止时一模一样。 */
 .cat-panel {
   padding: 12px;
-  background: #fff;
 }
 
 /* ── 分类切换：商品区左右滑动 ────────────────────────────────────────
@@ -809,6 +813,13 @@ onBeforeUnmount(() => {
   /* minmax(0, 1fr) 而非 1fr：否则列宽会被卡片内文字的最小内容宽度撑开而溢出 */
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+/* 白卡浮在灰底上：投影与秒杀页卡片同一套参数（y 2px / blur 8px / 8% 黑）。
+   灰底本身已经拉开了边界，投影只补一点层次 —— 双列间隙只有 10px，blur 再大两卡的阴影会糊在一起显脏。
+   ★ 只作用于首页（选择器带 .home）：ProductCard 同时被搜索页 / 收藏页复用，那些页面是白底，
+     加上投影会显脏。用 :deep 是因为卡片根节点属于子组件。 */
+.home :deep(.product-card) {
+  box-shadow: 0 2px 8px rgba(48, 49, 51, 0.08);
 }
 /* 触底加载动画：列表末尾留白里居中的一个空心圆环（对齐参考图）。
    它是**文档流内**的元素，不再像上一版那样做 fixed 浮层 ——

@@ -348,7 +348,12 @@ function goLogin() {
 .cart {
   min-height: 100vh;
   padding-bottom: 50px;
-  background: var(--van-background-2, #f7f8fa);
+  /* 页面底色：灰底白卡，与首页 / 秒杀页统一走项目自己的 --tc-bg-page。
+     ★ 原来写的是 var(--van-background-2, #f7f8fa) —— 那是**死代码**：Vant 4 里
+       --van-background-2 本身就是 #fff（它是「白色表面」变量，nav-bar / cell / popup 等
+       34 个组件都在继承它，不能拿去当页面底色），fallback 永远不触发，
+       所以页面实际一直是纯白、白卡与底色毫无区分度。 */
+  background: var(--tc-bg-page, #f7f8fa);
 }
 .cart__empty-btn {
   width: 120px;
