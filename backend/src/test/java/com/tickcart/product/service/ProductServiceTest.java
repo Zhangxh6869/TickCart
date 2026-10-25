@@ -2,6 +2,7 @@ package com.tickcart.product.service;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tickcart.common.cache.CacheProperties;
@@ -47,6 +48,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -222,8 +224,8 @@ class ProductServiceTest {
     }
 
     @Test
-    @DisplayName("编辑商品时重建的 SKU 同样继承商品价")
-    void updateRebuiltSkuInheritsProductPrice() {
+    @DisplayName("编辑商品时新加的 SKU 同样继承商品价")
+    void updateNewSkuInheritsProductPrice() {
         Product product = new Product();
         product.setId(1L);
         product.setPrice(new BigDecimal("99.00"));
@@ -972,5 +974,131 @@ class ProductServiceTest {
         ProductDetail detail = productService.detail(1L);
 
         assertThat(detail.getSearchKeywords()).isEqualTo("衣服,服装,服饰,裤子,长裤");
+    }
+
+    // -------------------------------------------------------------------------
+    // SKU 增量同步：编辑商品不再重建 SKU
+    //
+    // 回归的是这个真实事故：后台「保存商品」原本是「旧 SKU 全删 + 新 SKU 重插」，
+    // SKU id 因此全变；而未完成订单的 order_item.sku_id 还指着旧 id，
+    // 取消订单回补库存时 UPDATE 被自动补上 deleted=0 → 命中 0 行 → 库存静默丢失。
+    // -------------------------------------------------------------------------
+
+    /** 构造一条已存在的 SKU 行（模拟库里上一代数据）。 */
+    private ProductSku storedSku(Long id, int stock) {
+        ProductSku sku = new ProductSku();
+        sku.setId(id);
+        sku.setProductId(1L);
+        sku.setSpecName("颜色");
+        sku.setSpecValue("黑");
+        sku.setPrice(new BigDecimal("99.00"));
+        sku.setStock(stock);
+        return sku;
+    }
+
+    /** 让 update 走到「商品已存在 + 分类已存在」这两个前置校验之后。 */
+    private void stubExistingProduct() {
+        Product product = new Product();
+        product.setId(1L);
+        product.setPrice(new BigDecimal("99.00"));
+        when(productMapper.selectById(1L)).thenReturn(product);
+        categoryExists();
+        when(productMapper.updateById(any(Product.class))).thenReturn(1);
+    }
+
+    @Test
+    @DisplayName("编辑商品：带 id 的 SKU 就地更新，不删不重插（id 保持不变）")
+    void updateSkusInPlace() {
+        stubExistingProduct();
+        when(skuMapper.selectList(any())).thenReturn(List.of(storedSku(11L, 100)));
+
+        ProductSaveRequest.SkuItem item = sku(80);
+        item.setId(11L);
+        productService.update(1L, productReq(List.of(item)));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaUpdateWrapper<ProductSku>> captor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(skuMapper).update(isNull(), captor.capture());
+        verify(skuMapper, never()).insert(any(ProductSku.class));
+        verify(skuMapper, never()).delete(any());
+
+        captor.getValue().getSqlSegment(); // 先实体化占位符，再断言参数
+        assertThat(captor.getValue().getParamNameValuePairs().values()).contains(11L, 80);
+    }
+
+    @Test
+    @DisplayName("编辑商品：请求里没带的旧 SKU 才被逻辑删除")
+    void updateDeletesRemovedSku() {
+        stubExistingProduct();
+        when(skuMapper.selectList(any()))
+                .thenReturn(List.of(storedSku(11L, 100), storedSku(12L, 50)));
+
+        ProductSaveRequest.SkuItem kept = sku(80);
+        kept.setId(11L);
+        productService.update(1L, productReq(List.of(kept)));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaQueryWrapper<ProductSku>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(skuMapper).delete(captor.capture());
+        captor.getValue().getSqlSegment();
+        assertThat(captor.getValue().getParamNameValuePairs().values())
+                .contains(12L)
+                .doesNotContain(11L);
+    }
+
+    @Test
+    @DisplayName("编辑商品：不带 id 的 SKU 走新增，已有 SKU 不受影响")
+    void updateInsertsSkuWithoutId() {
+        stubExistingProduct();
+        when(skuMapper.selectList(any())).thenReturn(List.of(storedSku(11L, 100)));
+
+        ProductSaveRequest.SkuItem kept = sku(80);
+        kept.setId(11L);
+        ProductSaveRequest.SkuItem added = sku(20); // 新增行不带 id
+        productService.update(1L, productReq(List.of(kept, added)));
+
+        ArgumentCaptor<ProductSku> captor = ArgumentCaptor.forClass(ProductSku.class);
+        verify(skuMapper).insert(captor.capture());
+        assertThat(captor.getValue().getId()).isNull();
+        assertThat(captor.getValue().getProductId()).isEqualTo(1L);
+        assertThat(captor.getValue().getStock()).isEqualTo(20);
+        verify(skuMapper, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("编辑商品：带别的商品的 SKU id 直接拒绝，不误改他人规格")
+    void updateRejectsForeignSkuId() {
+        // 这里不调 stubExistingProduct()：异常在 updateById 之前就抛出，
+        // 多打一个桩会触发 Mockito 的 UnnecessaryStubbing
+        Product product = new Product();
+        product.setId(1L);
+        product.setPrice(new BigDecimal("99.00"));
+        when(productMapper.selectById(1L)).thenReturn(product);
+        categoryExists();
+        when(skuMapper.selectList(any())).thenReturn(List.of(storedSku(11L, 100)));
+
+        ProductSaveRequest.SkuItem foreign = sku(80);
+        foreign.setId(99L);
+
+        assertThatThrownBy(() -> productService.update(1L, productReq(List.of(foreign))))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("不属于该商品");
+        verify(skuMapper, never()).update(any(), any());
+        verify(skuMapper, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("编辑商品：请求不带 skus 时完全不碰 SKU 表")
+    void updateWithoutSkusLeavesThemAlone() {
+        stubExistingProduct();
+
+        productService.update(1L, productReq(null));
+
+        verify(skuMapper, never()).selectList(any());
+        verify(skuMapper, never()).insert(any(ProductSku.class));
+        verify(skuMapper, never()).update(any(), any());
+        verify(skuMapper, never()).delete(any());
     }
 }

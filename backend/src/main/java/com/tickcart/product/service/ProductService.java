@@ -1,6 +1,7 @@
 package com.tickcart.product.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tickcart.common.api.PageResult;
 import com.tickcart.common.cache.CacheKeys;
@@ -31,10 +32,12 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -403,7 +406,7 @@ public class ProductService {
         product.setStock(sumSkuStock(req.getSkus()));
         productMapper.insert(product);
 
-        saveSkus(product.getId(), req.getSkus(), product.getPrice());
+        syncSkus(product.getId(), req.getSkus(), product.getPrice());
         saveImages(product.getId(), req.getImages());
         return product.getId();
     }
@@ -433,10 +436,10 @@ public class ProductService {
             product.setSales(req.getSales());
         }
         if (req.getSkus() != null) {
-            // 全量重建 SKU：先逻辑删除旧的，再插入新的
-            skuMapper.delete(new LambdaQueryWrapper<ProductSku>()
-                    .eq(ProductSku::getProductId, id));
-            saveSkus(id, req.getSkus(), product.getPrice());
+            // 按 id 增量同步：SKU id 保持稳定，订单明细与秒杀活动的引用才不会失联。
+            // ★ 这里曾经是「先全删再重插」，导致改个标题都会让 SKU 换 id，
+            //   未完成订单取消时回补库存打空（详见 syncSkus 的注释）。
+            syncSkus(id, req.getSkus(), product.getPrice());
             product.setStock(sumSkuStock(req.getSkus()));
         }
         productMapper.updateById(product);
@@ -768,19 +771,70 @@ public class ProductService {
         return skus.stream().mapToInt(s -> s.getStock() == null ? 0 : s.getStock()).sum();
     }
 
-    private void saveSkus(Long productId, List<ProductSaveRequest.SkuItem> skus, BigDecimal productPrice) {
-        if (skus == null || skus.isEmpty()) {
-            return;
+    /**
+     * 同步商品 SKU：**按 id 增量更新**，只有请求里真正去掉的行才逻辑删除。
+     *
+     * <p><b>★ 为什么不能「先全删再重插」</b>：SKU 的 id 是别处的引用目标 ——
+     * 订单明细 {@code order_item.sku_id}、秒杀活动 {@code seckill_activity.sku_id}。
+     * 整批重建会让 id 全变，于是：</p>
+     * <ol>
+     *   <li>未完成订单取消时回补库存打空 —— {@code InventoryService.restore} 的 UPDATE
+     *       会被 MyBatis-Plus 自动补上 {@code deleted = 0}，而旧行已是 {@code deleted = 1}，
+     *       命中 0 行且不报错，库存静默丢失；</li>
+     *   <li>秒杀活动与新 SKU 失联（同一根因的另一个症状）。</li>
+     * </ol>
+     *
+     * <p>而后台商品抽屉是整表单提交，**改一个标题也会带上 skus** ——
+     * 重建因此变成每次保存都发生，问题被放大到「随便点一下保存就可能丢库存」。</p>
+     *
+     * <p>规则：带 id 且属于本商品 → 就地更新（id 不变）；不带 id → 新增；
+     * 请求里没出现的旧行 → 逻辑删除。带了别人的 SKU id 直接拒绝，避免把其他商品的规格改掉。</p>
+     */
+    private void syncSkus(Long productId, List<ProductSaveRequest.SkuItem> skus, BigDecimal productPrice) {
+        List<ProductSaveRequest.SkuItem> targets = skus == null ? List.of() : skus;
+        Map<Long, ProductSku> existing = skuMapper
+                .selectList(new LambdaQueryWrapper<ProductSku>().eq(ProductSku::getProductId, productId))
+                .stream()
+                .collect(Collectors.toMap(ProductSku::getId, Function.identity()));
+
+        Set<Long> kept = new HashSet<>();
+        for (ProductSaveRequest.SkuItem item : targets) {
+            BigDecimal price = resolveSkuPrice(item, productPrice);
+            int stock = item.getStock() == null ? 0 : item.getStock();
+
+            if (item.getId() == null) {
+                ProductSku sku = new ProductSku();
+                sku.setProductId(productId);
+                sku.setSpecName(item.getSpecName());
+                sku.setSpecValue(item.getSpecValue());
+                sku.setSkuImage(item.getSkuImage());
+                sku.setPrice(price);
+                sku.setStock(stock);
+                skuMapper.insert(sku);
+                continue;
+            }
+
+            ProductSku current = existing.get(item.getId());
+            if (current == null) {
+                throw BizException.badRequest("SKU（id=" + item.getId() + "）不属于该商品，请刷新后重试");
+            }
+            // 用显式 set 而不是 updateById：null 也要写进去（清空规格值/图片是合法操作），
+            // updateById 的 NOT_NULL 策略会把 null 字段从 SET 里剔掉，清不掉
+            skuMapper.update(null, new LambdaUpdateWrapper<ProductSku>()
+                    .eq(ProductSku::getId, current.getId())
+                    .set(ProductSku::getSpecName, item.getSpecName())
+                    .set(ProductSku::getSpecValue, item.getSpecValue())
+                    .set(ProductSku::getSkuImage, item.getSkuImage())
+                    .set(ProductSku::getPrice, price)
+                    .set(ProductSku::getStock, stock));
+            kept.add(current.getId());
         }
-        for (ProductSaveRequest.SkuItem item : skus) {
-            ProductSku sku = new ProductSku();
-            sku.setProductId(productId);
-            sku.setSpecName(item.getSpecName());
-            sku.setSpecValue(item.getSpecValue());
-            sku.setSkuImage(item.getSkuImage());
-            sku.setPrice(resolveSkuPrice(item, productPrice));
-            sku.setStock(item.getStock() == null ? 0 : item.getStock());
-            skuMapper.insert(sku);
+
+        List<Long> removed = existing.keySet().stream()
+                .filter(id -> !kept.contains(id))
+                .toList();
+        if (!removed.isEmpty()) {
+            skuMapper.delete(new LambdaQueryWrapper<ProductSku>().in(ProductSku::getId, removed));
         }
     }
 
