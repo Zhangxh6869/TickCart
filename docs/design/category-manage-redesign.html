@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>TickCart 后台 · 分类管理界面重设计（三方案）</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#f0f2f5; --surface:#fff; --border:#ebeef5; --border-2:#e4e7ed; --border-3:#dcdfe6;
+    --t1:#303133; --t2:#606266; --t3:#909399; --t4:#c0c4cc;
+    --primary:#409eff; --success:#67c23a; --warn:#e6a23c; --danger:#f56c6c;
+    --radius:6px;
+    --shadow:0 1px 2px rgba(0,0,0,.04),0 2px 8px rgba(0,0,0,.03);
+    --shadow-2:0 4px 16px rgba(0,0,0,.08);
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"JetBrains Mono",Consolas,monospace;
+  }
+  html,body{height:100%}
+  body{font-family:var(--font);background:var(--bg);color:var(--t1);font-size:14px;-webkit-font-smoothing:antialiased}
+  .app{display:flex;min-height:100vh;min-width:1180px}
+
+  .aside{width:210px;flex:0 0 210px;background:#001529;color:#fff;display:flex;flex-direction:column}
+  .aside__logo{height:60px;line-height:60px;text-align:center;font-size:15px;font-weight:600;border-bottom:1px solid #1f2d3d;letter-spacing:.5px}
+  .aside__logo em{font-style:normal;color:#409eff}
+  .menu{padding:8px 0}
+  .menu__item{display:flex;align-items:center;gap:10px;height:48px;padding:0 20px;color:#b7c0cd;font-size:14px;cursor:pointer;border-left:3px solid transparent;transition:.15s}
+  .menu__item:hover{color:#fff;background:#0c2135}
+  .menu__item.is-active{color:#fff;background:#1890ff;border-left-color:#69c0ff}
+  .menu__item svg{width:16px;height:16px;flex:0 0 16px;opacity:.85}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{height:60px;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px;flex:0 0 60px}
+  .topbar__title{font-size:16px;font-weight:600}
+  .topbar__user{display:flex;align-items:center;gap:14px;color:var(--t2);font-size:14px}
+  .topbar__user b{color:var(--t1);font-weight:500}
+  .link{color:var(--primary);cursor:pointer;font-size:13px}
+
+  .content{padding:20px 24px 48px}
+
+  .switcher{background:#fff;border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:18px;box-shadow:var(--shadow)}
+  .switcher__head{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+  .switcher__head h1{font-size:14px;font-weight:600}
+  .switcher__head span{font-size:12px;color:var(--t3)}
+  .switcher__tabs{display:flex;gap:10px;flex-wrap:wrap}
+  .tab{flex:1;min-width:250px;text-align:left;padding:12px 14px;border:1px solid var(--border-2);border-radius:6px;cursor:pointer;background:#fafbfc;transition:.18s;position:relative}
+  .tab:hover{border-color:#c6e2ff;background:#f4f9ff}
+  .tab.is-on{border-color:var(--primary);background:#ecf5ff;box-shadow:0 0 0 3px rgba(64,158,255,.1)}
+  .tab__kicker{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--t3);margin-bottom:5px}
+  .tab.is-on .tab__kicker{color:var(--primary)}
+  .tab__name{font-size:15px;font-weight:600;margin-bottom:4px}
+  .tab__desc{font-size:12px;color:var(--t3);line-height:1.55}
+  .tab__cost{position:absolute;top:12px;right:14px;font-size:11px;padding:1px 7px;border-radius:9px;background:#f0f2f5;color:var(--t3);border:1px solid var(--border)}
+  .tab__cost--zero{background:#f0f9eb;color:#529b2e;border-color:#e1f3d8}
+
+  .proposal{display:none}
+  .proposal.is-on{display:block}
+
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .btn{border:1px solid var(--border-3);background:#fff;color:var(--t2);border-radius:4px;padding:6px 13px;font-size:13px;cursor:pointer;font-family:var(--font);transition:.15s;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+  .btn:hover{color:var(--primary);border-color:#c6e2ff;background:#ecf5ff}
+  .btn--primary{background:var(--primary);border-color:var(--primary);color:#fff}
+  .btn--primary:hover{background:#66b1ff;border-color:#66b1ff;color:#fff}
+  .btn--sm{padding:3px 9px;font-size:12px}
+  .btn--ghost{border-color:transparent;background:transparent;color:var(--primary);padding:3px 6px}
+  .btn--ghost:hover{background:#ecf5ff}
+  .btn[disabled]{color:var(--t4);border-color:var(--border-2);background:#fafafa;cursor:not-allowed}
+  .btn[disabled]:hover{color:var(--t4);border-color:var(--border-2);background:#fafafa}
+
+  .tag{display:inline-block;padding:0 6px;border-radius:3px;font-size:12px;line-height:18px;border:1px solid transparent}
+  .tag--danger{background:#fef0f0;color:#f56c6c;border-color:#fde2e2}
+  .tag--warn{background:#fdf6ec;color:#e6a23c;border-color:#faecd8}
+  .tag--success{background:#f0f9eb;color:#67c23a;border-color:#e1f3d8}
+  .tag--info{background:#f4f4f5;color:#909399;border-color:#e9e9eb}
+  .tag--primary{background:#ecf5ff;color:#409eff;border-color:#d9ecff}
+
+  .field{height:32px;border:1px solid var(--border-3);border-radius:4px;padding:0 11px;font-size:13px;font-family:var(--font);color:var(--t1);display:flex;align-items:center;background:#fff}
+  .field--search{gap:7px;color:var(--t3)}
+  .field--search svg{width:14px;height:14px;flex:0 0 14px}
+
+  .sw{position:relative;display:inline-block;width:34px;height:18px;border-radius:9px;background:var(--border-3);transition:.2s;cursor:pointer;flex:0 0 auto;vertical-align:middle}
+  .sw::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+  .sw.is-on{background:var(--primary)}
+  .sw.is-on::after{left:18px}
+
+  /* ---------- 页头 ---------- */
+  .head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}
+  .head__summary{font-size:13.5px;color:var(--t2)}
+  .head__summary b{font-size:15px;font-weight:600;color:var(--t1)}
+  .head__acts{display:flex;align-items:center;gap:10px}
+
+  /* ---------- 表格 ---------- */
+  .tbl{width:100%;border-collapse:collapse;font-size:13px}
+  .tbl th{text-align:left;font-weight:500;color:var(--t2);background:#fafafa;padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+  .tbl td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+  .tbl tbody tr:hover td{background:#f7fbff}
+  .tbl tbody tr:last-child td{border-bottom:0}
+  .tbl .num{text-align:right;font-variant-numeric:tabular-nums}
+  .tbl .c-handle{width:36px;padding-left:14px;color:var(--t4);cursor:grab;font-size:14px;letter-spacing:-2px}
+  .tbl .c-ops{width:118px;text-align:right;padding-right:16px}
+
+  .catname{display:flex;align-items:center;gap:8px}
+  .catname__text{font-size:13.5px;font-weight:500}
+  .catname__sub{font-size:11.5px;color:var(--t4);margin-top:2px}
+
+  .usage{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--t2);font-variant-numeric:tabular-nums}
+  .usage__low{color:var(--danger);font-weight:500}
+
+  /* 排序按钮组 */
+  .sorter{display:inline-flex;flex-direction:column;gap:1px}
+  .sorter button{width:20px;height:13px;padding:0;border:1px solid var(--border-2);background:#fff;color:var(--t3);cursor:pointer;font-size:8px;line-height:1;border-radius:2px}
+  .sorter button:hover:not([disabled]){color:var(--primary);border-color:#c6e2ff;background:#ecf5ff}
+  .sorter button[disabled]{color:var(--t4);cursor:not-allowed}
+
+  /* 行内阈值输入 */
+  .th-inp{width:88px;height:28px;border:1px solid var(--border-2);border-radius:4px;padding:0 8px;font-size:12.5px;font-family:var(--font);color:var(--t1);text-align:right;font-variant-numeric:tabular-nums;background:#fff}
+  .th-inp:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 2px rgba(64,158,255,.12)}
+  .th-inp::placeholder{color:var(--t4)}
+  .th-wrap{display:flex;align-items:center;gap:6px}
+  .th-eff{font-size:11.5px;color:var(--t4);font-variant-numeric:tabular-nums}
+
+  /* ---------- 方案 B 主从 ---------- */
+  .ws{display:flex;height:calc(100vh - 250px);min-height:520px;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#fff;box-shadow:var(--shadow)}
+  .ws__tree{width:268px;flex:0 0 268px;border-right:1px solid var(--border);display:flex;flex-direction:column;background:#fcfcfd}
+  .ws__search{padding:12px;border-bottom:1px solid var(--border);background:#fff}
+  .ws__scroll{flex:1;overflow:auto;padding:6px 0}
+  .tnode{display:flex;align-items:center;gap:8px;padding:8px 14px;cursor:pointer;border-left:3px solid transparent;font-size:13px}
+  .tnode:hover{background:#f4f9ff}
+  .tnode.is-on{background:#ecf5ff;border-left-color:var(--primary);font-weight:600}
+  .tnode__name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tnode__n{font-size:11px;color:var(--t3);font-variant-numeric:tabular-nums}
+  .tnode.is-on .tnode__n{color:var(--primary)}
+  .tnode__dot{width:6px;height:6px;border-radius:50%;background:var(--success);flex:0 0 6px}
+  .tnode__dot--off{background:var(--t4)}
+
+  .ws__panel{flex:1;min-width:0;display:flex;flex-direction:column}
+  .ws__head{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:14px}
+  .ws__head__b{flex:1;min-width:0}
+  .ws__head__t{font-size:16px;font-weight:600}
+  .ws__head__m{margin-top:6px;font-size:12px;color:var(--t3);display:flex;gap:10px;align-items:center}
+  .ws__body{flex:1;overflow:auto;padding:18px 20px 26px}
+  .sect{border:1px solid var(--border-2);border-radius:8px;margin-bottom:14px;overflow:hidden}
+  .sect__head{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#fafbfc;border-bottom:1px solid var(--border);font-size:13px;font-weight:600}
+  .sect__head .sp{flex:1}
+  .sect__head .badge{font-size:11px;font-weight:500;color:var(--t3);background:#f0f2f5;padding:0 6px;border-radius:8px;line-height:16px}
+  .sect__body{padding:14px}
+  .erow{display:flex;align-items:center;gap:12px;padding:8px 0}
+  .erow + .erow{border-top:1px dashed #f0f2f5}
+  .erow__lb{flex:0 0 92px;font-size:13px;color:var(--t2)}
+  .erow__ct{flex:1;min-width:0;display:flex;align-items:center;gap:10px}
+  .erow__hint{font-size:11.5px;color:var(--t4)}
+  .inp{width:100%;height:32px;border:1px solid var(--border-3);border-radius:4px;padding:0 11px;font-size:13px;font-family:var(--font);color:var(--t1);background:#fff}
+  .inp:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 2px rgba(64,158,255,.12)}
+  .inp--w{width:180px}
+
+  .plist{display:flex;flex-direction:column}
+  .prow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f5f7fa}
+  .prow:last-child{border-bottom:0}
+  .prow img{width:36px;height:36px;border-radius:6px;object-fit:cover;border:1px solid var(--border);flex:0 0 36px}
+  .prow__n{flex:1;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .prow__s{font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
+  .prow__s.is-low{color:var(--danger);font-weight:600}
+
+  /* ---------- 方案 C 卡片 ---------- */
+  .cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:14px;padding:16px}
+  .ccard{border:1px solid var(--border-2);border-radius:8px;padding:14px;background:#fff;transition:.18s;position:relative}
+  .ccard:hover{border-color:#c6e2ff;box-shadow:0 6px 18px rgba(64,158,255,.12)}
+  .ccard.is-off{background:#fafafa}
+  .ccard__top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+  .ccard__name{font-size:14px;font-weight:600}
+  .ccard__id{font-size:11px;color:var(--t4);margin-top:3px}
+  .ccard__stats{display:flex;gap:14px;margin-top:12px;padding-top:12px;border-top:1px dashed var(--border)}
+  .ccard__stat{display:flex;align-items:baseline;gap:4px;font-size:11.5px;color:var(--t3)}
+  .ccard__stat b{font-size:15px;font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums}
+  .ccard__stat b.is-low{color:var(--danger)}
+  .ccard__th{display:flex;align-items:center;gap:6px;margin-top:10px}
+  .ccard__th .th-inp{width:70px;height:26px}
+  .ccard__ops{display:flex;gap:4px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
+
+  /* ---------- 对比 ---------- */
+  .compare{margin-top:22px;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);overflow:hidden}
+  .compare__head{padding:14px 18px;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .compare__head i{width:3px;height:14px;background:var(--primary);border-radius:2px;display:inline-block}
+  .compare table{width:100%;border-collapse:collapse;font-size:13px}
+  .compare th,.compare td{padding:10px 16px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+  .compare thead th{background:#fafafa;font-weight:500;color:var(--t2);font-size:12.5px;white-space:nowrap}
+  .compare tbody th{font-weight:500;color:var(--t2);width:150px;white-space:nowrap;background:#fcfcfd}
+  .compare tbody tr:last-child td,.compare tbody tr:last-child th{border-bottom:0}
+  .compare .good{color:#529b2e}
+  .compare .bad{color:#c45656}
+  .compare .mid{color:#b88230}
+  .compare .col-a{background:#fcfdff}
+  .compare .rec{font-size:11px;background:#ecf5ff;color:var(--primary);border:1px solid #d9ecff;border-radius:8px;padding:0 6px;line-height:16px;margin-left:6px;vertical-align:1px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="aside">
+    <div class="aside__logo">TickCart <em>管理后台</em></div>
+    <nav class="menu">
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        搜索分析
+      </div>
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg>
+        商品管理
+      </div>
+      <div class="menu__item is-active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        分类管理
+      </div>
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/></svg>
+        订单管理
+      </div>
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg>
+        秒杀管理
+      </div>
+    </nav>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar__title">分类管理</div>
+      <div class="topbar__user"><b>admin</b><span class="link">退出</span></div>
+    </div>
+
+    <div class="content">
+      <div class="switcher">
+        <div class="switcher__head">
+          <h1>分类管理 · 界面重设计</h1>
+          <span>三个方案，切换查看 · 地址栏 #a / #b / #c 可直达</span>
+        </div>
+        <div class="switcher__tabs">
+          <div class="tab is-on" data-p="a">
+            <span class="tab__cost">后端 +3 窄接口</span>
+            <div class="tab__kicker">方案 A</div>
+            <div class="tab__name">表格增强 · 行内编辑</div>
+            <div class="tab__desc">砍掉开发视角的列，顺序/阈值/状态直接在行里改，名称旁显示商品数与告急数</div>
+          </div>
+          <div class="tab" data-p="b">
+            <span class="tab__cost">后端 +2 接口</span>
+            <div class="tab__kicker">方案 B</div>
+            <div class="tab__name">左树 + 右详情</div>
+            <div class="tab__desc">左边分类树，右边选中分类的配置 + 它下面的商品，改分类时能看见影响面</div>
+          </div>
+          <div class="tab" data-p="c">
+            <span class="tab__cost tab__cost--zero">后端 +1 接口</span>
+            <div class="tab__kicker">方案 C</div>
+            <div class="tab__name">分类卡片</div>
+            <div class="tab__desc">每个分类一张卡，商品数/告急数/阈值/状态平铺，视觉最轻</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 方案 A ============ -->
+      <section class="proposal is-on" id="pa">
+        <div class="head">
+          <div class="head__summary">
+            共 <b>20</b> 个分类
+            <span style="color:var(--t4)">｜按排序值决定商城首页分类栏的顺序</span>
+          </div>
+          <div class="head__acts">
+            <div class="field field--search" style="width:220px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+              <span>搜索分类名</span>
+            </div>
+            <button class="btn btn--primary">＋ 新增分类</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th class="c-handle">⋮⋮</th>
+                <th>分类名称</th>
+                <th style="width:150px">商品</th>
+                <th style="width:80px">排序</th>
+                <th style="width:170px">库存预警线</th>
+                <th style="width:96px">状态</th>
+                <th class="c-ops">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="c-handle">⋮⋮</td>
+                <td>
+                  <div class="catname__text">手机数码</div>
+                  <div class="catname__sub">ID 1 · 顶级分类</div>
+                </td>
+                <td><div class="usage">20 个商品 <span class="usage__low">· 1 告急</span></div></td>
+                <td>
+                  <div class="sorter">
+                    <button disabled>▲</button><button>▼</button>
+                  </div>
+                </td>
+                <td>
+                  <div class="th-wrap">
+                    <input class="th-inp" placeholder="继承 10">
+                  </div>
+                </td>
+                <td><span class="sw is-on"></span></td>
+                <td class="c-ops">
+                  <button class="btn btn--ghost">编辑</button>
+                  <button class="btn btn--ghost" disabled title="该分类下有 20 个商品，需先移走或删除商品">删除</button>
+                </td>
+              </tr>
+              <tr>
+                <td class="c-handle">⋮⋮</td>
+                <td>
+                  <div class="catname__text">鞋类</div>
+                  <div class="catname__sub">ID 5 · 顶级分类</div>
+                </td>
+                <td><div class="usage">20 个商品</div></td>
+                <td><div class="sorter"><button>▲</button><button>▼</button></div></td>
+                <td><div class="th-wrap"><input class="th-inp" value="8"></div></td>
+                <td><span class="sw is-on"></span></td>
+                <td class="c-ops">
+                  <button class="btn btn--ghost">编辑</button>
+                  <button class="btn btn--ghost" disabled title="该分类下有 20 个商品">删除</button>
+                </td>
+              </tr>
+              <tr>
+                <td class="c-handle">⋮⋮</td>
+                <td>
+                  <div class="catname__text">服饰</div>
+                  <div class="catname__sub">ID 6 · 顶级分类</div>
+                </td>
+                <td><div class="usage">20 个商品</div></td>
+                <td><div class="sorter"><button>▲</button><button>▼</button></div></td>
+                <td><div class="th-wrap"><input class="th-inp" placeholder="继承 10"></div></td>
+                <td><span class="sw is-on"></span></td>
+                <td class="c-ops">
+                  <button class="btn btn--ghost">编辑</button>
+                  <button class="btn btn--ghost" disabled title="该分类下有 20 个商品">删除</button>
+                </td>
+              </tr>
+              <tr>
+                <td class="c-handle">⋮⋮</td>
+                <td>
+                  <div class="catname__text">护肤彩妆</div>
+                  <div class="catname__sub">ID 7 · 顶级分类</div>
+                </td>
+                <td><div class="usage">6 个商品</div></td>
+                <td><div class="sorter"><button>▲</button><button>▼</button></div></td>
+                <td><div class="th-wrap"><input class="th-inp" placeholder="继承 10"></div></td>
+                <td><span class="sw is-on"></span></td>
+                <td class="c-ops">
+                  <button class="btn btn--ghost">编辑</button>
+                  <button class="btn btn--ghost" disabled title="该分类下有 6 个商品">删除</button>
+                </td>
+              </tr>
+              <tr>
+                <td class="c-handle">⋮⋮</td>
+                <td>
+                  <div class="catname__text" style="color:var(--t3)">家电</div>
+                  <div class="catname__sub">ID 16 · 顶级分类</div>
+                </td>
+                <td><div class="usage">6 个商品</div></td>
+                <td><div class="sorter"><button>▲</button><button>▼</button></div></td>
+                <td><div class="th-wrap"><input class="th-inp" value="3"></div></td>
+                <td><span class="sw"></span></td>
+                <td class="c-ops">
+                  <button class="btn btn--ghost">编辑</button>
+                  <button class="btn btn--ghost" disabled title="该分类下有 6 个商品">删除</button>
+                </td>
+              </tr>
+              <tr>
+                <td class="c-handle">⋮⋮</td>
+                <td>
+                  <div class="catname__text">食品生鲜</div>
+                  <div class="catname__sub">ID 23 · 顶级分类</div>
+                </td>
+                <td><div class="usage">6 个商品</div></td>
+                <td><div class="sorter"><button>▲</button><button>▼</button></div></td>
+                <td><div class="th-wrap"><input class="th-inp" value="30"></div></td>
+                <td><span class="sw is-on"></span></td>
+                <td class="c-ops">
+                  <button class="btn btn--ghost">编辑</button>
+                  <button class="btn btn--ghost" disabled title="该分类下有 6 个商品">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div style="padding:10px 16px;border-top:1px solid var(--border);font-size:12px;color:var(--t4)">
+            删除按钮统一置灰：当前 20 个分类下都有商品，没有一个能直接删，悬停可看原因，不用点了才报错。<br>「家电」一行演示禁用态（现有数据 20 个分类全部启用）。
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 方案 B ============ -->
+      <section class="proposal" id="pb">
+        <div class="ws">
+          <div class="ws__tree">
+            <div class="ws__search">
+              <div class="field field--search" style="height:30px">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+                <span>搜索分类</span>
+              </div>
+            </div>
+            <div class="ws__scroll">
+              <div class="tnode is-on"><span class="tnode__dot"></span><span class="tnode__name">手机数码</span><span class="tnode__n">20</span></div>
+              <div class="tnode"><span class="tnode__dot"></span><span class="tnode__name">鞋类</span><span class="tnode__n">20</span></div>
+              <div class="tnode"><span class="tnode__dot"></span><span class="tnode__name">服饰</span><span class="tnode__n">20</span></div>
+              <div class="tnode"><span class="tnode__dot"></span><span class="tnode__name">护肤彩妆</span><span class="tnode__n">6</span></div>
+              <div class="tnode"><span class="tnode__dot"></span><span class="tnode__name">个人洗护</span><span class="tnode__n">6</span></div>
+              <div class="tnode"><span class="tnode__dot"></span><span class="tnode__name">箱包</span><span class="tnode__n">6</span></div>
+              <div class="tnode"><span class="tnode__dot"></span><span class="tnode__name">家居百货</span><span class="tnode__n">6</span></div>
+              <div class="tnode"><span class="tnode__dot"></span><span class="tnode__name">配饰</span><span class="tnode__n">6</span></div>
+              <div class="tnode"><span class="tnode__dot"></span><span class="tnode__name">运动</span><span class="tnode__n">6</span></div>
+              <div class="tnode"><span class="tnode__dot"></span><span class="tnode__name">手表</span><span class="tnode__n">6</span></div>
+              <div class="tnode"><span class="tnode__dot"></span><span class="tnode__name">酒水</span><span class="tnode__n">6</span></div>
+              <div class="tnode"><span class="tnode__dot"></span><span class="tnode__name">医药健康</span><span class="tnode__n">6</span></div>
+              <div class="tnode"><span class="tnode__dot tnode__dot--off"></span><span class="tnode__name" style="color:var(--t3)">家电</span><span class="tnode__n">6</span></div>
+              <div class="tnode"><span class="tnode__dot"></span><span class="tnode__name">模玩盲盒</span><span class="tnode__n">6</span></div>
+            </div>
+            <div style="padding:9px 14px;border-top:1px solid var(--border);font-size:11.5px;color:var(--t4);background:#fff">
+              拖动可调整商城首页顺序
+            </div>
+          </div>
+
+          <div class="ws__panel">
+            <div class="ws__head">
+              <div class="ws__head__b">
+                <div class="ws__head__t">手机数码</div>
+                <div class="ws__head__m">
+                  <span>ID 1</span><span>·</span><span>顶级分类</span><span>·</span><span>排序 1</span>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--t2)">
+                <span class="sw is-on"></span><span>启用</span>
+              </div>
+            </div>
+
+            <div class="ws__body">
+              <div class="sect">
+                <div class="sect__head">基础配置<span class="sp"></span><span class="badge">改完即时生效</span></div>
+                <div class="sect__body">
+                  <div class="erow">
+                    <div class="erow__lb">分类名称</div>
+                    <div class="erow__ct"><input class="inp" value="手机数码" style="width:240px"></div>
+                  </div>
+                  <div class="erow">
+                    <div class="erow__lb">父分类</div>
+                    <div class="erow__ct">
+                      <div class="field" style="width:200px;justify-content:space-between">顶级分类 <span style="font-size:10px;color:var(--t4)">▾</span></div>
+                    </div>
+                  </div>
+                  <div class="erow">
+                    <div class="erow__lb">库存预警线</div>
+                    <div class="erow__ct">
+                      <input class="th-inp" placeholder="继承 10">
+                      <span class="erow__hint">留空 = 继承父分类，最终继承全局默认 10</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="sect">
+                <div class="sect__head">
+                  该分类下的商品
+                  <span class="badge">20 个 · 1 个告急</span>
+                  <span class="sp"></span>
+                  <a class="link">去商品管理看全部 →</a>
+                </div>
+                <div class="sect__body">
+                  <div class="plist">
+                    <div class="prow">
+                      <img src="../../imgs/phones/phone-01.jpg" alt="">
+                      <span class="prow__n">5G 旗舰智能手机 12+256G 曜夜黑</span>
+                      <span class="prow__s">库存 74</span>
+                    </div>
+                    <div class="prow">
+                      <img src="../../imgs/phones/phone-02.jpg" alt="">
+                      <span class="prow__n">5G 轻薄智能手机 8+128G 星空灰</span>
+                      <span class="prow__s">库存 88</span>
+                    </div>
+                    <div class="prow">
+                      <img src="../../imgs/iphone_air__b5qmgl05ojyq_large_2x.jpg" alt="">
+                      <span class="prow__n">iPhone Air</span>
+                      <span class="prow__s is-low">库存 4 · 告急</span>
+                    </div>
+                    <div class="prow">
+                      <img src="../../imgs/phones/phone-03.jpg" alt="">
+                      <span class="prow__n">全面屏智能手机 8+256G 赤焰红</span>
+                      <span class="prow__s">库存 102</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="sect">
+                <div class="sect__head" style="color:var(--danger)">危险操作</div>
+                <div class="sect__body">
+                  <div class="erow">
+                    <div class="erow__lb">删除分类</div>
+                    <div class="erow__ct">
+                      <button class="btn" disabled>删除</button>
+                      <span class="erow__hint">该分类下有 20 个商品，需先移走或删除商品</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 方案 C ============ -->
+      <section class="proposal" id="pc">
+        <div class="head">
+          <div class="head__summary">共 <b>20</b> 个分类</div>
+          <div class="head__acts">
+            <div class="field field--search" style="width:220px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+              <span>搜索分类名</span>
+            </div>
+            <button class="btn btn--primary">＋ 新增分类</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="cgrid">
+            <div class="ccard">
+              <div class="ccard__top">
+                <div>
+                  <div class="ccard__name">手机数码</div>
+                  <div class="ccard__id">ID 1 · 排序 1</div>
+                </div>
+                <span class="sw is-on"></span>
+              </div>
+              <div class="ccard__stats">
+                <div class="ccard__stat"><b>20</b>个商品</div>
+                <div class="ccard__stat"><b class="is-low">1</b>个告急</div>
+              </div>
+              <div class="ccard__th">
+                <input class="th-inp" placeholder="继承 10">
+              </div>
+              <div class="ccard__ops">
+                <button class="btn btn--ghost">编辑</button>
+                <button class="btn btn--ghost" disabled title="该分类下有 20 个商品">删除</button>
+              </div>
+            </div>
+
+            <div class="ccard">
+              <div class="ccard__top">
+                <div>
+                  <div class="ccard__name">鞋类</div>
+                  <div class="ccard__id">ID 5 · 排序 5</div>
+                </div>
+                <span class="sw is-on"></span>
+              </div>
+              <div class="ccard__stats">
+                <div class="ccard__stat"><b>20</b>个商品</div>
+                <div class="ccard__stat"><b>0</b>个告急</div>
+              </div>
+              <div class="ccard__th"><input class="th-inp" value="8"></div>
+              <div class="ccard__ops">
+                <button class="btn btn--ghost">编辑</button>
+                <button class="btn btn--ghost" disabled title="该分类下有 20 个商品">删除</button>
+              </div>
+            </div>
+
+            <div class="ccard">
+              <div class="ccard__top">
+                <div>
+                  <div class="ccard__name">服饰</div>
+                  <div class="ccard__id">ID 6 · 排序 6</div>
+                </div>
+                <span class="sw is-on"></span>
+              </div>
+              <div class="ccard__stats">
+                <div class="ccard__stat"><b>20</b>个商品</div>
+                <div class="ccard__stat"><b>0</b>个告急</div>
+              </div>
+              <div class="ccard__th"><input class="th-inp" placeholder="继承 10"></div>
+              <div class="ccard__ops">
+                <button class="btn btn--ghost">编辑</button>
+                <button class="btn btn--ghost" disabled title="该分类下有 20 个商品">删除</button>
+              </div>
+            </div>
+
+            <div class="ccard is-off">
+              <div class="ccard__top">
+                <div>
+                  <div class="ccard__name" style="color:var(--t3)">家电</div>
+                  <div class="ccard__id">ID 16 · 排序 16</div>
+                </div>
+                <span class="sw"></span>
+              </div>
+              <div class="ccard__stats">
+                <div class="ccard__stat"><b>6</b>个商品</div>
+                <div class="ccard__stat"><b>0</b>个告急</div>
+              </div>
+              <div class="ccard__th"><input class="th-inp" value="3"></div>
+              <div class="ccard__ops">
+                <button class="btn btn--ghost">编辑</button>
+                <button class="btn btn--ghost" disabled title="该分类下有 6 个商品">删除</button>
+              </div>
+            </div>
+
+            <div class="ccard">
+              <div class="ccard__top">
+                <div>
+                  <div class="ccard__name">食品生鲜</div>
+                  <div class="ccard__id">ID 23 · 排序 23</div>
+                </div>
+                <span class="sw is-on"></span>
+              </div>
+              <div class="ccard__stats">
+                <div class="ccard__stat"><b>6</b>个商品</div>
+                <div class="ccard__stat"><b>0</b>个告急</div>
+              </div>
+              <div class="ccard__th"><input class="th-inp" value="30"></div>
+              <div class="ccard__ops">
+                <button class="btn btn--ghost">编辑</button>
+                <button class="btn btn--ghost" disabled title="该分类下有 6 个商品">删除</button>
+              </div>
+            </div>
+          </div>
+          <div style="padding:10px 16px;border-top:1px solid var(--border);font-size:12px;color:var(--t4)">
+            卡片不体现顺序 —— 调顺序还得回表格视图，这是它最大的短板。
+          </div>
+        </div>
+      </section>
+
+      <div class="compare">
+        <div class="compare__head"><i></i>三个方案怎么选</div>
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th class="col-a">A · 表格增强<span class="rec">推荐</span></th>
+              <th>B · 左树右详情</th>
+              <th>C · 分类卡片</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th>核心场景</th>
+              <td class="col-a">调顺序、切状态、配阈值（日常）</td>
+              <td>看清某个分类的影响面</td>
+              <td>扫一眼全局状态</td>
+            </tr>
+            <tr>
+              <th>改阈值</th>
+              <td class="col-a"><span class="good">行内直接改</span></td>
+              <td>右侧表单改</td>
+              <td><span class="good">卡片内直接改</span></td>
+            </tr>
+            <tr>
+              <th>调顺序</th>
+              <td class="col-a"><span class="good">▲▼ + 拖拽</span></td>
+              <td><span class="mid">左侧树拖拽</span></td>
+              <td><span class="bad">做不了</span></td>
+            </tr>
+            <tr>
+              <th>看影响面</th>
+              <td class="col-a"><span class="mid">只给数字</span></td>
+              <td><span class="good">能直接看到商品清单</span></td>
+              <td><span class="mid">只给数字</span></td>
+            </tr>
+            <tr>
+              <th>20 个分类的密度</th>
+              <td class="col-a"><span class="good">一屏 12 条</span></td>
+              <td><span class="mid">左树一屏 + 右侧详情</span></td>
+              <td><span class="bad">一屏 5~6 张</span></td>
+            </tr>
+            <tr>
+              <th>将来有二级分类</th>
+              <td class="col-a"><span class="good">tree-props 展开</span></td>
+              <td><span class="good">天然支持</span></td>
+              <td><span class="bad">没法表达</span></td>
+            </tr>
+            <tr>
+              <th>前端改动</th>
+              <td class="col-a">1 文件重写</td>
+              <td>1 文件重写（结构更复杂）</td>
+              <td>1 文件重写（最简单）</td>
+            </tr>
+            <tr>
+              <th>后端改动</th>
+              <td class="col-a">+3 窄接口 +1 统计</td>
+              <td>+2 窄接口 +1 统计 +1 商品列表</td>
+              <td>+1 窄接口 +1 统计</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function activate(p){
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('is-on', t.dataset.p === p))
+  document.querySelectorAll('.proposal').forEach(el => el.classList.toggle('is-on', el.id === 'p' + p))
+}
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    activate(tab.dataset.p)
+    try { history.replaceState(null, '', '#' + tab.dataset.p) } catch (e) { /* file:// 忽略 */ }
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  })
+})
+const initial = (window.location.hash || '').replace('#', '')
+if (['a','b','c'].includes(initial)) activate(initial)
+
+document.querySelectorAll('.sw').forEach(s => s.addEventListener('click', () => s.classList.toggle('is-on')))
+document.querySelectorAll('.tnode').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.tnode').forEach(x => x.classList.toggle('is-on', x === t))
+}))
+</script>
+</body>
+</html>
