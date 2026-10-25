@@ -2,10 +2,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type UploadFile } from 'element-plus'
-import { ArrowLeft, ArrowRight, Close, Plus } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowLeft, ArrowRight, Close, Plus } from '@element-plus/icons-vue'
 import type { Category, ProductListItem } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import {
+  batchChangeProductCategory,
+  batchChangeProductStatus,
+  batchDeleteProducts,
   changeProductStatus,
   createProduct,
   deleteProduct,
@@ -13,9 +16,18 @@ import {
   fetchProductDetail,
   fetchProducts,
   updateProduct,
+  updateSkuStock,
   type ProductPayload,
 } from '@/api/product'
 import { ACCEPT_IMAGE_TYPES, MAX_IMAGE_SIZE_MB, uploadImage } from '@/api/upload'
+
+/**
+ * 商城前台地址：只用于「预览详情页」跳转。
+ *
+ * <p>后台和商城是两个独立 dev server（5174 / 5173），没有共享路由，
+ * 所以这里直接开新标签页，不做跨应用路由跳转。</p>
+ */
+const MALL_URL = import.meta.env.VITE_MALL_URL ?? 'http://localhost:5173'
 
 const loading = ref(false)
 const list = ref<ProductListItem[]>([])
@@ -23,9 +35,20 @@ const total = ref(0)
 const categories = ref<Category[]>([])
 const route = useRoute()
 
+/** 排序项：sortBy / order 白名单与后端 ProductService#applySort 一致（price / sales / createdAt） */
+const SORT_OPTIONS = [
+  { label: '最近更新', sortBy: 'createdAt', order: 'desc' },
+  { label: '价格从低到高', sortBy: 'price', order: 'asc' },
+  { label: '价格从高到低', sortBy: 'price', order: 'desc' },
+  { label: '销量从高到低', sortBy: 'sales', order: 'desc' },
+] as const
+
+const sortIndex = ref(0)
+
 const query = reactive({
   page: 1,
-  size: 10,
+  /** 每页 12：一屏能看完且不用频繁翻页，与设计稿一致 */
+  size: 12,
   keyword: '',
   categoryId: null as number | null,
   status: null as number | null,
@@ -35,9 +58,16 @@ const query = reactive({
 async function load() {
   loading.value = true
   try {
-    const res = await fetchProducts(query)
+    const sort = SORT_OPTIONS[sortIndex.value]
+    const res = await fetchProducts({
+      ...query,
+      sortBy: sort.sortBy,
+      order: sort.order,
+    })
     list.value = res.records
     total.value = res.total
+    // 列表换了就清空勾选：否则「已选 3 项」里可能混着上一页的商品
+    clearSelection()
   } finally {
     loading.value = false
   }
@@ -58,9 +88,152 @@ function onSearch() {
   load()
 }
 
-// ---------------- 弹窗表单 ----------------
-const dialogVisible = ref(false)
-const dialogTitle = ref('新增商品')
+/** 分类 chips：点当前项可取消（回到全部） */
+function onCategoryChip(id: number | null) {
+  query.categoryId = query.categoryId === id ? null : id
+  onSearch()
+}
+
+function onStatusSeg(value: number | null) {
+  query.status = value
+  onSearch()
+}
+
+function onSortChange() {
+  query.page = 1
+  load()
+}
+
+function categoryName(id: number): string {
+  return categories.value.find((c) => c.id === id)?.name ?? '-'
+}
+
+/** 当前页库存告急条数：只用于提示，不做筛选（全库筛选见设计文档 §11） */
+const lowStockCount = computed(() => list.value.filter((it) => it.stockLow).length)
+
+function rowClassName({ row }: { row: ProductListItem }): string {
+  return row.stockLow ? 'is-low' : ''
+}
+
+// ---------------- 勾选与批量 ----------------
+const tableRef = ref()
+const selectedIds = ref<number[]>([])
+
+const selectedCount = computed(() => selectedIds.value.length)
+
+function onSelectionChange(rows: ProductListItem[]) {
+  selectedIds.value = rows.map((r) => r.id)
+}
+
+function clearSelection() {
+  selectedIds.value = []
+  tableRef.value?.clearSelection()
+}
+
+// ---------------- 上下架（乐观更新，不重查列表） ----------------
+const statusPending = ref<number[]>([])
+
+/**
+ * 切换上下架。
+ *
+ * <p>先改本地状态再发请求：这个动作频率高，等接口回来再刷新会让开关「粘手」。
+ * 失败则回滚并提示。刻意**不调用 load()** —— 那会丢掉滚动位置和当前筛选。</p>
+ */
+async function onToggleStatus(row: ProductListItem) {
+  if (statusPending.value.includes(row.id)) return
+  const previous = row.status
+  const next = previous === 1 ? 0 : 1
+  row.status = next
+  statusPending.value = [...statusPending.value, row.id]
+  try {
+    await changeProductStatus(row.id, next)
+    ElMessage.success(next === 1 ? '已上架' : '已下架')
+  } catch {
+    row.status = previous
+  } finally {
+    statusPending.value = statusPending.value.filter((id) => id !== row.id)
+  }
+}
+
+// ---------------- 单条删除 / 预览 ----------------
+async function onDelete(row: ProductListItem) {
+  await ElMessageBox.confirm(`确认删除商品「${row.name}」？`, '删除后不可恢复', {
+    type: 'warning',
+    confirmButtonText: '删除',
+    confirmButtonClass: 'el-button--danger',
+  })
+  await deleteProduct(row.id)
+  ElMessage.success('已删除')
+  await load()
+}
+
+function onPreview(row: ProductListItem) {
+  window.open(`${MALL_URL}/product/${row.id}`, '_blank')
+}
+
+function onRowCommand(cmd: string, row: ProductListItem) {
+  if (cmd === 'delete') {
+    onDelete(row)
+    return
+  }
+  onPreview(row)
+}
+
+// ---------------- 批量动作 ----------------
+async function onBatchStatus(status: number) {
+  const ids = selectedIds.value
+  if (!ids.length) return
+  const action = status === 1 ? '上架' : '下架'
+  await ElMessageBox.confirm(`确认${action}选中的 ${ids.length} 个商品？`, '批量操作', {
+    type: 'warning',
+  })
+  await batchChangeProductStatus(ids, status)
+  ElMessage.success(`已${action} ${ids.length} 个商品`)
+  await load()
+}
+
+const batchCategoryVisible = ref(false)
+const batchCategoryId = ref<number | null>(null)
+const batchSubmitting = ref(false)
+
+function openBatchCategory() {
+  batchCategoryId.value = null
+  batchCategoryVisible.value = true
+}
+
+async function submitBatchCategory() {
+  if (!batchCategoryId.value) {
+    ElMessage.warning('请选择目标分类')
+    return
+  }
+  batchSubmitting.value = true
+  try {
+    await batchChangeProductCategory(selectedIds.value, batchCategoryId.value)
+    ElMessage.success(`已改分类 ${selectedIds.value.length} 个商品`)
+    batchCategoryVisible.value = false
+    await load()
+  } finally {
+    batchSubmitting.value = false
+  }
+}
+
+async function onBatchDelete() {
+  const ids = selectedIds.value
+  if (!ids.length) return
+  await ElMessageBox.confirm(
+    `确认删除选中的 ${ids.length} 个商品？其 SKU 与图集会一并删除，且不可恢复。`,
+    '批量删除',
+    { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' },
+  )
+  await batchDeleteProducts(ids)
+  ElMessage.success(`已删除 ${ids.length} 个商品`)
+  await load()
+}
+
+// ---------------- 抽屉表单 ----------------
+const drawerVisible = ref(false)
+const drawerTitle = ref('新增商品')
+const drawerTab = ref<'basic' | 'image' | 'sku'>('basic')
 const submitting = ref(false)
 
 const emptyForm = (): ProductPayload => ({
@@ -79,15 +252,21 @@ const emptyForm = (): ProductPayload => ({
 })
 
 const form = ref<ProductPayload>(emptyForm())
+/** 抽屉头部展示用：编辑时是商品 ID */
+const editingId = ref<number | null>(null)
 
 function openCreate() {
-  dialogTitle.value = '新增商品'
+  drawerTitle.value = '新增商品'
+  editingId.value = null
   form.value = emptyForm()
-  dialogVisible.value = true
+  drawerTab.value = 'basic'
+  skuStockSnapshot.value = {}
+  drawerVisible.value = true
 }
 
 async function openEdit(row: ProductListItem) {
-  dialogTitle.value = '编辑商品'
+  drawerTitle.value = '编辑商品'
+  editingId.value = row.id
   const detail = await fetchProductDetail(row.id)
   form.value = {
     id: detail.id,
@@ -111,7 +290,10 @@ async function openEdit(row: ProductListItem) {
     })),
     images: (detail.images ?? []).map((i) => i.url),
   }
-  dialogVisible.value = true
+  // 记录 SKU 库存基线：抽屉里的库存是「改完即落库」，靠它判断是否真的变了
+  skuStockSnapshot.value = Object.fromEntries((detail.skus ?? []).map((s) => [s.id, s.stock]))
+  drawerTab.value = 'basic'
+  drawerVisible.value = true
 }
 
 function addSku() {
@@ -248,9 +430,36 @@ function clearSkuImage(index: number) {
   }
 }
 
+// ---------------- SKU 库存即时落库 ----------------
+/**
+ * 各 SKU 已落库的库存基线。
+ *
+ * <p>抽屉里改 SKU 库存是**即时生效**的（走 {@code PUT /admin/skus/{id}/stock}），
+ * 不等「保存」—— 改库存不该触发整单 update，否则会重建 SKU 把 id 换掉，
+ * 秒杀活动里存的 sku_id 就失联了。所以界面上要明确提示「失焦即保存」。</p>
+ */
+const skuStockSnapshot = ref<Record<number, number>>({})
+
+type FormSku = NonNullable<ProductPayload['skus']>[number]
+
+async function onSkuStockBlur(sku: FormSku) {
+  if (!sku.id) return // 新增的 SKU 还没落库，等整体保存
+  const baseline = skuStockSnapshot.value[sku.id]
+  if (baseline === sku.stock) return
+  try {
+    await updateSkuStock(sku.id, sku.stock)
+    skuStockSnapshot.value = { ...skuStockSnapshot.value, [sku.id]: sku.stock }
+    ElMessage.success({ message: '库存已保存', duration: 1200 })
+  } catch {
+    sku.stock = baseline ?? sku.stock
+  }
+}
+
+// ---------------- 保存 ----------------
 async function onSubmit() {
   if (!form.value.name) {
     ElMessage.warning('请填写商品名称')
+    drawerTab.value = 'basic'
     return
   }
   submitting.value = true
@@ -262,97 +471,189 @@ async function onSubmit() {
       await createProduct(form.value)
       ElMessage.success('已创建')
     }
-    dialogVisible.value = false
+    drawerVisible.value = false
     await load()
   } finally {
     submitting.value = false
   }
 }
-
-// ---------------- 上下架 / 删除 ----------------
-async function onToggleStatus(row: ProductListItem) {
-  const next = row.status === 1 ? 0 : 1
-  await changeProductStatus(row.id, next)
-  ElMessage.success(next === 1 ? '已上架' : '已下架')
-  await load()
-}
-
-async function onDelete(row: ProductListItem) {
-  await ElMessageBox.confirm(`确认删除商品「${row.name}」？`, '提示', { type: 'warning' })
-  await deleteProduct(row.id)
-  ElMessage.success('已删除')
-  await load()
-}
-
-function categoryName(id: number): string {
-  return categories.value.find((c) => c.id === id)?.name ?? '-'
-}
 </script>
 
 <template>
-  <div>
-    <!-- 查询条件 -->
-    <el-card class="toolbar" shadow="never">
-      <el-form :inline="true">
-        <el-form-item label="关键字">
-          <el-input v-model="query.keyword" placeholder="商品名称" clearable @keyup.enter="onSearch" />
-        </el-form-item>
-        <el-form-item label="分类">
-          <el-select v-model="query.categoryId" placeholder="全部" clearable style="width: 140px">
-            <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="query.status" placeholder="全部" clearable style="width: 120px">
-            <el-option label="上架" :value="1" />
-            <el-option label="下架" :value="0" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="onSearch">查询</el-button>
-          <el-button @click="openCreate">新增商品</el-button>
-        </el-form-item>
-      </el-form>
+  <div class="pm">
+    <!-- 页头：标题由顶栏提供，这里只放统计与主操作 -->
+    <div class="pm__head">
+      <div class="pm__summary">
+        共 <b>{{ total }}</b> 个商品
+        <template v-if="lowStockCount > 0">
+          · <span class="pm__danger">本页 {{ lowStockCount }} 个库存告急</span>
+        </template>
+      </div>
+      <el-button type="primary" :icon="Plus" @click="openCreate">新增商品</el-button>
+    </div>
+
+    <!-- 筛选 -->
+    <el-card class="pm__filter" shadow="never">
+      <div class="pm__row">
+        <el-input
+          v-model="query.keyword"
+          class="pm__search"
+          placeholder="商品名称 / 关键词"
+          clearable
+          @keyup.enter="onSearch"
+          @clear="onSearch"
+        />
+        <el-segmented
+          :model-value="query.status"
+          :options="[
+            { label: '全部', value: null },
+            { label: '在售', value: 1 },
+            { label: '已下架', value: 0 },
+          ]"
+          @change="(v: any) => onStatusSeg(v as number | null)"
+        />
+        <div class="pm__spacer" />
+        <el-select v-model="sortIndex" class="pm__sort" @change="onSortChange">
+          <el-option
+            v-for="(opt, i) in SORT_OPTIONS"
+            :key="opt.label"
+            :label="opt.label"
+            :value="i"
+          />
+        </el-select>
+        <el-button type="primary" plain @click="onSearch">查询</el-button>
+      </div>
+      <div class="pm__row pm__row--chips">
+        <span class="pm__label">分类</span>
+        <el-check-tag
+          :checked="query.categoryId === null"
+          class="pm__chip"
+          @change="onCategoryChip(null)"
+        >
+          全部
+        </el-check-tag>
+        <el-check-tag
+          v-for="c in categories"
+          :key="c.id"
+          :checked="query.categoryId === c.id"
+          class="pm__chip"
+          @change="onCategoryChip(c.id)"
+        >
+          {{ c.name }}
+        </el-check-tag>
+      </div>
     </el-card>
 
     <!-- 表格 -->
     <el-card shadow="never">
-      <el-table v-loading="loading" :data="list" border>
-        <el-table-column prop="id" label="ID" width="70" />
-        <el-table-column label="主图" width="80">
+      <!-- 批量操作条：勾选后浮出 -->
+      <transition name="el-fade-in">
+        <div v-if="selectedCount > 0" class="pm__batch">
+          <span>已选 <b>{{ selectedCount }}</b> 项</span>
+          <div class="pm__spacer" />
+          <el-button size="small" @click="onBatchStatus(1)">批量上架</el-button>
+          <el-button size="small" @click="onBatchStatus(0)">批量下架</el-button>
+          <el-button size="small" @click="openBatchCategory">改分类</el-button>
+          <el-button size="small" type="danger" plain @click="onBatchDelete">删除</el-button>
+          <el-button size="small" link @click="clearSelection">取消选择</el-button>
+        </div>
+      </transition>
+
+      <el-table
+        ref="tableRef"
+        v-loading="loading"
+        :data="list"
+        :row-class-name="rowClassName"
+        row-key="id"
+        @selection-change="onSelectionChange"
+      >
+        <el-table-column type="selection" width="44" />
+        <el-table-column label="商品" min-width="330">
           <template #default="{ row }">
-            <el-image :src="row.mainImage" fit="cover" style="width: 48px; height: 48px" />
+            <div class="goods">
+              <div class="goods__img" :class="{ 'is-off': row.status !== 1 }">
+                <el-image :src="row.mainImage" fit="cover" class="goods__pic" />
+              </div>
+              <div class="goods__body">
+                <div class="goods__name" :class="{ 'is-off': row.status !== 1 }">
+                  {{ row.name }}
+                </div>
+                <div v-if="row.subtitle" class="goods__sub">{{ row.subtitle }}</div>
+                <div class="goods__meta">
+                  <el-tag size="small" type="info" effect="plain">
+                    {{ categoryName(row.categoryId) }}
+                  </el-tag>
+                  <span>ID {{ row.id }}</span>
+                  <el-tag v-if="row.isSeckill === 1" size="small" type="danger" effect="plain">
+                    秒杀中
+                  </el-tag>
+                </div>
+              </div>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="name" label="商品名称" min-width="160" show-overflow-tooltip />
-        <el-table-column label="分类" width="110">
-          <template #default="{ row }">{{ categoryName(row.categoryId) }}</template>
-        </el-table-column>
-        <el-table-column label="价格" width="110">
-          <template #default="{ row }">¥{{ formatPrice(row.price) }}</template>
-        </el-table-column>
-        <el-table-column prop="stock" label="库存" width="80" />
-        <el-table-column prop="sales" label="销量" width="80" />
-        <el-table-column label="状态" width="90">
+        <el-table-column label="价格" width="118">
           <template #default="{ row }">
-            <el-tag :type="row.status === 1 ? 'success' : 'info'">
-              {{ row.status === 1 ? '上架' : '下架' }}
-            </el-tag>
+            <div class="pm__price">¥{{ formatPrice(row.price) }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="库存" width="104">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="warning" @click="onToggleStatus(row)">
-              {{ row.status === 1 ? '下架' : '上架' }}
-            </el-button>
-            <el-button link type="danger" @click="onDelete(row)">删除</el-button>
+            <div class="pm__stock" :class="{ 'is-low': row.stockLow }">
+              <span class="pm__stock-num">{{ row.stock }}</span>
+              <el-tag v-if="row.stockLow" size="small" type="danger" effect="dark">告急</el-tag>
+            </div>
           </template>
         </el-table-column>
+        <el-table-column label="销量" width="88" align="right">
+          <template #default="{ row }">
+            <span class="pm__num">{{ row.sales }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="112">
+          <template #default="{ row }">
+            <div class="pm__status">
+              <el-switch
+                :model-value="row.status === 1"
+                :loading="statusPending.includes(row.id)"
+                @change="onToggleStatus(row)"
+              />
+              <span :class="{ 'is-off': row.status !== 1 }">
+                {{ row.status === 1 ? '在售' : '已下架' }}
+              </span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="132" align="right">
+          <template #default="{ row }">
+            <div class="pm__ops">
+              <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+              <el-dropdown trigger="click" @command="(cmd: string) => onRowCommand(cmd, row)">
+                <el-button link type="primary">
+                  更多<el-icon class="pm__caret"><ArrowDown /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="preview">预览详情页</el-dropdown-item>
+                    <el-dropdown-item command="delete" divided class="pm__danger-item">
+                      删除商品
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
+          </template>
+        </el-table-column>
+        <template #empty>
+          <div class="pm__empty">
+            <p>没有符合条件的商品</p>
+            <p class="pm__empty-tip">换个关键词或分类试试，也可以直接新增商品</p>
+          </div>
+        </template>
       </el-table>
 
       <el-pagination
-        class="pagination"
+        class="pm__pager"
         layout="total, prev, pager, next"
         :total="total"
         :current-page="query.page"
@@ -361,138 +662,200 @@ function categoryName(id: number): string {
       />
     </el-card>
 
-    <!-- 新增/编辑弹窗 -->
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="720px">
-      <el-form label-width="90px">
-        <el-form-item label="商品名称">
-          <el-input v-model="form.name" />
-        </el-form-item>
-        <el-form-item label="分类">
-          <el-select v-model="form.categoryId" style="width: 200px">
-            <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="副标题">
-          <el-input v-model="form.subtitle" />
-        </el-form-item>
-        <el-form-item label="搜索关键词">
-          <el-input
-            v-model="form.searchKeywords"
-            placeholder="用户会搜、但商品名里没有的品类词，英文逗号分隔，如：手机,智能手机,苹果手机"
-          />
-        </el-form-item>
-        <el-form-item label="商品主图">
-          <div class="image-picker">
-            <el-upload
-              class="image-picker__upload"
-              :show-file-list="false"
-              :auto-upload="false"
-              :accept="ACCEPT_IMAGE_TYPES"
-              :disabled="uploading"
-              :on-change="onMainImageChange"
-            >
-              <div v-loading="uploading" class="image-picker__box">
-                <el-image v-if="form.mainImage" :src="form.mainImage" fit="cover" class="image-picker__img" />
-                <template v-else>
-                  <el-icon class="image-picker__icon"><Plus /></el-icon>
-                  <span class="image-picker__tip">选择图片</span>
-                </template>
-              </div>
-            </el-upload>
-            <div class="image-picker__side">
-              <span v-if="form.mainImage" class="image-picker__path">{{ form.mainImage }}</span>
-              <span v-else class="image-picker__tip">
-                支持 JPG / PNG / GIF / WEBP，不超过 {{ MAX_IMAGE_SIZE_MB }}MB
-              </span>
-              <el-button
-                v-if="form.mainImage"
-                link
-                type="danger"
-                :disabled="uploading"
-                @click="clearMainImage"
-              >
-                移除
-              </el-button>
-            </div>
-          </div>
-        </el-form-item>
-        <el-form-item label="商品图集">
-          <div class="gallery-editor">
-            <div
-              v-for="(url, index) in form.images"
-              :key="url"
-              class="gallery-editor__item"
-            >
-              <div class="gallery-editor__thumb">
-                <el-image :src="url" fit="cover" class="gallery-editor__img" />
-                <el-button
-                  class="gallery-editor__remove"
-                  type="danger"
-                  size="small"
-                  circle
-                  :icon="Close"
-                  title="移除这张图"
-                  @click="removeGalleryImage(index)"
-                />
-              </div>
-              <div class="gallery-editor__actions">
-                <el-button
-                  link
-                  type="primary"
-                  :icon="ArrowLeft"
-                  title="前移"
-                  :disabled="index === 0"
-                  @click="moveGalleryImage(index, -1)"
-                />
-                <span class="gallery-editor__index">{{ index + 1 }}</span>
-                <el-button
-                  link
-                  type="primary"
-                  :icon="ArrowRight"
-                  title="后移"
-                  :disabled="index === form.images.length - 1"
-                  @click="moveGalleryImage(index, 1)"
-                />
-              </div>
-            </div>
-            <el-upload
-              class="gallery-editor__upload"
-              :show-file-list="false"
-              :auto-upload="false"
-              multiple
-              :accept="ACCEPT_IMAGE_TYPES"
-              :disabled="galleryUploading"
-              :on-change="onGalleryChange"
-            >
-              <div v-loading="galleryUploading" class="gallery-editor__add">
-                <el-icon class="image-picker__icon"><Plus /></el-icon>
-                <span class="image-picker__tip">添加图片</span>
-              </div>
-            </el-upload>
-          </div>
-          <div class="gallery-editor__hint">
-            按顺序展示，第一张为详情页图集首图；不添加时详情页退回主图。单张不超过
-            {{ MAX_IMAGE_SIZE_MB }}MB。
-          </div>
-        </el-form-item>
-        <el-form-item label="展示价格">
-          <el-input-number v-model="form.price" :min="0" :precision="2" :step="1" />
-        </el-form-item>
-        <el-form-item label="销量">
-          <el-input-number v-model="form.sales" :min="0" :step="1" />
-          <span class="form-hint">可随时修改；用户支付成功后按购买数量自动累加</span>
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-radio-group v-model="form.status">
-            <el-radio :value="1">上架</el-radio>
-            <el-radio :value="0">下架</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="商品详情">
-          <el-input v-model="form.detail" type="textarea" :rows="3" />
-        </el-form-item>
+    <!-- 批量改分类 -->
+    <el-dialog v-model="batchCategoryVisible" title="批量改分类" width="380px">
+      <el-select v-model="batchCategoryId" placeholder="选择目标分类" style="width: 100%">
+        <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
+      </el-select>
+      <p class="pm__hint">已选 {{ selectedCount }} 个商品，改分类不会影响它们的规格与库存。</p>
+      <template #footer>
+        <el-button @click="batchCategoryVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchSubmitting" @click="submitBatchCategory">
+          确定
+        </el-button>
+      </template>
+    </el-dialog>
 
-        <el-form-item label="SKU">
+    <!-- 新增 / 编辑抽屉 -->
+    <el-drawer
+      v-model="drawerVisible"
+      :title="drawerTitle"
+      size="760px"
+      class="pm-drawer"
+      destroy-on-close
+    >
+      <template #header>
+        <div class="dr-head">
+          <div class="dr-head__title">{{ drawerTitle }}</div>
+          <div v-if="editingId" class="dr-head__meta">
+            ID {{ editingId }} · {{ categoryName(form.categoryId) }}
+          </div>
+          <div v-else class="dr-head__meta">填写基础信息后保存，图片与规格可随后补</div>
+        </div>
+      </template>
+
+      <el-tabs v-model="drawerTab" class="dr-tabs">
+        <!-- 基础信息 -->
+        <el-tab-pane label="基础信息" name="basic">
+          <el-form label-width="88px" label-position="right">
+            <el-form-item label="商品名称" required>
+              <el-input v-model="form.name" placeholder="如：5G 旗舰智能手机 12+256G 曜夜黑" />
+            </el-form-item>
+            <el-form-item label="副标题">
+              <el-input v-model="form.subtitle" placeholder="卖点短句，列表与详情页都会展示" />
+            </el-form-item>
+            <el-form-item label="分类" required>
+              <el-select v-model="form.categoryId" style="width: 220px">
+                <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="搜索关键词">
+              <el-input
+                v-model="form.searchKeywords"
+                placeholder="用户会搜、但商品名里没有的品类词，英文逗号分隔，如：手机,智能手机,苹果手机"
+              />
+              <div class="dr-hint">与名称、副标题一起参与搜索匹配</div>
+            </el-form-item>
+            <el-form-item label="展示价格">
+              <div class="dr-inline">
+                <el-input-number v-model="form.price" :min="0" :precision="2" :step="1" />
+                <span class="dr-hint">元</span>
+              </div>
+            </el-form-item>
+            <el-form-item label="累计销量">
+              <div class="dr-inline">
+                <el-input-number v-model="form.sales" :min="0" :step="1" />
+                <span class="dr-hint">支付成功后自动累加，这里只做人工校正</span>
+              </div>
+            </el-form-item>
+            <el-form-item label="状态">
+              <el-radio-group v-model="form.status">
+                <el-radio :value="1">上架</el-radio>
+                <el-radio :value="0">下架</el-radio>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="商品详情">
+              <el-input v-model="form.detail" type="textarea" :rows="4" />
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+
+        <!-- 图片 -->
+        <el-tab-pane name="image">
+          <template #label>
+            图片
+            <span class="dr-badge">{{ form.images.length + (form.mainImage ? 1 : 0) }}</span>
+          </template>
+          <el-form label-width="88px">
+            <el-form-item label="商品主图">
+              <div class="image-picker">
+                <el-upload
+                  class="image-picker__upload"
+                  :show-file-list="false"
+                  :auto-upload="false"
+                  :accept="ACCEPT_IMAGE_TYPES"
+                  :disabled="uploading"
+                  :on-change="onMainImageChange"
+                >
+                  <div v-loading="uploading" class="image-picker__box">
+                    <img
+                      v-if="form.mainImage"
+                      :src="form.mainImage"
+                      alt=""
+                      class="image-picker__img"
+                    />
+                    <template v-else>
+                      <el-icon class="image-picker__icon"><Plus /></el-icon>
+                      <span class="image-picker__tip">选择图片</span>
+                    </template>
+                  </div>
+                </el-upload>
+                <div class="image-picker__side">
+                  <span v-if="form.mainImage" class="image-picker__path">{{ form.mainImage }}</span>
+                  <span v-else class="image-picker__tip">
+                    JPG / PNG / GIF / WEBP，不超过 {{ MAX_IMAGE_SIZE_MB }}MB
+                  </span>
+                  <el-button
+                    v-if="form.mainImage"
+                    link
+                    type="danger"
+                    :disabled="uploading"
+                    @click="clearMainImage"
+                  >
+                    移除
+                  </el-button>
+                </div>
+              </div>
+            </el-form-item>
+            <el-form-item label="商品图集">
+              <div class="gallery-editor">
+                <div v-for="(url, index) in form.images" :key="url" class="gallery-editor__item">
+                  <div class="gallery-editor__thumb">
+                    <el-image :src="url" fit="cover" class="gallery-editor__img" />
+                    <el-tag v-if="index === 0" size="small" class="gallery-editor__first">首图</el-tag>
+                    <el-button
+                      class="gallery-editor__remove"
+                      type="danger"
+                      size="small"
+                      circle
+                      :icon="Close"
+                      title="移除这张图"
+                      @click="removeGalleryImage(index)"
+                    />
+                  </div>
+                  <div class="gallery-editor__actions">
+                    <el-button
+                      link
+                      type="primary"
+                      :icon="ArrowLeft"
+                      title="前移"
+                      :disabled="index === 0"
+                      @click="moveGalleryImage(index, -1)"
+                    />
+                    <span class="gallery-editor__index">{{ index + 1 }}</span>
+                    <el-button
+                      link
+                      type="primary"
+                      :icon="ArrowRight"
+                      title="后移"
+                      :disabled="index === form.images.length - 1"
+                      @click="moveGalleryImage(index, 1)"
+                    />
+                  </div>
+                </div>
+                <el-upload
+                  class="gallery-editor__upload"
+                  :show-file-list="false"
+                  :auto-upload="false"
+                  multiple
+                  :accept="ACCEPT_IMAGE_TYPES"
+                  :disabled="galleryUploading"
+                  :on-change="onGalleryChange"
+                >
+                  <div v-loading="galleryUploading" class="gallery-editor__add">
+                    <el-icon class="image-picker__icon"><Plus /></el-icon>
+                    <span class="image-picker__tip">添加图片</span>
+                  </div>
+                </el-upload>
+              </div>
+              <div class="dr-hint">
+                按顺序展示，第一张为详情页图集首图；不添加时详情页退回主图。单张不超过
+                {{ MAX_IMAGE_SIZE_MB }}MB。
+              </div>
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+
+        <!-- SKU -->
+        <el-tab-pane name="sku">
+          <template #label>
+            SKU
+            <span class="dr-badge">{{ form.skus?.length ?? 0 }}</span>
+          </template>
+          <div class="sku-toolbar">
+            <span class="dr-hint">库存失焦即保存；价格、规格随「保存」一起提交</span>
+            <el-button size="small" :icon="Plus" @click="addSku">添加 SKU</el-button>
+          </div>
           <div class="sku-editor">
             <div v-for="(sku, index) in form.skus" :key="index" class="sku-editor__row">
               <div class="sku-editor__image-wrap">
@@ -524,43 +887,298 @@ function categoryName(id: number): string {
                   <el-icon><Close /></el-icon>
                 </button>
               </div>
-              <el-input v-model="sku.specName" placeholder="规格名" style="width: 100px" />
-              <el-input v-model="sku.specValue" placeholder="规格值" style="width: 130px" />
+              <el-input v-model="sku.specName" placeholder="规格名" style="width: 96px" />
+              <el-input v-model="sku.specValue" placeholder="规格值" style="width: 128px" />
               <el-input-number
                 v-model="sku.price"
                 :min="0"
                 :precision="2"
+                :controls="false"
                 placeholder="价格"
-                style="width: 110px"
+                style="width: 104px"
               />
               <el-input-number
                 v-model="sku.stock"
                 :min="0"
+                :controls="false"
                 placeholder="库存"
-                style="width: 100px"
+                style="width: 84px"
+                @blur="onSkuStockBlur(sku)"
               />
               <el-button link type="danger" @click="removeSku(index)">删除</el-button>
             </div>
-            <el-button link type="primary" @click="addSku">+ 添加 SKU</el-button>
+            <p v-if="!form.skus?.length" class="dr-hint">
+              还没有 SKU。无规格商品保留一行即可（规格名与规格值留空），价格会继承商品价。
+            </p>
           </div>
-        </el-form-item>
-      </el-form>
+        </el-tab-pane>
+      </el-tabs>
 
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="onSubmit">保存</el-button>
+        <div class="dr-foot">
+          <span class="dr-foot__note">SKU 库存是即时保存的，其余改动需点「保存」</span>
+          <el-button @click="drawerVisible = false">取消</el-button>
+          <el-button type="primary" :loading="submitting" @click="onSubmit">保存</el-button>
+        </div>
       </template>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
 <style scoped>
-.toolbar {
+/* ---------------- 页头 ---------------- */
+.pm__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.pm__summary {
+  font-size: 13.5px;
+  color: var(--el-text-color-regular);
+}
+.pm__summary b {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.pm__danger {
+  color: var(--el-color-danger);
+}
+
+/* ---------------- 筛选 ---------------- */
+.pm__filter {
   margin-bottom: 12px;
 }
-.pagination {
-  margin-top: 16px;
+.pm__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pm__row--chips {
+  margin-top: 12px;
+  gap: 8px;
+}
+.pm__search {
+  width: 280px;
+}
+.pm__sort {
+  width: 148px;
+}
+.pm__spacer {
+  flex: 1;
+}
+.pm__label {
+  flex: 0 0 34px;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+.pm__chip {
+  margin: 0;
+}
+
+/* ---------------- 批量条 ---------------- */
+.pm__batch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 6px;
+}
+.pm__batch b {
+  color: var(--el-color-primary);
+}
+
+/* ---------------- 表格：商品复合列 ---------------- */
+.goods {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+.goods__img {
+  flex: 0 0 56px;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+.goods__img.is-off {
+  opacity: 0.55;
+}
+.goods__pic {
+  width: 100%;
+  height: 100%;
+}
+.goods__body {
+  min-width: 0;
+}
+.goods__name {
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--el-text-color-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.goods__name.is-off {
+  color: var(--el-text-color-secondary);
+}
+.goods__sub {
+  margin-top: 3px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.goods__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--el-text-color-placeholder);
+}
+
+.pm__price {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pm__num {
+  font-variant-numeric: tabular-nums;
+}
+.pm__stock {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.pm__stock.is-low .pm__stock-num {
+  font-weight: 600;
+  color: var(--el-color-danger);
+}
+.pm__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--el-text-color-regular);
+}
+.pm__status .is-off {
+  color: var(--el-text-color-placeholder);
+}
+.pm__ops {
+  display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 4px;
+}
+.pm__caret {
+  margin-left: 2px;
+  font-size: 10px;
+}
+.pm__danger-item {
+  color: var(--el-color-danger);
+}
+.pm__pager {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.pm__empty {
+  padding: 26px 0;
+  color: var(--el-text-color-secondary);
+}
+.pm__empty-tip {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+}
+.pm__hint {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary);
+}
+
+/* 低库存行：左侧红条（用 box-shadow 而不是 border，避免整行位移 1px） */
+:deep(.el-table__row.is-low) td:first-child {
+  box-shadow: inset 3px 0 0 var(--el-color-danger);
+}
+
+/* ---------------- 抽屉 ---------------- */
+.dr-head__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.dr-head__meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.dr-tabs {
+  margin-top: -6px;
+}
+.dr-badge {
+  display: inline-block;
+  min-width: 16px;
+  padding: 0 5px;
+  margin-left: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--el-text-color-secondary);
+  text-align: center;
+  background: var(--el-fill-color);
+  border-radius: 8px;
+}
+.dr-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* el-input-number 默认 150px，但在 flex 里会被 hint 文字挤扁，把数字裁掉 */
+.dr-inline :deep(.el-input-number) {
+  flex: 0 0 160px;
+  width: 160px;
+}
+.dr-hint {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary);
+}
+.dr-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dr-foot__note {
+  flex: 1;
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  text-align: left;
+}
+
+/* ---------------- SKU 编辑器 ---------------- */
+.sku-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
 }
 .sku-editor {
   width: 100%;
@@ -571,8 +1189,6 @@ function categoryName(id: number): string {
   margin-bottom: 8px;
   align-items: center;
 }
-
-/* ---- SKU 图片选择器 ---- */
 .sku-editor__image-wrap {
   position: relative;
   flex: none;
@@ -628,7 +1244,7 @@ function categoryName(id: number): string {
   background: var(--el-color-danger-dark-2, #c45656);
 }
 
-/* ---- 主图选择器 ---- */
+/* ---------------- 图片选择器 ---------------- */
 .image-picker {
   display: flex;
   align-items: flex-start;
@@ -653,9 +1269,12 @@ function categoryName(id: number): string {
 .image-picker__box:hover {
   border-color: var(--el-color-primary);
 }
+/* 用 img 而不是 el-image：el-image 在 flex 容器里不会撑满，预览只显示 72px 见方 */
 .image-picker__img {
-  width: 100%;
-  height: 100%;
+  display: block;
+  width: 100px;
+  height: 100px;
+  object-fit: cover;
 }
 .image-picker__icon {
   font-size: 22px;
@@ -675,12 +1294,12 @@ function categoryName(id: number): string {
   color: #909399;
 }
 .image-picker__path {
-  max-width: 400px;
+  max-width: 380px;
   word-break: break-all;
   color: #606266;
 }
 
-/* ---- 图集编辑器 ---- */
+/* ---------------- 图集编辑器 ---------------- */
 .gallery-editor {
   display: flex;
   flex-wrap: wrap;
@@ -700,6 +1319,11 @@ function categoryName(id: number): string {
   height: 100%;
   border: 1px solid #e4e7ed;
   border-radius: 6px;
+}
+.gallery-editor__first {
+  position: absolute;
+  top: 4px;
+  left: 4px;
 }
 .gallery-editor__remove {
   position: absolute;
@@ -737,19 +1361,5 @@ function categoryName(id: number): string {
 }
 .gallery-editor__add:hover {
   border-color: var(--el-color-primary);
-}
-.gallery-editor__hint {
-  width: 100%;
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 18px;
-  color: #909399;
-}
-
-.form-hint {
-  margin-left: 8px;
-  font-size: 12px;
-  line-height: 18px;
-  color: #909399;
 }
 </style>

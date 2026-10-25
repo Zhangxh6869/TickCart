@@ -82,9 +82,41 @@ export function deleteProduct(id: number): Promise<void> {
   return request.delete(`/admin/products/${id}`)
 }
 
+// ---------------- 批量（后端单事务，全部成功或全部不做） ----------------
+
+/**
+ * 批量上架/下架，返回实际更新行数。
+ *
+ * <p>三个批量动作刻意都做成独立接口而不是前端循环：循环是 N 个独立事务，
+ * 第 N 条失败时前面的已经提交，用户只会看到「部分失败」却不知道哪几条生效了。</p>
+ */
+export function batchChangeProductStatus(ids: number[], status: number): Promise<number> {
+  return request.put('/admin/products/batch/status', ids, { params: { status } })
+}
+
+/** 批量改分类（只改 category_id，不会重建 SKU）。 */
+export function batchChangeProductCategory(ids: number[], categoryId: number): Promise<number> {
+  return request.put('/admin/products/batch/category', { ids, categoryId })
+}
+
+/** 批量删除（连同 SKU 与图集，单事务）。 */
+export function batchDeleteProducts(ids: number[]): Promise<number> {
+  return request.post('/admin/products/batch/delete', ids)
+}
+
 /** 分类列表（含禁用）。 */
 export function fetchCategories(): Promise<Category[]> {
   return request.get('/admin/categories')
+}
+
+/**
+ * 直接设置某个 SKU 的库存（抽屉里改完即落库）。
+ *
+ * <p>这是独立于「保存商品」的窄接口：改库存不该触发整单 update —— 那会重建 SKU，
+ * 把 `product_sku.id` 换掉，秒杀活动里存的 `sku_id` 就失联了。</p>
+ */
+export function updateSkuStock(skuId: number, stock: number): Promise<void> {
+  return request.put(`/admin/skus/${skuId}/stock`, null, { params: { stock } })
 }
 
 /** 新增分类。 */

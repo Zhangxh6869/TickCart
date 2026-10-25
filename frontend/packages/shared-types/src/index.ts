@@ -42,6 +42,13 @@ export interface Category {
   level: number
   sort: number
   status: number
+  /**
+   * 库存预警线；`null` / 不传 = 继承父分类、最终继承全局配置。
+   *
+   * <p>刻意是「可空」而不是给默认值 10：null 表示「没配过」，
+   * 一旦填了 10 就表示「就是 10」，两者在全局默认值变化时行为不同。</p>
+   */
+  stockWarnThreshold?: number | null
 }
 
 /** 商品列表项。 */
@@ -56,6 +63,13 @@ export interface ProductListItem {
   sales: number
   status: number
   isSeckill: number
+  /**
+   * 库存是否低于预警线。
+   *
+   * <p>由后端算好下发，前端**不持有阈值**：阈值按分类差异化（`product_category.stock_warn_threshold`）
+   * 且会沿父分类继承，前端自己算必然和服务端两套口径。前端只负责把 true 渲染成红标。</p>
+   */
+  stockLow?: boolean
   createdAt?: string
 }
 
