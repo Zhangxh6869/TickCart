@@ -22,6 +22,8 @@ const emptyForm = (): Partial<Category> => ({
   icon: '',
   sort: 0,
   status: 1,
+  // null 表示「继承父分类 / 全局默认」，不是「0」
+  stockWarnThreshold: null,
 })
 
 const form = ref<Partial<Category>>(emptyForm())
@@ -98,6 +100,14 @@ function parentName(id: number): string {
         </el-table-column>
         <el-table-column prop="level" label="层级" width="80" />
         <el-table-column prop="sort" label="排序" width="80" />
+        <el-table-column label="库存预警线" width="140">
+          <template #default="{ row }">
+            <span v-if="row.stockWarnThreshold === null || row.stockWarnThreshold === undefined" class="inherit">
+              继承
+            </span>
+            <span v-else class="threshold">{{ row.stockWarnThreshold }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="row.status === 1 ? 'success' : 'info'">
@@ -114,7 +124,7 @@ function parentName(id: number): string {
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="480px">
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="560px">
       <el-form label-width="90px">
         <el-form-item label="分类名称">
           <el-input v-model="form.name" />
@@ -136,6 +146,22 @@ function parentName(id: number): string {
         <el-form-item label="排序">
           <el-input-number v-model="form.sort" :min="0" />
         </el-form-item>
+        <el-form-item label="库存预警线">
+          <div class="threshold-field">
+            <el-input-number
+              v-model="form.stockWarnThreshold"
+              :min="0"
+              :step="1"
+              :controls="false"
+              :value-on-clear="null"
+              placeholder="留空继承"
+              class="threshold-field__input"
+            />
+            <span class="threshold-field__hint">
+              库存低于该值在商品列表标「告急」；留空 = 继承父分类，最终继承全局默认 10。
+            </span>
+          </div>
+        </el-form-item>
         <el-form-item label="状态">
           <el-radio-group v-model="form.status">
             <el-radio :value="1">启用</el-radio>
@@ -155,5 +181,29 @@ function parentName(id: number): string {
 <style scoped>
 .toolbar {
   margin-bottom: 12px;
+}
+.inherit {
+  font-size: 12.5px;
+  color: var(--el-text-color-placeholder);
+}
+.threshold {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.threshold-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.threshold-field__input {
+  flex: 0 0 110px;
+  width: 110px;
+}
+.threshold-field__hint {
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
 }
 </style>
