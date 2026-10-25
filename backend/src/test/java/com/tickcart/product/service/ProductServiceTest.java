@@ -1090,6 +1090,25 @@ class ProductServiceTest {
     }
 
     @Test
+    @DisplayName("编辑商品：总库存取库里 SKU 合计，不照抄请求里的数字")
+    void updateRecalculatesStockFromDb() {
+        stubExistingProduct();
+        ProductSaveRequest.SkuItem item = sku(999); // 请求里是表单旧值
+        item.setId(11L);
+        // 第一次 selectList 给 syncSkus（库里已有的行），第二次给 skuStockTotal（重算结果）
+        when(skuMapper.selectList(any()))
+                .thenReturn(List.of(storedSku(11L, 100)))
+                .thenReturn(List.of(storedSku(11L, 80)));
+
+        productService.update(1L, productReq(List.of(item)));
+
+        ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
+        verify(productMapper).updateById(captor.capture());
+        // 若照抄请求值会是 999；管理员打开抽屉后有人下单时，照抄会把库存写回旧值
+        assertThat(captor.getValue().getStock()).isEqualTo(80);
+    }
+
+    @Test
     @DisplayName("编辑商品：请求不带 skus 时完全不碰 SKU 表")
     void updateWithoutSkusLeavesThemAlone() {
         stubExistingProduct();

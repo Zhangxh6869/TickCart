@@ -20,8 +20,12 @@ import org.springframework.stereotype.Service;
  * 影响行数为 0 即代表库存不足，在数据库层面消除「先查后扣」的竞态。</p>
  *
  * <p><b>库存口径</b>：配置了规格的商品以 {@code product_sku.stock} 为准；
- * 无规格商品才使用 {@code product.stock}。商品表的 stock 是展示用聚合值，
- * 不参与实际扣减，避免同一笔订单被两套账各扣一次。</p>
+ * 无规格商品才使用 {@code product.stock}。</p>
+ *
+ * <p><b>★ 两套账要同步，但只有一个真账</b>：商品表的 {@code stock} 是展示用聚合值
+ * （商品列表、库存告急判定、分类页告急数都读它），它<b>不参与</b>「能不能扣」的判断 ——
+ * 判断只看 SKU，避免同一笔订单被扣两次。但它在扣减/回补之后必须跟着增减，
+ * 否则会变成一个只有保存商品时才刷新的陈旧快照（下单后后台库存永远偏大）。</p>
  */
 @Service
 public class InventoryService {
@@ -56,9 +60,16 @@ public class InventoryService {
             if (rows == 0) {
                 throw BizException.badRequest("库存不足");
             }
+            // ★ 同步商品汇总库存。product.stock 是商品列表与库存告急判定读的派生字段，
+            //   只有「保存商品 / 单独改 SKU 库存」会重算它；不在这里同步的话，
+            //   下单之后后台看到的库存会一直偏大（实测：卖 2 件，SKU 合计 198→196，
+            //   product.stock 仍停在 198）。
+            adjustProductStock(productId, -quantity);
             return;
         }
 
+        // 无规格商品：product.stock 本身就是真账，只扣这一次 —— 不要再调 adjustProductStock，
+        // 否则同一件货会被扣两遍
         int rows = productMapper.update(null, new LambdaUpdateWrapper<Product>()
                 .eq(Product::getId, productId)
                 .ge(Product::getStock, quantity)
@@ -89,9 +100,14 @@ public class InventoryService {
                     .eq(ProductSku::getId, skuId)
                     .setSql("stock = stock + {0}", quantity));
             if (rows == 0) {
+                // ★ 这里刻意不再调 adjustProductStock：SKU 没回补成功（行已被逻辑删除），
+                //   若还去加商品汇总值，就会让汇总比真实 SKU 合计更大 —— 从「少算」变成「多算」，
+                //   是更坏的错账。宁可两边都不动，并留下告警。
                 log.warn("库存回补未命中 SKU（可能已被逻辑删除）：productId={}, skuId={}, quantity={}",
                         productId, skuId, quantity);
+                return;
             }
+            adjustProductStock(productId, quantity);
             return;
         }
         int rows = productMapper.update(null, new LambdaUpdateWrapper<Product>()
@@ -100,6 +116,22 @@ public class InventoryService {
         if (rows == 0) {
             log.warn("库存回补未命中商品：productId={}, quantity={}", productId, quantity);
         }
+    }
+
+    /**
+     * 按增量调整商品汇总库存（±n），只用于「SKU 才是真账」的商品。
+     *
+     * <p>不加下限条件：判断能否扣减已由 SKU 那一层用 {@code stock >= n} 做过了；
+     * 这里若再加条件，一旦历史数据漂移就会扣不动，反而把不一致固化下来。</p>
+     */
+    private void adjustProductStock(Long productId, int delta) {
+        if (productId == null || delta == 0) {
+            return;
+        }
+        String operator = delta > 0 ? "+" : "-";
+        productMapper.update(null, new LambdaUpdateWrapper<Product>()
+                .eq(Product::getId, productId)
+                .setSql("stock = stock " + operator + " {0}", Math.abs(delta)));
     }
 
     private boolean hasSku(Long skuId) {

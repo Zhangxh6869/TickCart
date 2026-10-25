@@ -402,7 +402,8 @@ public class ProductService {
         product.setSales(req.getSales() == null ? 0 : req.getSales());
         product.setStatus(req.getStatus() == null ? STATUS_OFF : req.getStatus());
         product.setIsSeckill(req.getIsSeckill() == null ? 0 : req.getIsSeckill());
-        // 总库存 = SKU 库存之和（无 SKU 时为 0）
+        // 总库存 = SKU 库存之和（无 SKU 时为 0）。
+        // 新建时 SKU 还没插入，只能按请求算；这里的值和紧接着 syncSkus 插入的合计必然相等。
         product.setStock(sumSkuStock(req.getSkus()));
         productMapper.insert(product);
 
@@ -440,7 +441,9 @@ public class ProductService {
             // ★ 这里曾经是「先全删再重插」，导致改个标题都会让 SKU 换 id，
             //   未完成订单取消时回补库存打空（详见 syncSkus 的注释）。
             syncSkus(id, req.getSkus(), product.getPrice());
-            product.setStock(sumSkuStock(req.getSkus()));
+            // ★ 总库存用「库里重算」而不是「请求里的数字」：管理员打开抽屉后若有人下单，
+            //   表单里的库存是旧值，照抄会把库存写回旧值（库存反而变大）。
+            product.setStock(skuStockTotal(id));
         }
         productMapper.updateById(product);
 
@@ -714,14 +717,25 @@ public class ProductService {
 
     /** 依据 SKU 汇总刷新商品总库存。 */
     private void refreshProductStock(Long productId) {
-        List<ProductSku> skus = skuMapper.selectList(
-                new LambdaQueryWrapper<ProductSku>().eq(ProductSku::getProductId, productId));
-        int total = skus.stream().mapToInt(s -> s.getStock() == null ? 0 : s.getStock()).sum();
         Product product = productMapper.selectById(productId);
         if (product != null) {
-            product.setStock(total);
+            product.setStock(skuStockTotal(productId));
             productMapper.updateById(product);
         }
+    }
+
+    /**
+     * 库里当前有效 SKU 的库存合计 —— {@code product.stock} 的唯一真值来源。
+     *
+     * <p>商品表的 stock 只是派生值，凡是重写它都从这里取数，避免出现
+     * 「用请求参数算一遍、用库里的数算一遍」两种口径。</p>
+     */
+    private int skuStockTotal(Long productId) {
+        return skuMapper.selectList(
+                        new LambdaQueryWrapper<ProductSku>().eq(ProductSku::getProductId, productId))
+                .stream()
+                .mapToInt(s -> s.getStock() == null ? 0 : s.getStock())
+                .sum();
     }
 
     // -------------------------------------------------------------------------
