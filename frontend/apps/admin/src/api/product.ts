@@ -1,5 +1,11 @@
 import request from '@/utils/request'
-import type { Category, PageResult, ProductDetail, ProductListItem } from '@tickcart/shared-types'
+import type {
+  Category,
+  LowStockReport,
+  PageResult,
+  ProductDetail,
+  ProductListItem,
+} from '@tickcart/shared-types'
 
 export interface ProductPayload {
   id?: number
@@ -102,6 +108,18 @@ export function batchChangeProductCategory(ids: number[], categoryId: number): P
 /** 批量删除（连同 SKU 与图集，单事务）。 */
 export function batchDeleteProducts(ids: number[]): Promise<number> {
   return request.post('/admin/products/batch/delete', ids)
+}
+
+// ---------------- 补货待办 ----------------
+
+/**
+ * 补货待办清单（SKU 粒度，按剩余比例升序，断货最前）。
+ *
+ * <p>和商品列表的 `stockLow` 是两个口径：列表是商品级总库存，这里是 SKU 级。
+ * 商品总库存充足但某个规格断货时，列表不标红、这里会出现。</p>
+ */
+export function fetchLowStock(limit = 100): Promise<LowStockReport> {
+  return request.get('/admin/products/low-stock', { params: { limit } })
 }
 
 /** 分类列表（含禁用）。 */

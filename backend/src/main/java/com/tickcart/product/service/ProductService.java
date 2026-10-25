@@ -616,7 +616,8 @@ public class ProductService {
         List<LowStockItem> items = all.size() > safeLimit
                 ? new ArrayList<>(all.subList(0, safeLimit))
                 : all;
-        return new LowStockReport(all.size(), truncated, items);
+        int outOfStock = (int) all.stream().filter(it -> it.getStock() == 0).count();
+        return new LowStockReport(all.size(), outOfStock, truncated, items);
     }
 
     private LowStockItem toLowStockItem(Product product, ProductSku sku,

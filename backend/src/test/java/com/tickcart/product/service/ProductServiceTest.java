@@ -640,6 +640,8 @@ class ProductServiceTest {
         assertThat(report.getTotal()).isEqualTo(3);
         assertThat(report.getItems()).hasSize(2);
         assertThat(report.isTruncated()).isTrue();
+        // 断货数是全库统计，不能只数被 limit 截断后的 items
+        assertThat(report.getOutOfStock()).isEqualTo(3);
     }
 
     @Test

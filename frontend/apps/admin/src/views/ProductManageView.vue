@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type UploadFile } from 'element-plus'
 import { ArrowDown, ArrowLeft, ArrowRight, Close, Plus } from '@element-plus/icons-vue'
-import type { Category, ProductListItem } from '@tickcart/shared-types'
+import type { Category, LowStockItem, LowStockReport, ProductListItem } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import {
   batchChangeProductCategory,
@@ -13,6 +13,7 @@ import {
   createProduct,
   deleteProduct,
   fetchCategories,
+  fetchLowStock,
   fetchProductDetail,
   fetchProducts,
   updateProduct,
@@ -80,8 +81,19 @@ onMounted(async () => {
     query.keyword = keywordFromQuery.trim()
   }
   categories.value = await fetchCategories()
-  await load()
+  await Promise.all([load(), loadLowStock()])
 })
+
+/**
+ * 列表 + 告急横幅一起刷新。
+ *
+ * <p>上下架、删除、批量操作都会改变「哪些商品该被扫描」（补货待办只算在售），
+ * 所以横幅数字必须跟着变，否则会出现「商品已下架、横幅还说它告急」。</p>
+ */
+async function reloadAfterMutation() {
+  await load()
+  await loadLowStock()
+}
 
 function onSearch() {
   query.page = 1
@@ -148,6 +160,9 @@ async function onToggleStatus(row: ProductListItem) {
   try {
     await changeProductStatus(row.id, next)
     ElMessage.success(next === 1 ? '已上架' : '已下架')
+    // 只静默刷新横幅：补货待办只算在售商品，下架后它不该再出现。
+    // 列表不重查 —— 那会丢掉滚动位置和当前筛选
+    void loadLowStock()
   } catch {
     row.status = previous
   } finally {
@@ -164,7 +179,7 @@ async function onDelete(row: ProductListItem) {
   })
   await deleteProduct(row.id)
   ElMessage.success('已删除')
-  await load()
+  await reloadAfterMutation()
 }
 
 function onPreview(row: ProductListItem) {
@@ -189,7 +204,7 @@ async function onBatchStatus(status: number) {
   })
   await batchChangeProductStatus(ids, status)
   ElMessage.success(`已${action} ${ids.length} 个商品`)
-  await load()
+  await reloadAfterMutation()
 }
 
 const batchCategoryVisible = ref(false)
@@ -211,7 +226,7 @@ async function submitBatchCategory() {
     await batchChangeProductCategory(selectedIds.value, batchCategoryId.value)
     ElMessage.success(`已改分类 ${selectedIds.value.length} 个商品`)
     batchCategoryVisible.value = false
-    await load()
+    await reloadAfterMutation()
   } finally {
     batchSubmitting.value = false
   }
@@ -227,7 +242,81 @@ async function onBatchDelete() {
   )
   await batchDeleteProducts(ids)
   ElMessage.success(`已删除 ${ids.length} 个商品`)
-  await load()
+  await reloadAfterMutation()
+}
+
+// ---------------- 补货待办（SKU 粒度） ----------------
+const lowStock = ref<LowStockReport | null>(null)
+const lowStockVisible = ref(false)
+const lowStockLoading = ref(false)
+/** 抽屉里改过库存 → 关抽屉时要刷新列表，否则行内红标还是旧的 */
+const stockTouched = ref(false)
+/** 每行库存基线，保存失败时回滚 */
+const lowStockBaseline = ref<Record<number, number>>({})
+
+async function loadLowStock() {
+  try {
+    lowStock.value = await fetchLowStock(100)
+  } catch {
+    // 横幅只是辅助信息，拉失败不该打断主流程
+    lowStock.value = null
+  }
+}
+
+async function openLowStock() {
+  lowStockLoading.value = true
+  try {
+    lowStock.value = await fetchLowStock(100)
+    lowStockBaseline.value = Object.fromEntries(
+      (lowStock.value.items ?? []).map((it) => [it.skuId, it.stock]),
+    )
+    lowStockVisible.value = true
+  } finally {
+    lowStockLoading.value = false
+  }
+}
+
+function onLowStockClosed() {
+  if (!stockTouched.value) return
+  stockTouched.value = false
+  void reloadAfterMutation()
+}
+
+function specText(it: LowStockItem): string {
+  const value = it.specValue?.trim()
+  if (!value) return '默认规格'
+  const name = it.specName?.trim()
+  return name ? `${name} ${value}` : value
+}
+
+/**
+ * 抽屉里改库存：改完即落库，补够了的行自动从清单消失。
+ *
+ * <p>不做「标记已处理」—— 库存补到线上以后它本来就不该留在待办里，
+ * 多一个状态反而要维护「处理了但没补货」的中间态。</p>
+ */
+async function onLowStockStockChange(it: LowStockItem) {
+  const baseline = lowStockBaseline.value[it.skuId]
+  if (baseline === undefined || baseline === it.stock) return
+  try {
+    await updateSkuStock(it.skuId, it.stock)
+    stockTouched.value = true
+    lowStockBaseline.value = { ...lowStockBaseline.value, [it.skuId]: it.stock }
+    if (it.stock >= it.threshold) {
+      const report = lowStock.value
+      if (report) {
+        report.items = report.items.filter((x) => x.skuId !== it.skuId)
+        report.total = Math.max(0, report.total - 1)
+      }
+      ElMessage.success({ message: '库存已更新，已从清单移除', duration: 1600 })
+    } else {
+      it.shortage = it.threshold - it.stock
+      it.remainRatio = Math.round((it.stock * 100) / it.threshold) / 100
+      ElMessage.success({ message: '库存已更新', duration: 1200 })
+    }
+  } catch {
+    it.stock = baseline
+  }
 }
 
 // ---------------- 抽屉表单 ----------------
@@ -472,7 +561,7 @@ async function onSubmit() {
       ElMessage.success('已创建')
     }
     drawerVisible.value = false
-    await load()
+    await reloadAfterMutation()
   } finally {
     submitting.value = false
   }
@@ -490,6 +579,19 @@ async function onSubmit() {
         </template>
       </div>
       <el-button type="primary" :icon="Plus" @click="openCreate">新增商品</el-button>
+    </div>
+
+    <!-- 补货待办横幅：只在有告急时出现，不弹窗不阻塞 -->
+    <div v-if="lowStock && lowStock.total > 0" class="pm__alert">
+      <span class="pm__alert-icon">!</span>
+      <div class="pm__alert-text">
+        <b>{{ lowStock.total }}</b> 个 SKU 库存告急<template v-if="lowStock.outOfStock > 0"
+          >，其中 <b>{{ lowStock.outOfStock }}</b> 个已断货</template
+        >
+      </div>
+      <el-button size="small" type="danger" plain :loading="lowStockLoading" @click="openLowStock">
+        查看补货清单
+      </el-button>
     </div>
 
     <!-- 筛选 -->
@@ -675,6 +777,56 @@ async function onSubmit() {
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 补货清单 -->
+    <el-drawer
+      v-model="lowStockVisible"
+      title="补货清单"
+      size="640px"
+      class="ls-drawer"
+      @closed="onLowStockClosed"
+    >
+      <div class="ls__note">
+        清单按 <b>SKU</b> 统计：商品总库存够、但某个规格断货时，商品列表不会标红，这里会出现。
+        改完库存这一行会自动消失。
+      </div>
+
+      <div v-if="lowStock && lowStock.items.length" class="ls__list">
+        <div v-for="it in lowStock.items" :key="it.skuId" class="ls__row">
+          <img class="ls__img" :src="it.skuImage || it.mainImage || ''" alt="" />
+          <div class="ls__body">
+            <div class="ls__name">{{ it.productName }}</div>
+            <div class="ls__meta">
+              <el-tag size="small" type="info" effect="plain">{{ it.categoryName || '-' }}</el-tag>
+              <span>{{ specText(it) }}</span>
+            </div>
+          </div>
+          <div class="ls__stat">
+            <div class="ls__num" :class="{ 'is-zero': it.stock === 0 }">
+              {{ it.stock }}<i>/{{ it.threshold }}</i>
+            </div>
+            <div class="ls__gap">缺 {{ it.shortage }}</div>
+          </div>
+          <el-input-number
+            v-model="it.stock"
+            :min="0"
+            :controls="false"
+            size="small"
+            class="ls__input"
+            @change="onLowStockStockChange(it)"
+          />
+        </div>
+      </div>
+
+      <el-empty v-else description="当前没有库存告急的 SKU" :image-size="80" />
+
+      <template #footer>
+        <span class="ls__foot">
+          {{ lowStock?.truncated ? '清单已截断，仅显示前 100 条' : '库存补到预警线以上，该行自动移出清单' }}
+        </span>
+        <el-button @click="lowStockVisible = false">关闭</el-button>
+      </template>
+    </el-drawer>
 
     <!-- 新增 / 编辑抽屉 -->
     <el-drawer
@@ -1115,6 +1267,130 @@ async function onSubmit() {
 /* 低库存行：左侧红条（用 box-shadow 而不是 border，避免整行位移 1px） */
 :deep(.el-table__row.is-low) td:first-child {
   box-shadow: inset 3px 0 0 var(--el-color-danger);
+}
+
+/* ---------------- 补货待办横幅 ---------------- */
+.pm__alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
+  border: 1px solid var(--el-color-danger-light-7);
+  border-radius: 6px;
+}
+.pm__alert-icon {
+  display: flex;
+  flex: 0 0 18px;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--el-color-danger);
+  border-radius: 50%;
+}
+.pm__alert-text {
+  flex: 1;
+}
+.pm__alert-text b {
+  font-weight: 600;
+}
+
+/* ---------------- 补货清单抽屉 ---------------- */
+.ls__note {
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
+}
+.ls__list {
+  display: flex;
+  flex-direction: column;
+}
+.ls__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.ls__row:last-child {
+  border-bottom: 0;
+}
+.ls__img {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+}
+.ls__body {
+  flex: 1;
+  min-width: 0;
+}
+.ls__name {
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ls__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.ls__stat {
+  flex: 0 0 78px;
+  text-align: right;
+}
+.ls__num {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ls__num i {
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  color: var(--el-text-color-placeholder);
+}
+.ls__num.is-zero {
+  color: var(--el-color-danger);
+}
+.ls__gap {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--el-color-danger);
+}
+.ls__input {
+  flex: 0 0 84px;
+  width: 84px;
+}
+.ls__foot {
+  flex: 1;
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  text-align: left;
+}
+:deep(.el-drawer__footer) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 /* ---------------- 抽屉 ---------------- */

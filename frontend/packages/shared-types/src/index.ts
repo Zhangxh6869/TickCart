@@ -450,3 +450,42 @@ export interface SeckillResult {
   orderNo?: string | null
   message?: string | null
 }
+
+// ---------------------------------------------------------------------------
+// 补货待办（SKU 粒度）
+// ---------------------------------------------------------------------------
+
+/**
+ * 补货待办的一行 = 一个告急的 SKU。
+ *
+ * 粒度是 SKU 而不是商品：总库存 120 但 43 码 0 件时，商品级的 `stockLow` 看不出来，
+ * 用户却买不到那个尺码。所以列表没标红、这里出现，是刻意的口径差异，不是 bug。
+ */
+export interface LowStockItem {
+  productId: number
+  productName: string
+  mainImage?: string | null
+  categoryId: number
+  categoryName?: string | null
+  skuId: number
+  specName?: string | null
+  specValue?: string | null
+  skuImage?: string | null
+  stock: number
+  /** 所属分类的有效预警线 */
+  threshold: number
+  /** 缺口 = threshold - stock */
+  shortage: number
+  /** 剩余比例 = stock / threshold，0 表示已断货 */
+  remainRatio: number
+}
+
+/** 补货待办清单 */
+export interface LowStockReport {
+  /** 全库告急 SKU 总数，不受 limit 影响 */
+  total: number
+  /** 其中已断货（库存 0）的数量 */
+  outOfStock: number
+  truncated: boolean
+  items: LowStockItem[]
+}
