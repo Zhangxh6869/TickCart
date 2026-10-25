@@ -1,0 +1,1320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>TickCart 后台 · 订单管理界面重设计（三方案）</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#f0f2f5; --surface:#fff; --border:#ebeef5; --border-2:#e4e7ed; --border-3:#dcdfe6;
+    --t1:#303133; --t2:#606266; --t3:#909399; --t4:#c0c4cc;
+    --primary:#409eff; --success:#67c23a; --warn:#e6a23c; --danger:#f56c6c;
+    --radius:6px;
+    --shadow:0 1px 2px rgba(0,0,0,.04),0 2px 8px rgba(0,0,0,.03);
+    --shadow-2:0 4px 16px rgba(0,0,0,.08);
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"JetBrains Mono",Consolas,monospace;
+  }
+  html,body{height:100%}
+  body{font-family:var(--font);background:var(--bg);color:var(--t1);font-size:14px;-webkit-font-smoothing:antialiased}
+  .app{display:flex;min-height:100vh;min-width:1180px}
+
+  .aside{width:210px;flex:0 0 210px;background:#001529;color:#fff;display:flex;flex-direction:column}
+  .aside__logo{height:60px;line-height:60px;text-align:center;font-size:15px;font-weight:600;border-bottom:1px solid #1f2d3d;letter-spacing:.5px}
+  .aside__logo em{font-style:normal;color:#409eff}
+  .menu{padding:8px 0}
+  .menu__item{display:flex;align-items:center;gap:10px;height:48px;padding:0 20px;color:#b7c0cd;font-size:14px;cursor:pointer;border-left:3px solid transparent;transition:.15s}
+  .menu__item:hover{color:#fff;background:#0c2135}
+  .menu__item.is-active{color:#fff;background:#1890ff;border-left-color:#69c0ff}
+  .menu__item svg{width:16px;height:16px;flex:0 0 16px;opacity:.85}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{height:60px;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px;flex:0 0 60px}
+  .topbar__title{font-size:16px;font-weight:600}
+  .topbar__user{display:flex;align-items:center;gap:14px;color:var(--t2);font-size:14px}
+  .topbar__user b{color:var(--t1);font-weight:500}
+  .link{color:var(--primary);cursor:pointer;font-size:13px}
+
+  .content{padding:20px 24px 48px}
+
+  .switcher{background:#fff;border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:18px;box-shadow:var(--shadow)}
+  .switcher__head{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+  .switcher__head h1{font-size:14px;font-weight:600}
+  .switcher__head span{font-size:12px;color:var(--t3)}
+  .switcher__tabs{display:flex;gap:10px;flex-wrap:wrap}
+  .tab{flex:1;min-width:250px;text-align:left;padding:12px 14px;border:1px solid var(--border-2);border-radius:6px;cursor:pointer;background:#fafbfc;transition:.18s;position:relative}
+  .tab:hover{border-color:#c6e2ff;background:#f4f9ff}
+  .tab.is-on{border-color:var(--primary);background:#ecf5ff;box-shadow:0 0 0 3px rgba(64,158,255,.1)}
+  .tab__kicker{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--t3);margin-bottom:5px}
+  .tab.is-on .tab__kicker{color:var(--primary)}
+  .tab__name{font-size:15px;font-weight:600;margin-bottom:4px}
+  .tab__desc{font-size:12px;color:var(--t3);line-height:1.55}
+  .tab__cost{position:absolute;top:12px;right:14px;font-size:11px;padding:1px 7px;border-radius:9px;background:#f0f2f5;color:var(--t3);border:1px solid var(--border)}
+  .tab__cost--zero{background:#f0f9eb;color:#529b2e;border-color:#e1f3d8}
+
+  .proposal{display:none}
+  .proposal.is-on{display:block}
+
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .btn{border:1px solid var(--border-3);background:#fff;color:var(--t2);border-radius:4px;padding:6px 13px;font-size:13px;cursor:pointer;font-family:var(--font);transition:.15s;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+  .btn:hover{color:var(--primary);border-color:#c6e2ff;background:#ecf5ff}
+  .btn--primary{background:var(--primary);border-color:var(--primary);color:#fff}
+  .btn--primary:hover{background:#66b1ff;border-color:#66b1ff;color:#fff}
+  .btn--danger{background:#fff;border-color:#fbc4c4;color:var(--danger)}
+  .btn--danger:hover{background:#fef0f0;border-color:#f56c6c;color:var(--danger)}
+  .btn--sm{padding:3px 9px;font-size:12px}
+  .btn--ghost{border-color:transparent;background:transparent;color:var(--primary);padding:3px 6px}
+  .btn--ghost:hover{background:#ecf5ff}
+  .btn[disabled]{color:var(--t4);border-color:var(--border-2);background:#fafafa;cursor:not-allowed}
+
+  .tag{display:inline-block;padding:0 6px;border-radius:3px;font-size:12px;line-height:18px;border:1px solid transparent;white-space:nowrap}
+  .tag--danger{background:#fef0f0;color:#f56c6c;border-color:#fde2e2}
+  .tag--warn{background:#fdf6ec;color:#e6a23c;border-color:#faecd8}
+  .tag--success{background:#f0f9eb;color:#67c23a;border-color:#e1f3d8}
+  .tag--info{background:#f4f4f5;color:#909399;border-color:#e9e9eb}
+  .tag--primary{background:#ecf5ff;color:#409eff;border-color:#d9ecff}
+  .tag--sk{background:#fff7e6;color:#d46b08;border-color:#ffd8a8;font-weight:600;letter-spacing:.02em}
+
+  .field{height:32px;border:1px solid var(--border-3);border-radius:4px;padding:0 11px;font-size:13px;font-family:var(--font);color:var(--t1);display:inline-flex;align-items:center;background:#fff}
+  .field--search{gap:7px;color:var(--t3);width:280px}
+  .field--search svg{width:14px;height:14px;flex:0 0 14px}
+  .field--sel{gap:8px;color:var(--t2);cursor:pointer;min-width:120px;justify-content:space-between}
+  .field--sel svg{width:10px;height:10px;opacity:.55}
+
+  .head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}
+  .head__summary{font-size:13.5px;color:var(--t2)}
+  .head__summary b{font-size:15px;font-weight:600;color:var(--t1)}
+  .head__summary .danger{color:var(--danger)}
+  .head__acts{display:flex;align-items:center;gap:10px}
+
+  /* ---------- KPI ---------- */
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px}
+  .kpi{background:#fff;border:1px solid var(--border);border-radius:8px;padding:14px 18px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--border-2)}
+  .kpi--danger::before{background:var(--danger)}
+  .kpi--primary::before{background:var(--primary)}
+  .kpi__k{font-size:12.5px;color:var(--t3)}
+  .kpi__v{font-size:26px;font-weight:600;line-height:1.25;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+  .kpi__v.danger{color:var(--danger)}
+  .kpi__x{font-size:12px;color:var(--t3);margin-top:2px}
+  .kpi__x b{color:var(--danger);font-weight:600}
+
+  /* ---------- 状态 chips ---------- */
+  .filter{padding:14px 16px;margin-bottom:12px}
+  .chips{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:1px solid var(--border-2);border-radius:15px;background:#fafbfc;font-size:13px;color:var(--t2);cursor:pointer;transition:.15s;white-space:nowrap}
+  .chip:hover{border-color:#c6e2ff;background:#f4f9ff;color:var(--primary)}
+  .chip b{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--t3);background:#fff;border:1px solid var(--border);border-radius:8px;padding:0 5px;line-height:15px}
+  .chip.is-on{background:var(--primary);border-color:var(--primary);color:#fff}
+  .chip.is-on b{background:rgba(255,255,255,.22);border-color:transparent;color:#fff}
+  .chip--warn b{color:var(--danger);border-color:#fde2e2;background:#fef0f0}
+  .chip--warn.is-on{background:var(--danger);border-color:var(--danger)}
+  .chip--mute{color:var(--t3)}
+  .frow{display:flex;align-items:center;gap:10px;margin-top:12px;padding-top:12px;border-top:1px dashed var(--border)}
+  .frow__sp{flex:1}
+  .frow__lb{font-size:12.5px;color:var(--t3)}
+
+  /* ---------- 表格 ---------- */
+  .tblwrap{padding:0}
+  .batch{display:flex;align-items:center;gap:12px;padding:10px 16px;background:#ecf5ff;border-bottom:1px solid #d9ecff;font-size:13px;color:var(--t2)}
+  .batch b{color:var(--primary);font-variant-numeric:tabular-nums}
+  .batch__sp{flex:1}
+  .tbl{width:100%;border-collapse:collapse;font-size:13px}
+  .tbl th{text-align:left;font-weight:500;color:var(--t2);background:#fafafa;padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap;font-size:12.5px}
+  .tbl td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+  .tbl tbody tr:hover td{background:#f7fbff}
+  .tbl tbody tr:last-child td{border-bottom:0}
+  .tbl .c-sel{width:42px;padding-left:16px}
+  .tbl .c-ops{width:132px;text-align:right;padding-right:16px}
+  .tbl .num{text-align:right;font-variant-numeric:tabular-nums}
+  .ck{width:14px;height:14px;border:1px solid var(--border-3);border-radius:3px;background:#fff;cursor:pointer;display:inline-block;position:relative;vertical-align:middle}
+  .ck.is-on{background:var(--primary);border-color:var(--primary)}
+  .ck.is-on::after{content:'';position:absolute;left:4px;top:1px;width:4px;height:8px;border:2px solid #fff;border-top:0;border-left:0;transform:rotate(42deg)}
+
+  .ocell{display:flex;align-items:center;gap:10px}
+  .ocell__thumb{width:40px;height:40px;border-radius:6px;object-fit:cover;border:1px solid var(--border);flex:0 0 40px;background:#f7f8fa}
+  .ocell__thumb--ph{display:flex;align-items:center;justify-content:center;color:var(--t4);font-size:10px;text-align:center;line-height:1.2}
+  .ocell__b{min-width:0}
+  .ocell__no{font-family:var(--mono);font-size:12.5px;color:var(--t1);display:flex;align-items:center;gap:6px}
+  .ocell__sub{font-size:11.5px;color:var(--t4);margin-top:3px;font-variant-numeric:tabular-nums}
+  .ocell__name{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:250px}
+  .ocell__spec{font-size:11.5px;color:var(--t3);margin-top:3px}
+
+  .buyer__n{font-size:13px}
+  .buyer__p{font-size:11.5px;color:var(--t3);font-variant-numeric:tabular-nums;margin-top:2px}
+  .buyer__a{font-size:11.5px;color:var(--t4);margin-top:2px;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .amt{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
+  .amt__q{font-size:11.5px;color:var(--t3);font-weight:400;margin-top:2px}
+  .st{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+  .st__w{font-size:11.5px;color:var(--danger);font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:4px}
+  .st__w--ok{color:var(--t3)}
+  .ops{display:flex;align-items:center;gap:2px;justify-content:flex-end}
+  .rm{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:#b88230;background:#fdf6ec;border:1px solid #faecd8;border-radius:3px;padding:0 4px;line-height:16px;margin-left:6px}
+  .pager{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:14px 16px;border-top:1px solid var(--border);font-size:13px;color:var(--t2)}
+  .pager__n{min-width:28px;height:28px;border:1px solid var(--border-2);border-radius:4px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:12.5px;background:#fff}
+  .pager__n.is-on{background:var(--primary);border-color:var(--primary);color:#fff}
+
+  /* ---------- 抽屉 ---------- */
+  .mask{position:fixed;inset:0;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:.22s;z-index:60}
+  .mask.is-on{opacity:1;pointer-events:auto}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:760px;max-width:94vw;background:#fff;box-shadow:-8px 0 28px rgba(0,0,0,.12);transform:translateX(100%);transition:transform .26s cubic-bezier(.4,0,.2,1);z-index:61;display:flex;flex-direction:column}
+  .drawer.is-on{transform:none}
+  .drawer__head{padding:16px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+  .drawer__t{font-family:var(--mono);font-size:15px;font-weight:600}
+  .drawer__sp{flex:1}
+  .drawer__x{width:28px;height:28px;border:0;background:transparent;color:var(--t3);font-size:18px;cursor:pointer;border-radius:4px}
+  .drawer__x:hover{background:#f5f7fa;color:var(--t1)}
+  .drawer__body{flex:1;overflow:auto;padding:18px 22px 24px}
+  .drawer__foot{padding:12px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#fff}
+
+  /* 时间线 */
+  .tl{display:flex;padding:4px 0 2px}
+  .tl__i{flex:1;position:relative;padding-top:22px;text-align:center;min-width:0}
+  .tl__i::before{content:'';position:absolute;top:7px;left:0;right:50%;height:2px;background:var(--border-2)}
+  .tl__i::after{content:'';position:absolute;top:7px;left:50%;right:0;height:2px;background:var(--border-2)}
+  .tl__i:first-child::before{display:none}
+  .tl__i:last-child::after{display:none}
+  .tl__d{position:absolute;top:0;left:50%;transform:translateX(-50%);width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--border-3);z-index:1}
+  .tl__i.is-done::before,.tl__i.is-done::after{background:var(--success)}
+  .tl__i.is-done .tl__d{background:var(--success);border-color:var(--success)}
+  .tl__i.is-done .tl__d::after{content:'';position:absolute;left:4px;top:1px;width:4px;height:7px;border:2px solid #fff;border-top:0;border-left:0;transform:rotate(42deg)}
+  .tl__i.is-cur::before{background:var(--success)}
+  .tl__i.is-cur .tl__d{background:#fff;border-color:var(--danger);box-shadow:0 0 0 4px rgba(245,108,108,.14)}
+  .tl__i.is-cur .tl__d::after{content:'';position:absolute;inset:3px;border-radius:50%;background:var(--danger)}
+  .tl__lb{font-size:12.5px;color:var(--t2);font-weight:500}
+  .tl__i.is-cur .tl__lb{color:var(--danger);font-weight:600}
+  .tl__i.is-off .tl__lb{color:var(--t4)}
+  .tl__t{font-size:11px;color:var(--t4);margin-top:3px;font-variant-numeric:tabular-nums}
+  .tl__i.is-cur .tl__t{color:var(--danger)}
+
+  .remark{display:flex;gap:8px;align-items:flex-start;background:#fdf6ec;border:1px solid #faecd8;border-radius:6px;padding:10px 12px;font-size:12.5px;color:#b88230;margin-bottom:14px}
+  .remark b{flex:0 0 auto;font-weight:600;margin-right:10px;white-space:nowrap}
+  .remark b::after{content:'：'}
+  .addr{font-size:13px;line-height:1.7;color:var(--t1)}
+  .addr__row{display:flex;gap:8px}
+  .addr__lb{flex:0 0 64px;color:var(--t3);font-size:12.5px}
+  .addr__v{flex:1;min-width:0}
+  .copy{font-size:11.5px;color:var(--primary);cursor:pointer;margin-left:6px}
+  .copy:hover{text-decoration:underline}
+
+  .paybox{display:flex;flex-wrap:wrap;gap:10px 26px;font-size:12.5px;color:var(--t2)}
+  .paybox div span{color:var(--t3)}
+  .paybox .mono{font-family:var(--mono);font-size:12px;color:var(--t1)}
+  .paybox .ok{color:var(--success);font-weight:600}
+  .paybox .no{color:var(--danger);font-weight:600}
+
+  /* ---------- 方案 B 主从 ---------- */
+  .ws{display:flex;height:calc(100vh - 250px);min-height:560px;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#fff;box-shadow:var(--shadow)}
+  .ws__list{width:380px;flex:0 0 380px;border-right:1px solid var(--border);display:flex;flex-direction:column;background:#fcfcfd}
+  .ws__top{padding:12px;border-bottom:1px solid var(--border);background:#fff}
+  .ws__tabs{display:flex;gap:6px;margin-top:10px;font-size:12px}
+  .ws__tabs span{padding:2px 7px;border-radius:10px;background:#f4f4f5;color:var(--t3);cursor:pointer;white-space:nowrap;font-size:11.5px}
+  .ws__tabs span.is-on{background:var(--primary);color:#fff}
+  .ws__scroll{flex:1;overflow:auto}
+  .orow{display:flex;gap:10px;padding:11px 14px;border-bottom:1px solid #f0f2f5;cursor:pointer;border-left:3px solid transparent;transition:.12s}
+  .orow:hover{background:#f7fbff}
+  .orow.is-on{background:#ecf5ff;border-left-color:var(--primary)}
+  .orow__thumb{width:38px;height:38px;border-radius:6px;object-fit:cover;border:1px solid var(--border);flex:0 0 38px;background:#f7f8fa}
+  .orow__b{flex:1;min-width:0}
+  .orow__l1{display:flex;align-items:center;gap:6px}
+  .orow__no{font-family:var(--mono);font-size:12px;color:var(--t2)}
+  .orow__l2{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px}
+  .orow__buyer{font-size:12.5px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .orow__amt{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+  .orow__l3{display:flex;align-items:center;justify-content:space-between;margin-top:3px;font-size:11px;color:var(--t4)}
+  .ws__panel{flex:1;min-width:0;display:flex;flex-direction:column}
+  .ws__head{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:12px}
+  .ws__head__b{flex:1;min-width:0}
+  .ws__head__t{font-family:var(--mono);font-size:16px;font-weight:600}
+  .ws__head__m{margin-top:6px;font-size:12px;color:var(--t3);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .ws__body{flex:1;overflow:auto;padding:16px 20px 24px}
+  .ws__foot{padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;background:#fcfcfd}
+  .ws__foot .sp{flex:1}
+  .kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--border-3);border-bottom-width:2px;border-radius:3px;padding:0 4px;color:var(--t3);background:#fff}
+
+  .sect{border:1px solid var(--border-2);border-radius:8px;margin-bottom:14px;overflow:hidden}
+  .sect__head{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#fafbfc;border-bottom:1px solid var(--border);font-size:13px;font-weight:600}
+  .sect__head .sp{flex:1}
+  .sect__head .badge{font-size:11px;font-weight:500;color:var(--t3);background:#f0f2f5;padding:0 6px;border-radius:8px;line-height:16px}
+  .sect__body{padding:14px}
+  .erow{display:flex;align-items:center;gap:12px;padding:8px 0;font-size:13px}
+  .erow + .erow{border-top:1px dashed #f0f2f5}
+  .erow__lb{flex:0 0 84px;color:var(--t2);font-size:12.5px}
+  .erow__ct{flex:1;min-width:0;display:flex;align-items:center;gap:10px}
+  .erow__hint{font-size:11.5px;color:var(--t4)}
+
+  .plist{display:flex;flex-direction:column}
+  .prow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f5f7fa}
+  .prow:last-child{border-bottom:0}
+  .prow img,.prow .ph{width:40px;height:40px;border-radius:6px;object-fit:cover;border:1px solid var(--border);flex:0 0 40px;background:#f7f8fa;display:flex;align-items:center;justify-content:center;color:var(--t4);font-size:10px}
+  .prow__n{flex:1;min-width:0}
+  .prow__n b{display:block;font-size:13px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .prow__s{font-size:11.5px;color:var(--t3);margin-top:3px}
+  .prow__p{text-align:right;font-size:13px;font-variant-numeric:tabular-nums}
+  .prow__p span{display:block;font-size:11.5px;color:var(--t3);margin-top:3px}
+
+  /* ---------- 方案 C 看板 ---------- */
+  .kbar{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:14px;box-shadow:var(--shadow)}
+  .kbar__t{font-size:13.5px;color:var(--t2)}
+  .kbar__t b{font-size:16px;font-weight:600;color:var(--danger);font-variant-numeric:tabular-nums}
+  .kbar__sp{flex:1}
+  .kanban{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
+  .kcol{background:#f6f7f9;border:1px solid var(--border-2);border-radius:8px;display:flex;flex-direction:column;min-height:220px}
+  .kcol__head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--border-2)}
+  .kcol__head b{font-size:13px;font-weight:600}
+  .kcol__head .n{font-size:11px;font-weight:600;color:#fff;background:var(--t4);border-radius:9px;padding:0 7px;line-height:17px;font-variant-numeric:tabular-nums}
+  .kcol--danger .kcol__head .n{background:var(--danger)}
+  .kcol--primary .kcol__head .n{background:var(--primary)}
+  .kcol--success .kcol__head .n{background:var(--success)}
+  .kcol__sub{font-size:11.5px;color:var(--t3);margin-left:auto}
+  .kcol__body{padding:10px;display:flex;flex-direction:column;gap:10px}
+  .kcard{background:#fff;border:1px solid var(--border-2);border-radius:6px;padding:11px 12px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+  .kcard:hover{border-color:#c6e2ff;box-shadow:0 4px 12px rgba(64,158,255,.1)}
+  .kcard__top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .kcard__no{font-family:var(--mono);font-size:11.5px;color:var(--t3)}
+  .kcard__wait{font-size:11px;color:var(--danger);font-weight:600;font-variant-numeric:tabular-nums}
+  .kcard__wait--ok{color:var(--t4);font-weight:400}
+  .kcard__g{display:flex;gap:9px;align-items:center;margin-top:9px}
+  .kcard__g img,.kcard__g .ph{width:40px;height:40px;border-radius:6px;object-fit:cover;border:1px solid var(--border);flex:0 0 40px;background:#f7f8fa;display:flex;align-items:center;justify-content:center;color:var(--t4);font-size:10px}
+  .kcard__g b{display:block;font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .kcard__g span{display:block;font-size:11px;color:var(--t3);margin-top:3px}
+  .kcard__bot{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--border)}
+  .kcard__buyer{font-size:12px;color:var(--t2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .kcard__amt{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+  .kcol__more{padding:0 10px 10px;font-size:11.5px;color:var(--t3);text-align:center}
+
+  /* ---------- 注释条 ---------- */
+  .ann{display:block;background:#f4f9ff;border:1px dashed #b3d8ff;border-radius:6px;padding:10px 13px;font-size:12.5px;color:#3d7bb8;line-height:1.7;margin-bottom:14px}
+  .ann code{font-family:var(--mono);font-size:11.5px;background:rgba(64,158,255,.1);padding:0 4px;border-radius:3px}
+  .ann b{color:#1f6feb;font-weight:600}
+  .ann--warn{background:#fdf6ec;border-color:#f5dab1;color:#a9762b}
+  .ann--warn b{color:#b88230}
+
+  /* ---------- 对比 ---------- */
+  .compare{margin-top:22px;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);overflow:hidden}
+  .compare__head{padding:14px 18px;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .compare__head i{width:3px;height:14px;background:var(--primary);border-radius:2px;display:inline-block}
+  .compare table{width:100%;border-collapse:collapse;font-size:13px}
+  .compare th,.compare td{padding:10px 16px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+  .compare thead th{background:#fafafa;font-weight:500;color:var(--t2);font-size:12.5px;white-space:nowrap}
+  .compare tbody th{font-weight:500;color:var(--t2);width:150px;white-space:nowrap;background:#fcfcfd}
+  .compare tbody tr:last-child td,.compare tbody tr:last-child th{border-bottom:0}
+  .compare .good{color:#529b2e}
+  .compare .bad{color:#c45656}
+  .compare .mid{color:#b88230}
+  .compare .col-a{background:#fcfdff}
+  .compare .rec{font-size:11px;background:#ecf5ff;color:var(--primary);border:1px solid #d9ecff;border-radius:8px;padding:0 6px;line-height:16px;margin-left:6px;vertical-align:1px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="aside">
+    <div class="aside__logo">TickCart <em>管理后台</em></div>
+    <nav class="menu">
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        搜索分析
+      </div>
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg>
+        商品管理
+      </div>
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        分类管理
+      </div>
+      <div class="menu__item is-active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/></svg>
+        订单管理
+      </div>
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg>
+        秒杀管理
+      </div>
+    </nav>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar__title">订单管理</div>
+      <div class="topbar__user"><b>admin</b><span class="link">退出</span></div>
+    </div>
+
+    <div class="content">
+      <div class="switcher">
+        <div class="switcher__head">
+          <h1>订单管理 · 界面重设计</h1>
+          <span>三个方案，切换查看 · 地址栏 #a / #b / #c 可直达 · 数据取自本地库真实订单</span>
+        </div>
+        <div class="switcher__tabs">
+          <div class="tab is-on" data-p="a">
+            <span class="tab__cost">后端 +1 接口 +2 字段</span>
+            <div class="tab__kicker">方案 A</div>
+            <div class="tab__name">状态工作台 · 待办优先</div>
+            <div class="tab__desc">状态页签带计数、按「等最久」排序、商品列合并、详情抽屉带时间线，勾选后批量发货</div>
+          </div>
+          <div class="tab" data-p="b">
+            <span class="tab__cost tab__cost--zero">0 后端改动</span>
+            <div class="tab__kicker">方案 B</div>
+            <div class="tab__name">左列表 + 右详情</div>
+            <div class="tab__desc">客服查单台：左边紧凑列表键盘上下切，右边详情常驻，发货不用开关弹窗</div>
+          </div>
+          <div class="tab" data-p="c">
+            <span class="tab__cost">后端 +1 接口</span>
+            <div class="tab__kicker">方案 C</div>
+            <div class="tab__name">发货看板 · 三列</div>
+            <div class="tab__desc">待发货 / 待收货 / 已完成 分列，卡片上直接发货，积压一眼看清，适合仓库平板</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== 方案 A ==================== -->
+      <section class="proposal is-on" id="pa">
+        <div class="kpis">
+          <div class="kpi kpi--danger">
+            <div class="kpi__k">待发货</div>
+            <div class="kpi__v danger">48</div>
+            <div class="kpi__x">最早一单已等 <b>18 天 22 小时</b></div>
+          </div>
+          <div class="kpi kpi--primary">
+            <div class="kpi__k">待收货</div>
+            <div class="kpi__v">4</div>
+            <div class="kpi__x">已发出，等买家确认收货</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__k">累计成交</div>
+            <div class="kpi__v">¥116,133.80</div>
+            <div class="kpi__x">62 单已付款 · 客单价 ¥1,873</div>
+          </div>
+        </div>
+
+        <div class="ann">
+          <b>为什么不写「今日 N 单」：</b>本地库最新订单停在 10-21，今天打开页面「今日 / 近 7 天」全是 0，会让人以为页面坏了。概览卡只挂<b>不会因为数据陈旧而变 0</b> 的指标：积压量、积压时长、累计成交。
+        </div>
+
+        <div class="card filter">
+          <div class="chips">
+            <span class="chip is-on">全部 <b>172</b></span>
+            <span class="chip">待付款 <b>2</b></span>
+            <span class="chip chip--warn is-on-warn">待发货 <b>48</b></span>
+            <span class="chip">待收货 <b>4</b></span>
+            <span class="chip">已完成 <b>10</b></span>
+            <span class="chip chip--mute">已取消 <b>101</b></span>
+            <span class="chip chip--mute">已超时 <b>7</b></span>
+          </div>
+          <div class="frow">
+            <div class="field field--search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+              订单号 / 收货人 / 手机 / 商品名
+            </div>
+            <div class="field field--sel">全部时间
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
+            </div>
+            <div class="field field--sel" style="min-width:190px">付款时间 ↑ 等最久优先
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
+            </div>
+            <div class="frow__sp"></div>
+            <span class="frow__lb">每页</span>
+            <div class="field field--sel" style="min-width:80px">20 条
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
+            </div>
+            <button class="btn btn--primary">查询</button>
+          </div>
+        </div>
+
+        <div class="card tblwrap">
+          <div class="batch" id="batchA">
+            <span class="ck" id="ckAll" onclick="toggleAll(this)"></span>
+            <span>已选 <b id="selN">3</b> 单 · 合计 <b id="selAmt">¥248.90</b></span>
+            <span class="batch__sp"></span>
+            <button class="btn btn--sm">取消选择</button>
+            <button class="btn btn--sm btn--primary">批量发货</button>
+          </div>
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th class="c-sel"><span class="ck is-on" onclick="toggleAll(this)"></span></th>
+                <th style="width:252px">订单</th>
+                <th>商品</th>
+                <th style="width:250px">买家 / 收货</th>
+                <th style="width:120px" class="num">实付</th>
+                <th style="width:132px">状态</th>
+                <th class="c-ops">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="c-sel"><span class="ck is-on" onclick="toggleOne(this)"></span></td>
+                <td>
+                  <div class="ocell">
+                    <img class="ocell__thumb" src="../../imgs/fresh/fresh-06.jpg" alt="">
+                    <div class="ocell__b">
+                      <div class="ocell__no">SK202610212240309441278 <span class="tag tag--sk">秒杀</span></div>
+                      <div class="ocell__sub">下单 10-21 22:40</div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ocell__name">精选牛油果</div>
+                  <div class="ocell__spec">8 个装 × 1</div>
+                </td>
+                <td>
+                  <div class="buyer__n">张筱函 <span class="buyer__p" style="display:inline">13700000000</span></div>
+                  <div class="buyer__a">河南省开封市金明区123</div>
+                </td>
+                <td class="num"><div class="amt">¥20.00</div></td>
+                <td>
+                  <div class="st">
+                    <span class="tag tag--danger">待发货</span>
+                    <span class="st__w">已等 3 天 18 小时</span>
+                  </div>
+                </td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">详情</button>
+                    <button class="btn btn--sm btn--primary">发货</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="c-sel"><span class="ck is-on" onclick="toggleOne(this)"></span></td>
+                <td>
+                  <div class="ocell">
+                    <img class="ocell__thumb" src="../../imgs/fresh/fresh-06.jpg" alt="">
+                    <div class="ocell__b">
+                      <div class="ocell__no">NO202610162302313142619</div>
+                      <div class="ocell__sub">下单 10-16 23:02</div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ocell__name">精选牛油果</div>
+                  <div class="ocell__spec">4 个装 × 1</div>
+                </td>
+                <td>
+                  <div class="buyer__n">赵六 <span class="buyer__p" style="display:inline">13600136000</span></div>
+                  <div class="buyer__a">广东省深圳市南山区科技园 8 号</div>
+                </td>
+                <td class="num"><div class="amt">¥39.90</div></td>
+                <td>
+                  <div class="st">
+                    <span class="tag tag--danger">待发货</span>
+                    <span class="st__w">已等 8 天 18 小时</span>
+                  </div>
+                </td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">详情</button>
+                    <button class="btn btn--sm btn--primary">发货</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="c-sel"><span class="ck is-on" onclick="toggleOne(this)"></span></td>
+                <td>
+                  <div class="ocell">
+                    <img class="ocell__thumb" src="../../imgs/clothing/clothing-20.jpg" alt="">
+                    <div class="ocell__b">
+                      <div class="ocell__no">NO202610131201597442767</div>
+                      <div class="ocell__sub">下单 10-13 12:02</div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ocell__name">秋季针织衫 多色可选</div>
+                  <div class="ocell__spec">M × 1</div>
+                </td>
+                <td>
+                  <div class="buyer__n">赵六 <span class="buyer__p" style="display:inline">13600136000</span></div>
+                  <div class="buyer__a">广东省深圳市南山区科技园 8 号</div>
+                </td>
+                <td class="num"><div class="amt">¥189.00</div></td>
+                <td>
+                  <div class="st">
+                    <span class="tag tag--danger">待发货</span>
+                    <span class="st__w">已等 12 天 5 小时</span>
+                  </div>
+                </td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">详情</button>
+                    <button class="btn btn--sm btn--primary">发货</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="c-sel"><span class="ck" onclick="toggleOne(this)"></span></td>
+                <td>
+                  <div class="ocell">
+                    <img class="ocell__thumb" src="../../imgs/clothing/clothing-20.jpg" alt="">
+                    <div class="ocell__b">
+                      <div class="ocell__no">NO202610081756596721712 <span class="rm">备注</span></div>
+                      <div class="ocell__sub">下单 10-08 17:57</div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ocell__name">秋季针织衫 多色可选</div>
+                  <div class="ocell__spec">M × 1</div>
+                </td>
+                <td>
+                  <div class="buyer__n">李四 <span class="buyer__p" style="display:inline">13900139000</span></div>
+                  <div class="buyer__a">广东省深圳市福田区深南大道 1 号</div>
+                </td>
+                <td class="num"><div class="amt">¥189.00</div></td>
+                <td>
+                  <div class="st">
+                    <span class="tag tag--danger">待发货</span>
+                    <span class="st__w">已等 16 天 23 小时</span>
+                  </div>
+                </td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">详情</button>
+                    <button class="btn btn--sm btn--primary">发货</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="c-sel"><span class="ck" onclick="toggleOne(this)"></span></td>
+                <td>
+                  <div class="ocell">
+                    <div class="ocell__thumb ocell__thumb--ph">无图</div>
+                    <div class="ocell__b">
+                      <div class="ocell__no">NO202610061923126303552</div>
+                      <div class="ocell__sub">下单 10-06 19:23</div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ocell__name">iPhone17</div>
+                  <div class="ocell__spec">黑色 256G × 2</div>
+                </td>
+                <td>
+                  <div class="buyer__n">李四 <span class="buyer__p" style="display:inline">13900139000</span></div>
+                  <div class="buyer__a">浙江省杭州市西湖区文一西路 100 号</div>
+                </td>
+                <td class="num"><div class="amt">¥13,998.00</div></td>
+                <td>
+                  <div class="st">
+                    <span class="tag tag--danger">待发货</span>
+                    <span class="st__w">已等 18 天 22 小时</span>
+                  </div>
+                </td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">详情</button>
+                    <button class="btn btn--sm btn--primary">发货</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="c-sel"><span class="ck" onclick="toggleOne(this)"></span></td>
+                <td>
+                  <div class="ocell">
+                    <img class="ocell__thumb" src="../../imgs/clothing/clothing-20.jpg" alt="">
+                    <div class="ocell__b">
+                      <div class="ocell__no">NO202610081802424925982</div>
+                      <div class="ocell__sub">下单 10-08 18:02</div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ocell__name">秋季针织衫 多色可选</div>
+                  <div class="ocell__spec">M × 1</div>
+                </td>
+                <td>
+                  <div class="buyer__n">李四 <span class="buyer__p" style="display:inline">13900139000</span></div>
+                  <div class="buyer__a">广东省深圳市福田区深南大道 1 号</div>
+                </td>
+                <td class="num"><div class="amt">¥189.00</div></td>
+                <td>
+                  <div class="st">
+                    <span class="tag tag--primary">待收货</span>
+                    <span class="st__w st__w--ok">10-11 已发货</span>
+                  </div>
+                </td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">详情</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="c-sel"><span class="ck" onclick="toggleOne(this)"></span></td>
+                <td>
+                  <div class="ocell">
+                    <div class="ocell__thumb ocell__thumb--ph">无图</div>
+                    <div class="ocell__b">
+                      <div class="ocell__no">NO202610061905119033970 <span class="rm">备注</span></div>
+                      <div class="ocell__sub">下单 10-06 19:05</div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ocell__name">iPhone17</div>
+                  <div class="ocell__spec">黑色 256G × 2</div>
+                </td>
+                <td>
+                  <div class="buyer__n">张三 <span class="buyer__p" style="display:inline">13800138000</span></div>
+                  <div class="buyer__a">广东省深圳市南山区科技园路 1 号</div>
+                </td>
+                <td class="num"><div class="amt">¥13,998.00</div></td>
+                <td>
+                  <div class="st">
+                    <span class="tag tag--info">已取消</span>
+                    <span class="st__w st__w--ok">10-06 19:05 取消</span>
+                  </div>
+                </td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">详情</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="c-sel"><span class="ck" onclick="toggleOne(this)"></span></td>
+                <td>
+                  <div class="ocell">
+                    <div class="ocell__thumb ocell__thumb--ph">无图</div>
+                    <div class="ocell__b">
+                      <div class="ocell__no">NO202610061930558897342</div>
+                      <div class="ocell__sub">下单 10-06 19:30</div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="ocell__name">iPhone17</div>
+                  <div class="ocell__spec">黑色 256G × 1</div>
+                </td>
+                <td>
+                  <div class="buyer__n">赵六 <span class="buyer__p" style="display:inline">13600136000</span></div>
+                  <div class="buyer__a">上海市浦东新区世纪大道 1 号</div>
+                </td>
+                <td class="num"><div class="amt">¥6,999.00</div></td>
+                <td>
+                  <div class="st">
+                    <span class="tag tag--warn">待付款</span>
+                    <span class="st__w st__w--ok">超时自动关闭前</span>
+                  </div>
+                </td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">详情</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="pager">
+            <span style="color:#909399">共 172 条</span>
+            <span class="pager__n">‹</span>
+            <span class="pager__n is-on">1</span>
+            <span class="pager__n">2</span>
+            <span class="pager__n">3</span>
+            <span class="pager__n">…</span>
+            <span class="pager__n">9</span>
+            <span class="pager__n">›</span>
+          </div>
+        </div>
+
+        <div class="ann ann--warn" style="margin-top:14px">
+          <b>三个要点：</b>①「支付流水号 / 支付渠道」两列（300px）从列表里拿掉，只留在详情抽屉里 —— 172 单里只有 62 单真正支付成功，而现有实现会把<b>已取消订单</b>也显示成「PAY… · 微信支付」（取最新一条流水、不看流水状态），容易误读成已付款。②「等最久」需要 <code>payTime</code>，列表 VO 现在只有 <code>createdAt</code>。③「备注」标记是本轮新增：21 单有备注，现有弹窗里只是一行灰字。
+        </div>
+      </section>
+
+      <!-- ==================== 方案 B ==================== -->
+      <section class="proposal" id="pb">
+        <div class="ann">
+          <b>这个方案只做一件事：客服查单。</b>左边列表用 <span class="kbd">↑</span> <span class="kbd">↓</span> 切换，右边详情常驻，发货按钮固定在底部 —— 查一单、发一单不用开关弹窗。全部复用现有 3 个接口（列表 / 详情 / 发货），<b>后端 0 改动</b>。
+        </div>
+        <div class="ws">
+          <div class="ws__list">
+            <div class="ws__top">
+              <div class="field field--search" style="width:100%">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+                订单号 / 收货人 / 手机
+              </div>
+              <div class="ws__tabs">
+                <span class="is-on">全部 172</span>
+                <span>待发货 48</span>
+                <span>待收货 4</span>
+                <span>已完成 10</span>
+                <span>已关闭 108</span>
+              </div>
+            </div>
+            <div class="ws__scroll" id="bList"></div>
+          </div>
+          <div class="ws__panel">
+            <div class="ws__head">
+              <div class="ws__head__b">
+                <div class="ws__head__t" id="bNo">NO202610081756596721712</div>
+                <div class="ws__head__m" id="bMeta"></div>
+              </div>
+              <span class="tag tag--danger" id="bTag">待发货</span>
+            </div>
+            <div class="ws__body" id="bBody"></div>
+            <div class="ws__foot">
+              <span style="font-size:12px;color:#909399">↑ ↓ 切换订单</span>
+              <span class="sp"></span>
+              <button class="btn">关闭订单</button>
+              <button class="btn btn--primary">发货并看下一条</button>
+            </div>
+          </div>
+        </div>
+        <div class="ann ann--warn" style="margin-top:14px">
+          <b>代价：</b>一屏只能看 8 条（现在 10 条），且 108 单已取消/超时在左列表里非常吵；批量发货没地方放。适合<b>单量小、以查单为主</b>的团队，不适合每天清 48 单积压。
+        </div>
+      </section>
+
+      <!-- ==================== 方案 C ==================== -->
+      <section class="proposal" id="pc">
+        <div class="kbar">
+          <div class="kbar__t">今天要发 <b>48</b> 单，最早一单已等 <b>18 天 22 小时</b></div>
+          <span class="kbar__sp"></span>
+          <div class="field field--sel" style="min-width:110px">全部时间
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
+          </div>
+          <button class="btn">刷新</button>
+        </div>
+
+        <div class="kanban">
+          <div class="kcol kcol--danger">
+            <div class="kcol__head">
+              <b>待发货</b><span class="n">48</span>
+              <span class="kcol__sub">最久 18 天</span>
+            </div>
+            <div class="kcol__body">
+              <div class="kcard">
+                <div class="kcard__top">
+                  <span class="kcard__no">SK…09441278</span>
+                  <span class="kcard__wait">等 3 天 18 小时</span>
+                </div>
+                <div class="kcard__g">
+                  <img src="../../imgs/fresh/fresh-06.jpg" alt="">
+                  <div style="min-width:0"><b>精选牛油果</b><span>8 个装 × 1</span></div>
+                </div>
+                <div class="kcard__bot">
+                  <span class="kcard__buyer">张筱函 · 开封</span>
+                  <span class="kcard__amt">¥20.00</span>
+                  <button class="btn btn--sm btn--primary">发货</button>
+                </div>
+              </div>
+              <div class="kcard">
+                <div class="kcard__top">
+                  <span class="kcard__no">NO…3142619</span>
+                  <span class="kcard__wait">等 8 天 18 小时</span>
+                </div>
+                <div class="kcard__g">
+                  <img src="../../imgs/fresh/fresh-06.jpg" alt="">
+                  <div style="min-width:0"><b>精选牛油果</b><span>4 个装 × 1</span></div>
+                </div>
+                <div class="kcard__bot">
+                  <span class="kcard__buyer">赵六 · 深圳</span>
+                  <span class="kcard__amt">¥39.90</span>
+                  <button class="btn btn--sm btn--primary">发货</button>
+                </div>
+              </div>
+              <div class="kcard">
+                <div class="kcard__top">
+                  <span class="kcard__no">NO…97442767</span>
+                  <span class="kcard__wait">等 12 天 5 小时</span>
+                </div>
+                <div class="kcard__g">
+                  <img src="../../imgs/clothing/clothing-20.jpg" alt="">
+                  <div style="min-width:0"><b>秋季针织衫 多色可选</b><span>M × 1</span></div>
+                </div>
+                <div class="kcard__bot">
+                  <span class="kcard__buyer">赵六 · 深圳</span>
+                  <span class="kcard__amt">¥189.00</span>
+                  <button class="btn btn--sm btn--primary">发货</button>
+                </div>
+              </div>
+              <div class="kcard">
+                <div class="kcard__top">
+                  <span class="kcard__no">NO…6721712</span>
+                  <span class="kcard__wait">等 16 天 23 小时</span>
+                </div>
+                <div class="kcard__g">
+                  <img src="../../imgs/clothing/clothing-20.jpg" alt="">
+                  <div style="min-width:0"><b>秋季针织衫 多色可选</b><span>M × 1 · 有备注</span></div>
+                </div>
+                <div class="kcard__bot">
+                  <span class="kcard__buyer">李四 · 深圳</span>
+                  <span class="kcard__amt">¥189.00</span>
+                  <button class="btn btn--sm btn--primary">发货</button>
+                </div>
+              </div>
+              <div class="kcard">
+                <div class="kcard__top">
+                  <span class="kcard__no">NO…6303552</span>
+                  <span class="kcard__wait">等 18 天 22 小时</span>
+                </div>
+                <div class="kcard__g">
+                  <div class="ph">无图</div>
+                  <div style="min-width:0"><b>iPhone17</b><span>黑色 256G × 2</span></div>
+                </div>
+                <div class="kcard__bot">
+                  <span class="kcard__buyer">李四 · 杭州</span>
+                  <span class="kcard__amt">¥13,998.00</span>
+                  <button class="btn btn--sm btn--primary">发货</button>
+                </div>
+              </div>
+            </div>
+            <div class="kcol__more">还有 43 单…</div>
+          </div>
+
+          <div class="kcol kcol--primary">
+            <div class="kcol__head">
+              <b>待收货</b><span class="n">4</span>
+              <span class="kcol__sub">等买家确认</span>
+            </div>
+            <div class="kcol__body">
+              <div class="kcard">
+                <div class="kcard__top">
+                  <span class="kcard__no">NO…24925982</span>
+                  <span class="kcard__wait kcard__wait--ok">10-11 已发出</span>
+                </div>
+                <div class="kcard__g">
+                  <img src="../../imgs/clothing/clothing-20.jpg" alt="">
+                  <div style="min-width:0"><b>秋季针织衫 多色可选</b><span>M × 1</span></div>
+                </div>
+                <div class="kcard__bot">
+                  <span class="kcard__buyer">李四 · 深圳</span>
+                  <span class="kcard__amt">¥189.00</span>
+                </div>
+              </div>
+              <div class="kcard">
+                <div class="kcard__top">
+                  <span class="kcard__no">NO…78453645</span>
+                  <span class="kcard__wait kcard__wait--ok">10-07 已发出</span>
+                </div>
+                <div class="kcard__g">
+                  <div class="ph">无图</div>
+                  <div style="min-width:0"><b>iPhone17</b><span>黑色 256G × 1</span></div>
+                </div>
+                <div class="kcard__bot">
+                  <span class="kcard__buyer">张筱函 · 开封</span>
+                  <span class="kcard__amt">¥6,999.00</span>
+                </div>
+              </div>
+            </div>
+            <div class="kcol__more">还有 2 单…</div>
+          </div>
+
+          <div class="kcol kcol--success">
+            <div class="kcol__head">
+              <b>已完成</b><span class="n">10</span>
+              <span class="kcol__sub">只读</span>
+            </div>
+            <div class="kcol__body">
+              <div class="kcard">
+                <div class="kcard__top">
+                  <span class="kcard__no">NO…5203786453</span>
+                  <span class="kcard__wait kcard__wait--ok">10-11 完成</span>
+                </div>
+                <div class="kcard__g">
+                  <div class="ph">无图</div>
+                  <div style="min-width:0"><b>iPhone17</b><span>黑色 256G × 1</span></div>
+                </div>
+                <div class="kcard__bot">
+                  <span class="kcard__buyer">张筱函 · 开封</span>
+                  <span class="kcard__amt">¥6,999.00</span>
+                </div>
+              </div>
+            </div>
+            <div class="kcol__more">还有 9 单…</div>
+          </div>
+        </div>
+
+        <div class="ann ann--warn" style="margin-top:14px">
+          <b>卡在哪：</b>172 单里 <b>108 单是已取消 / 已超时</b>，看板没有它们的位置 —— 要么加第四列（页面变成四列滚动），要么这些单彻底查不到。另外卡片流装不下搜索、时间筛选、批量发货和分页。它适合「仓库按单打包」的场景，不适合当订单管理的唯一入口。
+        </div>
+      </section>
+
+      <!-- ==================== 对比 ==================== -->
+      <div class="compare">
+        <div class="compare__head"><i></i>三方案对比</div>
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th style="width:30%">A · 状态工作台 <span class="rec">推荐</span></th>
+              <th style="width:30%">B · 左列表右详情</th>
+              <th style="width:30%">C · 发货看板</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th>清 48 单积压</th>
+              <td class="col-a"><span class="good">chips 一键筛待发货 + 勾选批量发货</span></td>
+              <td><span class="bad">一条条点，48 次要开 48 次确认</span></td>
+              <td><span class="mid">卡上直接发，但一列只能放 5 张</span></td>
+            </tr>
+            <tr>
+              <th>客服查单</th>
+              <td class="col-a"><span class="good">搜索 + 抽屉，够用</span></td>
+              <td><span class="good">键盘上下切，不用开关弹窗</span></td>
+              <td><span class="bad">只能按状态找，搜索无处安放</span></td>
+            </tr>
+            <tr>
+              <th>看状态分布</th>
+              <td class="col-a"><span class="good">chips 直接带 6 个计数</span></td>
+              <td><span class="mid">左列表 tab 带计数，但挤在 380px 里</span></td>
+              <td><span class="mid">只看得到 3 个在途状态</span></td>
+            </tr>
+            <tr>
+              <th>「等最久」排序</th>
+              <td class="col-a"><span class="good">付款时间 ↑，最早一单排第一</span></td>
+              <td><span class="mid">列表可按时间排，但没地方放排序控件</span></td>
+              <td><span class="good">卡上标了等待时长</span></td>
+            </tr>
+            <tr>
+              <th>一屏信息量</th>
+              <td class="col-a"><span class="good">20 条（8 列压到 6 列）</span></td>
+              <td><span class="bad">8 条 + 一个详情面板</span></td>
+              <td><span class="bad">15 张卡，纵向滚动很长</span></td>
+            </tr>
+            <tr>
+              <th>已取消 / 超时单</th>
+              <td class="col-a"><span class="good">一个 chip 就能筛出来</span></td>
+              <td><span class="mid">混在列表里，很吵</span></td>
+              <td><span class="bad">没有位置</span></td>
+            </tr>
+            <tr>
+              <th>后端改动</th>
+              <td class="col-a"><span class="mid">+1 概览接口、VO +2 字段、查询 +排序/时间范围</span></td>
+              <td><span class="good">0 改动（现有 3 个接口够）</span></td>
+              <td><span class="mid">+1 概览接口</span></td>
+            </tr>
+            <tr>
+              <th>长期可扩展</th>
+              <td class="col-a"><span class="good">加「导出/关闭订单/退款」都有位置</span></td>
+              <td><span class="mid">右侧面板会越来越挤</span></td>
+              <td><span class="bad">状态一多就摊不开</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 详情抽屉（方案 A） -->
+<div class="mask" id="mask" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer__head">
+    <span class="drawer__t">NO202610081756596721712</span>
+    <span class="tag tag--danger">待发货</span>
+    <span class="drawer__sp"></span>
+    <button class="drawer__x" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="drawer__body">
+    <div class="tl">
+      <div class="tl__i is-done">
+        <span class="tl__d"></span>
+        <div class="tl__lb">下单</div>
+        <div class="tl__t">10-08 17:57</div>
+      </div>
+      <div class="tl__i is-done">
+        <span class="tl__d"></span>
+        <div class="tl__lb">支付</div>
+        <div class="tl__t">10-08 17:57</div>
+      </div>
+      <div class="tl__i is-cur">
+        <span class="tl__d"></span>
+        <div class="tl__lb">发货</div>
+        <div class="tl__t">已等 16 天 23 小时</div>
+      </div>
+      <div class="tl__i is-off">
+        <span class="tl__d"></span>
+        <div class="tl__lb">完成</div>
+        <div class="tl__t">待买家确认</div>
+      </div>
+    </div>
+
+    <div class="remark" style="margin-top:16px">
+      <b>买家备注</b>
+      <span>后台发货验证</span>
+    </div>
+
+    <div class="sect">
+      <div class="sect__head">收货信息<span class="sp"></span><span class="badge">下单快照，改地址不影响本单</span></div>
+      <div class="sect__body">
+        <div class="addr">
+          <div class="addr__row"><span class="addr__lb">收货人</span><span class="addr__v">李四<span class="copy">复制</span></span></div>
+          <div class="addr__row"><span class="addr__lb">手机号</span><span class="addr__v">13900139000<span class="copy">复制</span></span></div>
+          <div class="addr__row"><span class="addr__lb">地址</span><span class="addr__v">广东省深圳市福田区深南大道 1 号<span class="copy">复制</span></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sect">
+      <div class="sect__head">商品明细<span class="sp"></span><span class="badge">1 种 · 共 1 件</span></div>
+      <div class="sect__body" style="padding:6px 14px">
+        <div class="plist">
+          <div class="prow">
+            <img src="../../imgs/clothing/clothing-20.jpg" alt="">
+            <div class="prow__n">
+              <b>秋季针织衫 多色可选</b>
+              <div class="prow__s">M · ¥189.00</div>
+            </div>
+            <div class="prow__p">× 1<span>¥189.00</span></div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:22px;padding:10px 0 4px;border-top:1px dashed #f0f2f5;margin-top:6px;font-size:12.5px;color:#606266">
+          <span>商品合计 <b style="font-variant-numeric:tabular-nums">¥189.00</b></span>
+          <span>实付 <b style="font-size:17px;color:#f56c6c;font-variant-numeric:tabular-nums">¥189.00</b></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sect">
+      <div class="sect__head">支付信息<span class="sp"></span><span class="badge">已支付</span></div>
+      <div class="sect__body">
+        <div class="paybox">
+          <div><span>支付渠道</span> <b>微信支付</b></div>
+          <div><span>支付状态</span> <b class="ok">支付成功</b></div>
+          <div><span>支付时间</span> 2026-10-08 17:57:00</div>
+          <div style="flex-basis:100%"><span>流水号</span> <b class="mono">PAY202610081757123456789</b></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ann" style="margin:0">
+      <b>取消/超时单的支付区会换成另一种写法：</b>「支付状态：<b style="color:#c45656">未支付成功（已关闭）</b>」并隐藏流水号 —— 现有实现会把 30 单已取消订单的失败流水号当成「支付流水号」展示，读起来像已付款。
+    </div>
+  </div>
+  <div class="drawer__foot">
+    <button class="btn" onclick="closeDrawer()">关闭</button>
+    <button class="btn btn--primary">发货</button>
+  </div>
+</aside>
+
+<script>
+/* ---------------- 方案切换 ---------------- */
+function activate(p){
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('is-on', t.dataset.p === p))
+  document.querySelectorAll('.proposal').forEach(el => el.classList.toggle('is-on', el.id === 'p' + p))
+}
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    activate(tab.dataset.p)
+    try { history.replaceState(null, '', '#' + tab.dataset.p) } catch (e) { /* file:// 忽略 */ }
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  })
+})
+const initial = (window.location.hash || '').replace('#', '')
+if (['a','b','c'].includes(initial)) activate(initial)
+
+/* ---------------- 勾选 / 批量条 ---------------- */
+function updateBatch(){
+  const all = [...document.querySelectorAll('#pa .tbl tbody .ck')]
+  const on = all.filter(c => c.classList.contains('is-on'))
+  const batch = document.getElementById('batchA')
+  batch.style.display = on.length ? 'flex' : 'none'
+  const sum = on.reduce((s, c) => {
+    const t = c.closest('tr').querySelector('.amt').textContent.replace(/[¥,]/g, '')
+    return s + (parseFloat(t) || 0)
+  }, 0)
+  document.getElementById('selN').textContent = on.length
+  document.getElementById('selAmt').textContent = '¥' + sum.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  document.getElementById('ckAll').classList.toggle('is-on', on.length === all.length)
+}
+function toggleOne(el){ el.classList.toggle('is-on'); updateBatch() }
+function toggleAll(el){
+  const on = !el.classList.contains('is-on')
+  document.querySelectorAll('#pa .tbl tbody .ck').forEach(c => c.classList.toggle('is-on', on))
+  updateBatch()
+}
+updateBatch()
+
+/* ---------------- 抽屉 ---------------- */
+function openDrawer(){
+  document.getElementById('mask').classList.add('is-on')
+  document.getElementById('drawer').classList.add('is-on')
+}
+function closeDrawer(){
+  document.getElementById('mask').classList.remove('is-on')
+  document.getElementById('drawer').classList.remove('is-on')
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer() })
+
+/* ---------------- 方案 B：主从 ---------------- */
+const B_ORDERS = [
+  {
+    no:'NO202610081756596721712', status:'待发货', tag:'danger',
+    buyer:'李四', phone:'13900139000', addr:'广东省深圳市福田区深南大道 1 号',
+    created:'2026-10-08 17:57', pay:'2026-10-08 17:57', ship:'', finish:'',
+    wait:'已等 16 天 23 小时', amount:'¥189.00', qty:1,
+    remark:'后台发货验证',
+    payChannel:'微信支付', payState:'支付成功', payNo:'PAY202610081757123456789',
+    items:[{img:'../../imgs/clothing/clothing-20.jpg', name:'秋季针织衫 多色可选', spec:'M', price:'¥189.00', qty:1, sum:'¥189.00'}]
+  },
+  {
+    no:'SK202610212240309441278', status:'待发货', tag:'danger',
+    buyer:'张筱函', phone:'13700000000', addr:'河南省开封市金明区123',
+    created:'2026-10-21 22:40', pay:'2026-10-21 22:40', ship:'', finish:'',
+    wait:'已等 3 天 18 小时', amount:'¥20.00', qty:1, remark:'', seckill:true,
+    payChannel:'微信支付', payState:'支付成功', payNo:'PAY202610212240319988776',
+    items:[{img:'../../imgs/fresh/fresh-06.jpg', name:'精选牛油果', spec:'8 个装', price:'¥20.00', qty:1, sum:'¥20.00'}]
+  },
+  {
+    no:'NO202610131201597442767', status:'待发货', tag:'danger',
+    buyer:'赵六', phone:'13600136000', addr:'广东省深圳市南山区科技园 8 号',
+    created:'2026-10-13 12:02', pay:'2026-10-13 12:02', ship:'', finish:'',
+    wait:'已等 12 天 5 小时', amount:'¥189.00', qty:1, remark:'',
+    payChannel:'微信支付', payState:'支付成功', payNo:'PAY202610131202033445566',
+    items:[{img:'../../imgs/clothing/clothing-20.jpg', name:'秋季针织衫 多色可选', spec:'M', price:'¥189.00', qty:1, sum:'¥189.00'}]
+  },
+  {
+    no:'NO202610081802424925982', status:'待收货', tag:'primary',
+    buyer:'李四', phone:'13900139000', addr:'广东省深圳市福田区深南大道 1 号',
+    created:'2026-10-08 18:02', pay:'2026-10-08 18:02', ship:'2026-10-11 09:20', finish:'',
+    wait:'10-11 已发货', amount:'¥189.00', qty:1, remark:'后台页面验证',
+    payChannel:'支付宝', payState:'支付成功', payNo:'PAY202610081802431122334',
+    items:[{img:'../../imgs/clothing/clothing-20.jpg', name:'秋季针织衫 多色可选', spec:'M', price:'¥189.00', qty:1, sum:'¥189.00'}]
+  },
+  {
+    no:'NO202610061923126303552', status:'待发货', tag:'danger',
+    buyer:'李四', phone:'13900139000', addr:'浙江省杭州市西湖区文一西路 100 号',
+    created:'2026-10-06 19:23', pay:'2026-10-06 19:23', ship:'', finish:'',
+    wait:'已等 18 天 22 小时', amount:'¥13,998.00', qty:2, remark:'',
+    payChannel:'微信支付', payState:'支付成功', payNo:'PAY202610061923137788990',
+    items:[{img:'', name:'iPhone17', spec:'黑色 256G', price:'¥6,999.00', qty:2, sum:'¥13,998.00'}]
+  },
+  {
+    no:'NO202610061905119033970', status:'已取消', tag:'info',
+    buyer:'张三', phone:'13800138000', addr:'广东省深圳市南山区科技园路 1 号',
+    created:'2026-10-06 19:05', pay:'', ship:'', finish:'',
+    wait:'10-06 19:05 取消', amount:'¥13,998.00', qty:2, remark:'尽快发货', cancelled:true,
+    payChannel:'—', payState:'未支付成功（已关闭）', payNo:'',
+    items:[{img:'', name:'iPhone17', spec:'黑色 256G', price:'¥6,999.00', qty:2, sum:'¥13,998.00'}]
+  },
+  {
+    no:'NO202610162302313142619', status:'待发货', tag:'danger',
+    buyer:'赵六', phone:'13600136000', addr:'广东省深圳市南山区科技园 8 号',
+    created:'2026-10-16 23:02', pay:'2026-10-16 23:02', ship:'', finish:'',
+    wait:'已等 8 天 18 小时', amount:'¥39.90', qty:1, remark:'',
+    payChannel:'微信支付', payState:'支付成功', payNo:'PAY202610162302329900112',
+    items:[{img:'../../imgs/fresh/fresh-06.jpg', name:'精选牛油果', spec:'4 个装', price:'¥39.90', qty:1, sum:'¥39.90'}]
+  },
+  {
+    no:'NO202610061930558897342', status:'待付款', tag:'warn',
+    buyer:'赵六', phone:'13600136000', addr:'上海市浦东新区世纪大道 1 号',
+    created:'2026-10-06 19:30', pay:'', ship:'', finish:'',
+    wait:'已超时（15 分钟未付）', amount:'¥6,999.00', qty:1, remark:'',
+    payChannel:'—', payState:'未发起支付', payNo:'',
+    items:[{img:'', name:'iPhone17', spec:'黑色 256G', price:'¥6,999.00', qty:1, sum:'¥6,999.00'}]
+  }
+]
+
+function thumb(o){
+  return o.img
+    ? `<img class="orow__thumb" src="${o.img}" alt="">`
+    : `<div class="orow__thumb" style="display:flex;align-items:center;justify-content:center;color:#c0c4cc;font-size:10px">无图</div>`
+}
+
+function renderBList(){
+  document.getElementById('bList').innerHTML = B_ORDERS.map((o, i) => `
+    <div class="orow ${i === 0 ? 'is-on' : ''}" data-i="${i}" onclick="selectB(${i})">
+      ${o.items[0].img
+        ? `<img class="orow__thumb" src="${o.items[0].img}" alt="">`
+        : `<div class="orow__thumb" style="display:flex;align-items:center;justify-content:center;color:#c0c4cc;font-size:10px">无图</div>`}
+      <div class="orow__b">
+        <div class="orow__l1">
+          <span class="orow__no">…${o.no.slice(-8)}</span>
+          ${o.seckill ? '<span class="tag tag--sk">秒杀</span>' : ''}
+          ${o.remark ? '<span class="rm">备注</span>' : ''}
+        </div>
+        <div class="orow__l2">
+          <span class="orow__buyer">${o.buyer} · ${o.items[0].name}</span>
+          <span class="orow__amt">${o.amount}</span>
+        </div>
+        <div class="orow__l3">
+          <span>${o.created.slice(5, 16)}</span>
+          <span style="${o.status === '待发货' ? 'color:#f56c6c;font-weight:600' : ''}">${o.wait}</span>
+        </div>
+      </div>
+    </div>
+  `).join('')
+}
+
+function tlHtml(o){
+  const steps = [
+    { lb:'下单', t:o.created, done:true },
+    { lb:'支付', t:o.pay || '未支付', done:!!o.pay },
+    { lb:'发货', t:o.ship || (o.status === '待发货' ? o.wait : '—'), done:!!o.ship, cur:o.status === '待发货' },
+    { lb:'完成', t:o.finish || (o.cancelled ? '已取消' : '待买家确认'), done:!!o.finish }
+  ]
+  return `<div class="tl">` + steps.map(s => `
+    <div class="tl__i ${s.done ? 'is-done' : ''} ${s.cur ? 'is-cur' : ''} ${!s.done && !s.cur ? 'is-off' : ''}">
+      <span class="tl__d"></span>
+      <div class="tl__lb">${s.lb}</div>
+      <div class="tl__t">${s.t}</div>
+    </div>`).join('') + `</div>`
+}
+
+function selectB(i){
+  document.querySelectorAll('#bList .orow').forEach(r => r.classList.toggle('is-on', +r.dataset.i === i))
+  const o = B_ORDERS[i]
+  document.getElementById('bNo').textContent = o.no
+  document.getElementById('bTag').className = 'tag tag--' + o.tag
+  document.getElementById('bTag').textContent = o.status
+  document.getElementById('bMeta').innerHTML =
+    `下单 ${o.created} · 实付 <b style="color:#303133">${o.amount}</b> · ${o.qty} 件`
+    + (o.seckill ? ' · <span class="tag tag--sk">秒杀</span>' : '')
+  document.getElementById('bBody').innerHTML = `
+    ${tlHtml(o)}
+    ${o.remark ? `<div class="remark" style="margin-top:14px"><b>买家备注</b><span>${o.remark}</span></div>` : '<div style="height:14px"></div>'}
+    <div class="sect">
+      <div class="sect__head">收货信息<span class="sp"></span><span class="badge">下单快照</span></div>
+      <div class="sect__body">
+        <div class="addr">
+          <div class="addr__row"><span class="addr__lb">收货人</span><span class="addr__v">${o.buyer}<span class="copy">复制</span></span></div>
+          <div class="addr__row"><span class="addr__lb">手机号</span><span class="addr__v">${o.phone}<span class="copy">复制</span></span></div>
+          <div class="addr__row"><span class="addr__lb">地址</span><span class="addr__v">${o.addr}<span class="copy">复制</span></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="sect">
+      <div class="sect__head">商品明细<span class="sp"></span><span class="badge">${o.items.length} 种 · 共 ${o.qty} 件</span></div>
+      <div class="sect__body" style="padding:6px 14px">
+        <div class="plist">
+          ${o.items.map(it => `
+            <div class="prow">
+              ${it.img ? `<img src="${it.img}" alt="">` : '<div class="ph">无图</div>'}
+              <div class="prow__n"><b>${it.name}</b><div class="prow__s">${it.spec} · ${it.price}</div></div>
+              <div class="prow__p">× ${it.qty}<span>${it.sum}</span></div>
+            </div>`).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="sect">
+      <div class="sect__head">支付信息<span class="sp"></span>
+        <span class="badge">${o.payState === '支付成功' ? '已支付' : '未支付'}</span></div>
+      <div class="sect__body">
+        <div class="paybox">
+          <div><span>支付渠道</span> <b>${o.payChannel}</b></div>
+          <div><span>支付状态</span> <b class="${o.payState === '支付成功' ? 'ok' : 'no'}">${o.payState}</b></div>
+          <div><span>支付时间</span> ${o.pay || '—'}</div>
+          ${o.payNo ? `<div style="flex-basis:100%"><span>流水号</span> <b class="mono">${o.payNo}</b></div>` : ''}
+        </div>
+      </div>
+    </div>`
+}
+renderBList()
+selectB(0)
+
+/* 键盘上下切（仅方案 B 生效） */
+document.addEventListener('keydown', e => {
+  if (document.getElementById('pb').classList.contains('is-on') === false) return
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+  const cur = [...document.querySelectorAll('#bList .orow')].findIndex(r => r.classList.contains('is-on'))
+  const next = Math.min(B_ORDERS.length - 1, Math.max(0, cur + (e.key === 'ArrowDown' ? 1 : -1)))
+  selectB(next)
+  e.preventDefault()
+})
+</script>
+</body>
+</html>
