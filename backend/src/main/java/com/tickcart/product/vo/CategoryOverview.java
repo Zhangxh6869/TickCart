@@ -30,6 +30,15 @@ public class CategoryOverview {
     @Schema(description = "库存预警线；null 表示继承")
     private Integer stockWarnThreshold;
 
+    /**
+     * 生效的预警线（自己配了就是它，否则沿父链/全局解析出来的值）。
+     *
+     * <p>下发它是为了让列表把「继承 10」写准 —— 前端没有阈值解析逻辑，
+     * 也不该有（否则又变成两套口径）。</p>
+     */
+    @Schema(description = "生效的库存预警线（继承后的值）")
+    private Integer effectiveThreshold;
+
     @Schema(description = "该分类下商品数（不含已删除）")
     private int productCount;
 
@@ -82,6 +91,14 @@ public class CategoryOverview {
 
     public void setStockWarnThreshold(Integer stockWarnThreshold) {
         this.stockWarnThreshold = stockWarnThreshold;
+    }
+
+    public Integer getEffectiveThreshold() {
+        return effectiveThreshold;
+    }
+
+    public void setEffectiveThreshold(Integer effectiveThreshold) {
+        this.effectiveThreshold = effectiveThreshold;
     }
 
     public int getProductCount() {

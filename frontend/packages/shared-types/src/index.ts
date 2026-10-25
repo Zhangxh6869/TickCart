@@ -489,3 +489,22 @@ export interface LowStockReport {
   truncated: boolean
   items: LowStockItem[]
 }
+
+// ---------------------------------------------------------------------------
+// 分类总览（分类管理页）
+// ---------------------------------------------------------------------------
+
+/** 分类 + 它在商品侧的用量，供分类管理页判断「能不能删、要不要补货」 */
+export interface CategoryOverview {
+  id: number
+  name: string
+  parentId: number
+  sort: number
+  status: number
+  /** 自己配的预警线；null 表示继承 */
+  stockWarnThreshold?: number | null
+  /** 生效的预警线（继承后的值），由后端解析下发 */
+  effectiveThreshold?: number | null
+  productCount: number
+  lowStockCount: number
+}

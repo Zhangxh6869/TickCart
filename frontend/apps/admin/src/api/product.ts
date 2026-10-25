@@ -1,6 +1,7 @@
 import request from '@/utils/request'
 import type {
   Category,
+  CategoryOverview,
   LowStockReport,
   PageResult,
   ProductDetail,
@@ -132,6 +133,42 @@ export function fetchLowStock(limit = 100): Promise<LowStockReport> {
 /** 分类列表（含禁用）。 */
 export function fetchCategories(): Promise<Category[]> {
   return request.get('/admin/categories')
+}
+
+/**
+ * 分类总览：分类 + 商品数 + 告急数 + 生效预警线。
+ *
+ * <p>比 {@link fetchCategories} 多出来的都是列表页要显示的用量信息，
+ * 单独一个接口是为了不给 `Category` 实体塞统计字段（那个实体还被前台缓存复用）。</p>
+ */
+export function fetchCategoryOverview(): Promise<CategoryOverview[]> {
+  return request.get('/admin/categories/overview')
+}
+
+/**
+ * 只改库存预警线；`value` 传 undefined 表示改回继承（NULL）。
+ *
+ * <p>不复用 `updateCategory`：那个接口要求 name / parentId 必填，
+ * 行内改一个字段得先把整个对象读出来再整体提交。</p>
+ */
+export function updateCategoryThreshold(id: number, value?: number | null): Promise<void> {
+  return request.put(`/admin/categories/${id}/stock-threshold`, null, {
+    params: value === null || value === undefined ? {} : { value },
+  })
+}
+
+/** 只改分类启用状态。 */
+export function updateCategoryStatus(id: number, status: number): Promise<void> {
+  return request.put(`/admin/categories/${id}/status`, null, { params: { status } })
+}
+
+/**
+ * 按新顺序重排分类，后端重写 sort = 下标 + 1。
+ *
+ * <p>必须传**全部分类**的 id：只传子集会让未提交的分类 sort 与新区间撞车。</p>
+ */
+export function reorderCategories(ids: number[]): Promise<void> {
+  return request.put('/admin/categories/reorder', ids)
 }
 
 /**

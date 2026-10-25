@@ -86,7 +86,8 @@ public class CategoryService {
         category.setName(req.getName());
         category.setIcon(req.getIcon());
         category.setLevel(resolveLevel(req.getParentId()));
-        category.setSort(req.getSort() == null ? 0 : req.getSort());
+        // 新分类追加到末尾：拖拽排序后 sort 是 1..N 的连续值，新建若默认 0 会插到最前面
+        category.setSort(req.getSort() == null ? nextSort() : req.getSort());
         category.setStatus(req.getStatus() == null ? 1 : req.getStatus());
         category.setStockWarnThreshold(req.getStockWarnThreshold());
         categoryMapper.insert(category);
@@ -180,6 +181,7 @@ public class CategoryService {
             vo.setSort(category.getSort());
             vo.setStatus(category.getStatus());
             vo.setStockWarnThreshold(category.getStockWarnThreshold());
+            vo.setEffectiveThreshold(stockWarnService.thresholdOf(category.getId(), thresholds));
             int[] bucket = counts.getOrDefault(category.getId(), new int[2]);
             vo.setProductCount(bucket[0]);
             vo.setLowStockCount(bucket[1]);
@@ -246,8 +248,21 @@ public class CategoryService {
         cacheService.evictAfterCommit(CacheKeys.categoryListEnabled());
     }
 
-    /** 由父分类推导层级：顶级为 1，否则父级 +1。 */
-    private int resolveLevel(Long parentId) {
+    /**
+     * 新分类的排序值 = 当前最大 sort + 1。
+     *
+     * <p>拖拽排序会把 sort 重写成 1..N 的连续值，如果新建时默认 0，
+     * 新分类会跑到最前面 —— 而运营的预期是「加到最后一个」。</p>
+     */
+    private int nextSort() {
+        return queryList(false).stream()
+                .map(Category::getSort)
+                .filter(Objects::nonNull)
+                .max(Integer::compareTo)
+                .orElse(0) + 1;
+    }
+
+    /** 由父分类推导层级：顶级为 1，否则父级 +1。 */    private int resolveLevel(Long parentId) {
         if (parentId == null || parentId == 0L) {
             return 1;
         }
