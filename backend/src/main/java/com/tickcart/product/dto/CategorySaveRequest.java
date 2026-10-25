@@ -1,6 +1,7 @@
 package com.tickcart.product.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -31,6 +32,16 @@ public class CategorySaveRequest {
 
     @Schema(description = "状态 0禁用 1启用", example = "1")
     private Integer status;
+
+    /**
+     * 库存预警线；{@code null} 表示继承父分类 / 全局配置。
+     *
+     * <p>编辑时**必须整体赋值**（不能只在非 null 时覆盖），否则运营把某个分类的
+     * 预警线改回「继承」时，前端传 null 会被当成「不修改」，永远清不掉。</p>
+     */
+    @Schema(description = "库存预警线；留空表示继承父分类/全局配置", example = "30")
+    @Min(value = 0, message = "库存预警线不能为负")
+    private Integer stockWarnThreshold;
 
     public Long getId() {
         return id;
@@ -78,5 +89,13 @@ public class CategorySaveRequest {
 
     public void setStatus(Integer status) {
         this.status = status;
+    }
+
+    public Integer getStockWarnThreshold() {
+        return stockWarnThreshold;
+    }
+
+    public void setStockWarnThreshold(Integer stockWarnThreshold) {
+        this.stockWarnThreshold = stockWarnThreshold;
     }
 }

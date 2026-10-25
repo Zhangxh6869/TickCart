@@ -52,6 +52,7 @@ public class ProductService {
     private final SynonymService synonymService;
     private final CacheService cacheService;
     private final CacheProperties cacheProperties;
+    private final StockWarnService stockWarnService;
     /** 随机分页时最多参与打乱的商品数，见 {@code tickcart.product.random-pool-limit} */
     private final int randomPoolLimit;
 
@@ -62,6 +63,7 @@ public class ProductService {
                           SynonymService synonymService,
                           CacheService cacheService,
                           CacheProperties cacheProperties,
+                          StockWarnService stockWarnService,
                           @Value("${tickcart.product.random-pool-limit:2000}") int randomPoolLimit) {
         this.productMapper = productMapper;
         this.skuMapper = skuMapper;
@@ -70,6 +72,7 @@ public class ProductService {
         this.synonymService = synonymService;
         this.cacheService = cacheService;
         this.cacheProperties = cacheProperties;
+        this.stockWarnService = stockWarnService;
         this.randomPoolLimit = Math.max(1, randomPoolLimit);
     }
 
@@ -94,7 +97,25 @@ public class ProductService {
         List<ProductListItem> items = page.getRecords().stream()
                 .map(ProductListItem::from)
                 .toList();
+        markStockLow(items);
         return new PageResult<>(items, page.getTotal(), page.getCurrent(), page.getSize(), page.getPages());
+    }
+
+    /**
+     * 给列表项打「库存告急」标记。
+     *
+     * <p>阈值按分类差异化，所以不能在前端用常量算；这里一次性取回
+     * {@code categoryId → 有效阈值}（20 行量级）再逐条比对，避免逐行回查。
+     * 详情页不标这个 —— 它展示的是 SKU 级库存，「某个尺码为 0」用绝对判断更准。</p>
+     */
+    private void markStockLow(List<ProductListItem> items) {
+        if (items.isEmpty()) {
+            return;
+        }
+        Map<Long, Integer> thresholds = stockWarnService.effectiveThresholds();
+        for (ProductListItem item : items) {
+            item.setStockLow(stockWarnService.isLow(item.getStock(), item.getCategoryId(), thresholds));
+        }
     }
 
     /**
@@ -142,6 +163,7 @@ public class ProductService {
                 .filter(Objects::nonNull)
                 .map(ProductListItem::from)
                 .toList();
+        markStockLow(items);
 
         return new PageResult<>(items, shuffled.size(), query.getPage(), size, pages);
     }

@@ -42,6 +42,15 @@ public class ProductListItem {
     @Schema(description = "是否秒杀商品")
     private Integer isSeckill;
 
+    /**
+     * 库存是否告急（低于所属分类的有效预警线）。
+     *
+     * <p>由后端算好下发，前端**不持有阈值** —— 阈值按分类差异化、还可能继承，
+     * 前端算必然和服务端两套口径。前端只负责把 {@code true} 渲染成红标。</p>
+     */
+    @Schema(description = "库存是否低于预警线")
+    private Boolean stockLow;
+
     @Schema(description = "创建时间")
     private LocalDateTime createdAt;
 
@@ -99,6 +108,14 @@ public class ProductListItem {
 
     public Integer getIsSeckill() {
         return isSeckill;
+    }
+
+    public Boolean getStockLow() {
+        return stockLow;
+    }
+
+    public void setStockLow(Boolean stockLow) {
+        this.stockLow = stockLow;
     }
 
     public LocalDateTime getCreatedAt() {

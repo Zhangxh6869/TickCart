@@ -167,6 +167,13 @@ tickcart:
     # 商品数超过 5000 或该接口 P95 > 50ms 时，应改为「权重列 + 游标翻页」，
     # 见 docs/读放大与可靠性收尾设计.md §4
     random-pool-limit: ${PRODUCT_RANDOM_POOL_LIMIT:2000}
+  # 库存
+  stock:
+    # 库存预警线兜底值：库存低于该值在后台标记「告急」。
+    # 分类上配了 product_category.stock_warn_threshold 时以分类为准（沿父分类继承），
+    # 都没配才用这里。改这个值不影响已显式配过的分类 —— 这是刻意的，
+    # 否则「恰好等于默认值」和「继承默认值」会分不清。
+    warn-threshold: ${STOCK_WARN_THRESHOLD:10}
   # 下单幂等（A1）：同一 (scene, user_id, 幂等键) 只成一次单
   idempotent:
     # 幂等记录保留时长（小时）：保留期内重复提交回放首次结果，过期后由定时任务清理

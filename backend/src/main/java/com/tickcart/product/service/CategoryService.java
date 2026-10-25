@@ -79,6 +79,7 @@ public class CategoryService {
         category.setLevel(resolveLevel(req.getParentId()));
         category.setSort(req.getSort() == null ? 0 : req.getSort());
         category.setStatus(req.getStatus() == null ? 1 : req.getStatus());
+        category.setStockWarnThreshold(req.getStockWarnThreshold());
         categoryMapper.insert(category);
         // 分类列表整表缓存，任一分类变动都要整体失效（提交后执行）
         cacheService.evictAfterCommit(CacheKeys.categoryListEnabled());
@@ -102,6 +103,9 @@ public class CategoryService {
         if (req.getStatus() != null) {
             category.setStatus(req.getStatus());
         }
+        // ★无条件覆盖，不做 null 保护：null 是「改回继承」的有效意图，
+        //   用 if (req.getX() != null) 会让预警线一旦设过就再也清不掉。
+        category.setStockWarnThreshold(req.getStockWarnThreshold());
         categoryMapper.updateById(category);
         cacheService.evictAfterCommit(CacheKeys.categoryListEnabled());
         return category;

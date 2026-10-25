@@ -34,6 +34,15 @@ public class Category {
     /** 状态 0禁用 1启用 */
     private Integer status;
 
+    /**
+     * 库存预警线：库存低于该值在后台标记「告急」。
+     *
+     * <p><b>null 有明确语义 —— 表示「没配过」，继承父分类、最终继承全局配置</b>
+     * （{@code tickcart.stock.warn-threshold}）。所以这里不能用基本类型，
+     * 也不能在库里给 DEFAULT 值，否则「继承」和「恰好等于默认值」会被混成一种状态。</p>
+     */
+    private Integer stockWarnThreshold;
+
     @TableLogic
     private Integer deleted;
 
@@ -97,6 +106,14 @@ public class Category {
 
     public void setStatus(Integer status) {
         this.status = status;
+    }
+
+    public Integer getStockWarnThreshold() {
+        return stockWarnThreshold;
+    }
+
+    public void setStockWarnThreshold(Integer stockWarnThreshold) {
+        this.stockWarnThreshold = stockWarnThreshold;
     }
 
     public Integer getDeleted() {

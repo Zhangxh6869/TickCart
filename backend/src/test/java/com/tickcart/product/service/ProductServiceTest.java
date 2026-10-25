@@ -6,6 +6,8 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tickcart.common.cache.CacheProperties;
 import com.tickcart.common.cache.CacheService;
+import com.tickcart.common.api.PageResult;
+import com.tickcart.common.config.StockProperties;
 import com.tickcart.common.exception.BizException;
 import com.tickcart.product.dto.ProductQuery;
 import com.tickcart.product.dto.ProductSaveRequest;
@@ -18,6 +20,7 @@ import com.tickcart.product.mapper.ProductMapper;
 import com.tickcart.search.service.SynonymService;
 import com.tickcart.product.mapper.ProductSkuMapper;
 import com.tickcart.product.vo.ProductDetail;
+import com.tickcart.product.vo.ProductListItem;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +39,7 @@ import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -71,6 +75,9 @@ class ProductServiceTest {
     @Spy
     private CacheProperties cacheProperties = new CacheProperties();
 
+    /** 用真实实现 + mock 的 CategoryMapper：库存告急的判定逻辑要真的跑一遍，不能打桩 */
+    private StockWarnService stockWarnService;
+
     /** 手工构造：{@code randomPoolLimit} 是 {@code @Value} 注入的原始类型，@InjectMocks 无法解析 */
     private ProductService productService;
 
@@ -82,8 +89,9 @@ class ProductServiceTest {
     /** 让缓存在单测里透明：get 直接执行 loader，等价于「每次都未命中」。 */
     @BeforeEach
     void stubCacheTransparent() {
+        stockWarnService = new StockWarnService(categoryMapper, new StockProperties());
         productService = new ProductService(productMapper, skuMapper, imageMapper, categoryMapper,
-                synonymService, cacheService, cacheProperties, 2000);
+                synonymService, cacheService, cacheProperties, stockWarnService, 2000);
         lenient().when(cacheService.get(anyString(), anyLong(), eq(ProductDetail.class), any()))
                 .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(3)).get());
     }
@@ -94,6 +102,8 @@ class ProductServiceTest {
         TableInfoHelper.initTableInfo(assistant, ProductSku.class);
         // 关键字转义的断言要实体化商品表的 wrapper，Product 也要初始化
         TableInfoHelper.initTableInfo(assistant, Product.class);
+        // 库存告急标记会走 CategoryMapper 查分类阈值，Category 同样要初始化
+        TableInfoHelper.initTableInfo(assistant, Category.class);
     }
 
     private void categoryExists() {
@@ -379,6 +389,56 @@ class ProductServiceTest {
 
         assertThat(query.getPage()).isEqualTo(1);
         assertThat(query.getSize()).isEqualTo(100);
+    }
+
+    // ---------------- 库存告急标记 ----------------
+
+    private Category category(Long id, Long parentId, Integer threshold) {
+        Category c = new Category();
+        c.setId(id);
+        c.setParentId(parentId);
+        c.setStockWarnThreshold(threshold);
+        return c;
+    }
+
+    private Product product(long id, long categoryId, int stock) {
+        Product p = new Product();
+        p.setId(id);
+        p.setCategoryId(categoryId);
+        p.setName("商品" + id);
+        p.setPrice(new BigDecimal("99.00"));
+        p.setStock(stock);
+        p.setSales(0);
+        p.setStatus(1);
+        p.setIsSeckill(0);
+        return p;
+    }
+
+    @Test
+    @DisplayName("列表按分类的有效预警线标记库存告急")
+    void listMarksStockLowByCategoryThreshold() {
+        when(categoryMapper.selectList(any())).thenReturn(List.of(
+                category(1L, 0L, null),   // 没配 → 继承全局 10
+                category(5L, 0L, 8)));    // 自身 8
+
+        Page<Product> page = new Page<>(1, 12);
+        page.setRecords(List.of(
+                product(101L, 1L, 9),    // 9 < 10 告急
+                product(102L, 1L, 10),   // 等于阈值不算告急
+                product(103L, 5L, 9),    // 9 > 8 不告急
+                product(104L, 5L, 7)));  // 7 < 8 告急
+        page.setTotal(4);
+        when(productMapper.selectPage(any(), any())).thenReturn(page);
+
+        PageResult<ProductListItem> result = productService.page(new ProductQuery(), false);
+
+        assertThat(result.getRecords())
+                .extracting(ProductListItem::getId, ProductListItem::getStockLow)
+                .containsExactly(
+                        tuple(101L, true),
+                        tuple(102L, false),
+                        tuple(103L, false),
+                        tuple(104L, true));
     }
 
     // ---------------- 规格判断（加购 / 下单共用） ----------------
