@@ -1,0 +1,1612 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>TickCart 后台 · 商品管理界面重设计（三方案）</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#f0f2f5; --surface:#fff; --border:#ebeef5; --border-2:#e4e7ed; --border-3:#dcdfe6;
+    --t1:#303133; --t2:#606266; --t3:#909399; --t4:#c0c4cc;
+    --primary:#409eff; --primary-d:#337ecc; --success:#67c23a; --warn:#e6a23c; --danger:#f56c6c;
+    --radius:6px;
+    --shadow:0 1px 2px rgba(0,0,0,.04),0 2px 8px rgba(0,0,0,.03);
+    --shadow-2:0 4px 16px rgba(0,0,0,.08);
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"JetBrains Mono",Consolas,monospace;
+  }
+  html,body{height:100%}
+  body{font-family:var(--font);background:var(--bg);color:var(--t1);font-size:14px;-webkit-font-smoothing:antialiased}
+  .app{display:flex;min-height:100vh;min-width:1180px}
+
+  /* ============ 侧边栏 / 顶栏（复用现有 AdminLayout 视觉） ============ */
+  .aside{width:210px;flex:0 0 210px;background:#001529;color:#fff;display:flex;flex-direction:column}
+  .aside__logo{height:60px;line-height:60px;text-align:center;font-size:15px;font-weight:600;border-bottom:1px solid #1f2d3d;letter-spacing:.5px}
+  .aside__logo em{font-style:normal;color:#409eff}
+  .menu{padding:8px 0}
+  .menu__item{display:flex;align-items:center;gap:10px;height:48px;padding:0 20px;color:#b7c0cd;font-size:14px;cursor:pointer;border-left:3px solid transparent;transition:.15s}
+  .menu__item:hover{color:#fff;background:#0c2135}
+  .menu__item.is-active{color:#fff;background:#1890ff;border-left-color:#69c0ff}
+  .menu__item svg{width:16px;height:16px;flex:0 0 16px;opacity:.85}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{height:60px;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px;flex:0 0 60px}
+  .topbar__title{font-size:16px;font-weight:600}
+  .topbar__user{display:flex;align-items:center;gap:14px;color:var(--t2);font-size:14px}
+  .topbar__user b{color:var(--t1);font-weight:500}
+  .link{color:var(--primary);cursor:pointer;font-size:13px}
+
+  .content{padding:20px 24px 48px}
+
+  /* ============ 方案切换器 ============ */
+  .switcher{background:#fff;border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:18px;box-shadow:var(--shadow)}
+  .switcher__head{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+  .switcher__head h1{font-size:14px;font-weight:600}
+  .switcher__head span{font-size:12px;color:var(--t3)}
+  .switcher__tabs{display:flex;gap:10px;flex-wrap:wrap}
+  .tab{flex:1;min-width:250px;text-align:left;padding:12px 14px;border:1px solid var(--border-2);border-radius:6px;cursor:pointer;background:#fafbfc;transition:.18s;position:relative}
+  .tab:hover{border-color:#c6e2ff;background:#f4f9ff}
+  .tab.is-on{border-color:var(--primary);background:#ecf5ff;box-shadow:0 0 0 3px rgba(64,158,255,.1)}
+  .tab__kicker{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--t3);margin-bottom:5px}
+  .tab.is-on .tab__kicker{color:var(--primary)}
+  .tab__name{font-size:15px;font-weight:600;margin-bottom:4px}
+  .tab__desc{font-size:12px;color:var(--t3);line-height:1.55}
+  .tab__cost{position:absolute;top:12px;right:14px;font-size:11px;padding:1px 7px;border-radius:9px;background:#f0f2f5;color:var(--t3);border:1px solid var(--border)}
+  .tab__cost--zero{background:#f0f9eb;color:#529b2e;border-color:#e1f3d8}
+
+  .proposal{display:none}
+  .proposal.is-on{display:block}
+
+  /* ============ 通用元件 ============ */
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .btn{border:1px solid var(--border-3);background:#fff;color:var(--t2);border-radius:4px;padding:6px 13px;font-size:13px;cursor:pointer;font-family:var(--font);transition:.15s;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+  .btn:hover{color:var(--primary);border-color:#c6e2ff;background:#ecf5ff}
+  .btn--primary{background:var(--primary);border-color:var(--primary);color:#fff}
+  .btn--primary:hover{background:#66b1ff;border-color:#66b1ff;color:#fff}
+  .btn--sm{padding:3px 9px;font-size:12px}
+  .btn--ghost{border-color:transparent;background:transparent;color:var(--primary);padding:3px 6px}
+  .btn--ghost:hover{background:#ecf5ff}
+  .btn--danger-ghost{border-color:transparent;background:transparent;color:var(--danger);padding:3px 6px}
+  .btn--danger-ghost:hover{background:#fef0f0}
+
+  .tag{display:inline-block;padding:0 6px;border-radius:3px;font-size:12px;line-height:18px;border:1px solid transparent}
+  .tag--danger{background:#fef0f0;color:#f56c6c;border-color:#fde2e2}
+  .tag--warn{background:#fdf6ec;color:#e6a23c;border-color:#faecd8}
+  .tag--success{background:#f0f9eb;color:#67c23a;border-color:#e1f3d8}
+  .tag--info{background:#f4f4f5;color:#909399;border-color:#e9e9eb}
+  .tag--primary{background:#ecf5ff;color:#409eff;border-color:#d9ecff}
+
+  .seg{display:inline-flex;border:1px solid var(--border-3);border-radius:4px;overflow:hidden}
+  .seg button{border:0;background:#fff;padding:6px 14px;font-size:13px;color:var(--t2);cursor:pointer;font-family:var(--font);border-right:1px solid var(--border-3)}
+  .seg button:last-child{border-right:0}
+  .seg button.is-on{background:var(--primary);color:#fff}
+  .seg button:not(.is-on):hover{color:var(--primary)}
+
+  .field{height:32px;border:1px solid var(--border-3);border-radius:4px;padding:0 11px;font-size:13px;font-family:var(--font);color:var(--t1);display:flex;align-items:center;background:#fff}
+  .field--search{gap:7px;color:var(--t3);min-width:240px}
+  .field--search svg{width:14px;height:14px;flex:0 0 14px}
+
+  .sw{position:relative;display:inline-block;width:34px;height:18px;border-radius:9px;background:var(--border-3);transition:.2s;cursor:pointer;flex:0 0 auto;vertical-align:middle}
+  .sw::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+  .sw.is-on{background:var(--primary)}
+  .sw.is-on::after{left:18px}
+
+  .chips{display:flex;gap:8px;flex-wrap:wrap}
+  .chip{padding:5px 13px;border:1px solid var(--border-2);border-radius:14px;font-size:13px;color:var(--t2);cursor:pointer;background:#fff;transition:.15s;white-space:nowrap}
+  .chip:hover{border-color:#c6e2ff;color:var(--primary)}
+  .chip.is-on{background:#ecf5ff;border-color:#a0cfff;color:var(--primary);font-weight:500}
+  .chip b{font-weight:500;opacity:.65;margin-left:4px;font-size:12px}
+  .chip--warn.is-on{background:#fdf6ec;border-color:#f5dab1;color:#b88230}
+
+  /* ============ 方案 A：表格 ============ */
+  .a-head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:14px;gap:16px}
+  .a-head h2{font-size:18px;font-weight:600;letter-spacing:.2px}
+  .a-head p{font-size:12.5px;color:var(--t3);margin-top:5px}
+  .a-head__acts{display:flex;gap:8px;align-items:center}
+
+  .a-filter{display:flex;flex-direction:column;gap:12px;padding:14px 16px;margin-bottom:12px}
+  .a-filter__row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .a-filter__label{font-size:13px;color:var(--t2);flex:0 0 42px}
+  .a-filter__sep{width:1px;height:20px;background:var(--border-2);margin:0 2px}
+
+  .a-bar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border);gap:12px}
+  .a-bar__count{font-size:13px;color:var(--t2)}
+  .a-bar__count b{color:var(--t1);font-weight:600}
+  .a-bar__count i{font-style:normal;color:var(--danger);font-weight:500}
+  .a-bar__right{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--t3)}
+
+  /* 批量操作条：勾选后浮出 */
+  .batch{display:none;align-items:center;gap:10px;padding:9px 16px;background:#ecf5ff;border-bottom:1px solid #d9ecff;font-size:13px;color:var(--t2)}
+  .batch.is-on{display:flex}
+  .batch b{color:var(--primary);font-weight:600}
+  .batch__sp{flex:1}
+
+  .tbl{width:100%;border-collapse:collapse;font-size:13px}
+  .tbl th{text-align:left;font-weight:500;color:var(--t2);background:#fafafa;padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap;font-size:13px}
+  .tbl td{padding:9px 12px;border-bottom:1px solid var(--border);color:var(--t1);vertical-align:middle}
+  .tbl tbody tr:hover td{background:#f7fbff}
+  .tbl tbody tr:last-child td{border-bottom:0}
+  .tbl .num{text-align:right;font-variant-numeric:tabular-nums}
+  .tbl .c-check{width:38px;padding-left:16px}
+  .tbl .c-ops{width:132px;text-align:right;padding-right:16px}
+  .tbl input[type=checkbox]{width:14px;height:14px;accent-color:var(--primary);cursor:pointer;vertical-align:middle}
+
+  /* 低库存行：左侧红条 */
+  tr.is-low td:first-child{box-shadow:inset 3px 0 0 var(--danger)}
+
+  .goods{display:flex;align-items:center;gap:11px;min-width:0}
+  .goods__img{width:56px;height:56px;flex:0 0 56px;border-radius:8px;overflow:hidden;background:#f5f7fa;border:1px solid var(--border)}
+  .goods__img img{width:100%;height:100%;object-fit:cover;display:block}
+  .goods__body{min-width:0}
+  .goods__name{font-size:13.5px;font-weight:500;color:var(--t1);line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:330px}
+  .goods__sub{font-size:12px;color:var(--t3);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:330px}
+  .goods__meta{display:flex;align-items:center;gap:8px;margin-top:5px;font-size:11.5px;color:var(--t4);font-variant-numeric:tabular-nums}
+
+  .price{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.2px}
+  .price small{font-size:11px;font-weight:500;margin-right:1px}
+  .price-sub{font-size:11.5px;color:var(--t3);margin-top:3px;font-variant-numeric:tabular-nums}
+
+  .stock{display:flex;align-items:center;gap:7px}
+  .stock__num{font-variant-numeric:tabular-nums;font-weight:500}
+  .stock.is-low .stock__num{color:var(--danger);font-weight:600}
+
+  .st-cell{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--t2)}
+  .st-cell span{min-width:30px}
+
+  .ops{display:flex;align-items:center;justify-content:flex-end;gap:2px}
+  .more{position:relative}
+  .more__menu{position:absolute;right:0;top:26px;background:#fff;border:1px solid var(--border);border-radius:6px;box-shadow:var(--shadow-2);padding:4px;min-width:104px;z-index:5;display:none}
+  .more.is-open .more__menu{display:block}
+  .more__menu a{display:block;padding:6px 10px;font-size:13px;color:var(--t2);border-radius:4px;cursor:pointer}
+  .more__menu a:hover{background:#f5f7fa;color:var(--primary)}
+  .more__menu a.is-danger{color:var(--danger)}
+  .more__menu a.is-danger:hover{background:#fef0f0}
+
+  .pager{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:14px 16px;font-size:13px;color:var(--t2)}
+  .pager__total{margin-right:auto;color:var(--t3);font-size:12.5px}
+  .pager__btn{min-width:30px;height:30px;padding:0 8px;border:1px solid var(--border-2);border-radius:4px;background:#fff;font-size:13px;color:var(--t2);cursor:pointer;font-family:var(--font)}
+  .pager__btn.is-on{background:var(--primary);border-color:var(--primary);color:#fff}
+  .pager__btn:hover:not(.is-on){color:var(--primary);border-color:#c6e2ff}
+
+  /* ============ 抽屉（A 的核心改造点） ============ */
+  .drawer{position:fixed;inset:0;z-index:60;display:none}
+  .drawer.is-open{display:block}
+  .drawer__mask{position:absolute;inset:0;background:rgba(0,0,0,.35);animation:fade .2s ease}
+  .drawer__panel{position:absolute;top:0;right:0;bottom:0;width:760px;background:#fff;display:flex;flex-direction:column;box-shadow:-6px 0 24px rgba(0,0,0,.12);animation:slide .24s cubic-bezier(.2,.7,.3,1)}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  @keyframes slide{from{transform:translateX(40px);opacity:.6}to{transform:translateX(0);opacity:1}}
+
+  .dr-head{padding:16px 22px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:12px}
+  .dr-head__img{width:46px;height:46px;border-radius:8px;object-fit:cover;border:1px solid var(--border);flex:0 0 46px}
+  .dr-head__body{flex:1;min-width:0}
+  .dr-head__t{font-size:15px;font-weight:600;line-height:1.4}
+  .dr-head__m{font-size:12px;color:var(--t3);margin-top:4px;display:flex;gap:10px;align-items:center}
+  .dr-close{width:28px;height:28px;border:0;background:transparent;color:var(--t3);font-size:18px;cursor:pointer;border-radius:4px;line-height:1}
+  .dr-close:hover{background:#f5f7fa;color:var(--t1)}
+
+  .dr-tabs{display:flex;gap:26px;padding:0 22px;border-bottom:1px solid var(--border)}
+  .dr-tab{padding:12px 0 11px;font-size:13.5px;color:var(--t2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;align-items:center;gap:6px}
+  .dr-tab:hover{color:var(--primary)}
+  .dr-tab.is-on{color:var(--primary);font-weight:600;border-bottom-color:var(--primary)}
+  .dr-tab em{font-style:normal;font-size:11px;background:#f0f2f5;color:var(--t3);padding:0 5px;border-radius:8px;line-height:15px}
+  .dr-tab.is-on em{background:#ecf5ff;color:var(--primary)}
+
+  .dr-body{flex:1;overflow:auto;padding:20px 22px 28px}
+  .dr-pane{display:none}
+  .dr-pane.is-on{display:block}
+
+  .fr{display:flex;gap:14px;margin-bottom:16px}
+  .fr__lb{flex:0 0 84px;text-align:right;font-size:13px;color:var(--t2);padding-top:7px;line-height:1.4}
+  .fr__lb i{color:var(--danger);font-style:normal;margin-right:2px}
+  .fr__ct{flex:1;min-width:0}
+  .fr__hint{font-size:12px;color:var(--t3);margin-top:6px;line-height:1.6}
+  .inp{width:100%;height:32px;border:1px solid var(--border-3);border-radius:4px;padding:0 11px;font-size:13px;font-family:var(--font);color:var(--t1);background:#fff}
+  .inp:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 2px rgba(64,158,255,.12)}
+  .inp--area{height:auto;padding:8px 11px;line-height:1.6;resize:vertical;font-family:var(--font)}
+  .inp--w{width:180px}
+  .fr__inline{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+  .up-box{width:104px;height:104px;border:1px dashed var(--border-3);border-radius:6px;background:#fafafa;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:#8c939d;font-size:12px;cursor:pointer;overflow:hidden}
+  .up-box:hover{border-color:var(--primary);color:var(--primary)}
+  .up-box img{width:100%;height:100%;object-fit:cover}
+  .gal{display:flex;gap:10px;flex-wrap:wrap}
+  .gal__it{width:88px}
+  .gal__th{position:relative;width:88px;height:88px;border-radius:6px;overflow:hidden;border:1px solid var(--border-2)}
+  .gal__th img{width:100%;height:100%;object-fit:cover;display:block}
+  .gal__th .tag{position:absolute;left:4px;top:4px;font-size:10px;line-height:15px;padding:0 4px}
+  .gal__ops{display:flex;align-items:center;justify-content:space-between;height:22px;font-size:11px;color:var(--t3)}
+  .gal__ops a{cursor:pointer;color:var(--primary);font-size:11px}
+  .gal__ops a.is-off{color:var(--t4);cursor:not-allowed}
+
+  .sku-tbl{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--border-2);border-radius:6px;overflow:hidden;font-size:13px}
+  .sku-tbl th{background:#fafafa;font-weight:500;color:var(--t2);font-size:12.5px;padding:8px 10px;text-align:left;border-bottom:1px solid var(--border-2)}
+  .sku-tbl td{padding:7px 10px;border-bottom:1px solid var(--border)}
+  .sku-tbl tr:last-child td{border-bottom:0}
+  .sku-tbl .inp{height:28px;font-size:12.5px;padding:0 8px}
+  .sku-thumb{width:28px;height:28px;border-radius:4px;object-fit:cover;border:1px solid var(--border);display:block}
+
+  .dr-foot{padding:12px 22px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;background:#fff}
+  .dr-foot__note{flex:1;font-size:12px;color:var(--t3);display:flex;align-items:center;gap:6px}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--warn);display:inline-block}
+
+  /* ============ 方案 B：商品墙 ============ */
+  .b-toolbar{display:flex;align-items:center;gap:10px;padding:14px 16px;margin-bottom:12px;flex-wrap:wrap}
+  .b-toolbar__sp{flex:1}
+  .b-strip{display:flex;align-items:center;gap:10px;padding:11px 16px;margin-bottom:12px;flex-wrap:wrap}
+  .b-strip__sp{flex:1}
+  .b-strip__info{font-size:12.5px;color:var(--t3)}
+  .b-strip__info b{color:var(--t1);font-weight:600}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(196px,1fr));gap:14px;padding:16px}
+  .pcard{border:1px solid var(--border-2);border-radius:8px;overflow:hidden;background:#fff;transition:.18s;position:relative}
+  .pcard:hover{border-color:#c6e2ff;box-shadow:0 6px 18px rgba(64,158,255,.12);transform:translateY(-1px)}
+  .pcard.is-picked{border-color:var(--primary);box-shadow:0 0 0 2px rgba(64,158,255,.16)}
+  .pcard__media{position:relative;aspect-ratio:4/3;background:#f5f7fa;overflow:hidden}
+  .pcard__media img{width:100%;height:100%;object-fit:cover;display:block}
+  .pcard__state{position:absolute;left:8px;top:8px;font-size:11px;line-height:17px;padding:0 6px;border-radius:3px;backdrop-filter:blur(2px)}
+  .pcard__state--on{background:rgba(240,249,235,.94);color:#529b2e;border:1px solid #e1f3d8}
+  .pcard__state--off{background:rgba(244,244,245,.94);color:#909399;border:1px solid #e9e9eb}
+  .pcard__state--seckill{background:rgba(254,240,240,.94);color:#f56c6c;border:1px solid #fde2e2}
+  .pcard__pick{position:absolute;right:8px;top:8px;width:18px;height:18px;border-radius:4px;background:rgba(255,255,255,.9);border:1px solid var(--border-3);display:flex;align-items:center;justify-content:center}
+  .pcard.is-picked .pcard__pick{background:var(--primary);border-color:var(--primary);color:#fff;font-size:11px}
+  .pcard__low{position:absolute;left:8px;bottom:8px;background:rgba(245,108,108,.94);color:#fff;font-size:11px;line-height:17px;padding:0 6px;border-radius:3px;font-variant-numeric:tabular-nums}
+  .pcard__hover{position:absolute;left:0;right:0;bottom:0;display:flex;gap:1px;background:rgba(0,21,41,.82);opacity:0;transform:translateY(100%);transition:.2s}
+  .pcard:hover .pcard__hover,.pcard.is-hover .pcard__hover{opacity:1;transform:translateY(0)}
+  .pcard__hover button{flex:1;border:0;background:transparent;color:#fff;font-size:12px;padding:7px 0;cursor:pointer;font-family:var(--font)}
+  .pcard__hover button:hover{background:rgba(64,158,255,.85)}
+  .pcard__hover button.is-danger:hover{background:rgba(245,108,108,.9)}
+  .pcard__body{padding:10px 11px 11px}
+  .pcard__name{font-size:13px;line-height:1.4;color:var(--t1);height:36px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .pcard__sub{font-size:11.5px;color:var(--t3);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pcard__foot{display:flex;align-items:baseline;justify-content:space-between;margin-top:9px;gap:6px}
+  .pcard__stat{font-size:11px;color:var(--t3);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .pcard__stat b{color:var(--t2);font-weight:500}
+  .pcard__stat .low{color:var(--danger);font-weight:600}
+
+  .loadmore{display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 0 4px}
+  .loadmore .btn{min-width:180px;justify-content:center}
+  .loadmore span{font-size:12px;color:var(--t4)}
+
+  /* ============ 方案 C：主从工作台 ============ */
+  .ws{display:flex;height:calc(100vh - 268px);min-height:520px;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#fff;box-shadow:var(--shadow)}
+  .ws__list{width:352px;flex:0 0 352px;border-right:1px solid var(--border);display:flex;flex-direction:column;background:#fcfcfd}
+  .ws__search{padding:12px;border-bottom:1px solid var(--border);display:flex;gap:8px;background:#fff}
+  .ws__filter{display:flex;gap:6px;padding:9px 12px;border-bottom:1px solid var(--border);background:#fff;overflow-x:auto}
+  .ws__filter .chip{padding:3px 10px;font-size:12px;border-radius:11px}
+  .ws__scroll{flex:1;overflow:auto}
+  .ws__item{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;border-left:3px solid transparent;border-bottom:1px solid #f5f7fa}
+  .ws__item:hover{background:#f4f9ff}
+  .ws__item.is-on{background:#ecf5ff;border-left-color:var(--primary)}
+  .ws__item img{width:40px;height:40px;border-radius:6px;object-fit:cover;flex:0 0 40px;border:1px solid var(--border)}
+  .ws__item__b{flex:1;min-width:0}
+  .ws__item__n{font-size:13px;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ws__item.is-on .ws__item__n{font-weight:600}
+  .ws__item__m{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--t3);margin-top:3px;font-variant-numeric:tabular-nums}
+  .ws__item__m .price{font-size:12.5px}
+  .ws__item__m .low{color:var(--danger);font-weight:600}
+  .ws__dot{width:6px;height:6px;border-radius:50%;background:var(--success);flex:0 0 6px}
+  .ws__dot--off{background:var(--t4)}
+  .ws__dot--low{background:var(--danger)}
+  .ws__listfoot{padding:8px 12px;border-top:1px solid var(--border);font-size:11.5px;color:var(--t4);display:flex;justify-content:space-between;background:#fff}
+  .ws__listfoot kbd{font-family:var(--mono);font-size:10.5px;background:#f4f4f5;border:1px solid #e9e9eb;border-bottom-width:2px;border-radius:3px;padding:0 4px;color:var(--t2)}
+
+  .ws__panel{flex:1;min-width:0;display:flex;flex-direction:column;background:#fff}
+  .ws__head{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px}
+  .ws__head img{width:56px;height:56px;border-radius:8px;object-fit:cover;border:1px solid var(--border);flex:0 0 56px}
+  .ws__head__b{flex:1;min-width:0}
+  .ws__head__t{font-size:15px;font-weight:600;line-height:1.35}
+  .ws__head__m{font-size:12px;color:var(--t3);margin-top:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .ws__head__r{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--t2)}
+  .ws__body{flex:1;min-height:0;overflow:auto;padding:18px 20px 26px}
+
+  .sect{border:1px solid var(--border-2);border-radius:8px;margin-bottom:14px;overflow:hidden}
+  .sect__head{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#fafbfc;border-bottom:1px solid var(--border);font-size:13px;font-weight:600}
+  .sect__head svg{width:13px;height:13px;color:var(--t3)}
+  .sect__head .badge{font-size:11px;font-weight:500;color:var(--t3);background:#f0f2f5;padding:0 6px;border-radius:8px;line-height:16px}
+  .sect__head .sect__sp{flex:1}
+  .sect__body{padding:14px}
+
+  .erow{display:flex;align-items:center;gap:10px;padding:7px 0}
+  .erow + .erow{border-top:1px dashed #f0f2f5}
+  .erow__lb{flex:0 0 92px;font-size:13px;color:var(--t2);display:flex;align-items:center;gap:5px}
+  .erow__ct{flex:1;min-width:0;display:flex;align-items:center;gap:8px}
+  .erow__unit{font-size:12px;color:var(--t3);flex:0 0 auto}
+  .erow__hint{font-size:11.5px;color:var(--t4)}
+  .inp--num{width:130px;text-align:right;font-variant-numeric:tabular-nums}
+  .inp.is-dirty{border-color:var(--warn);background:#fffdf7}
+  .ro-num{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--t1)}
+  .dirty-mark{width:6px;height:6px;border-radius:50%;background:var(--warn);flex:0 0 6px}
+
+  .ws__foot{padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;gap:12px;background:#fff;box-shadow:0 -2px 10px rgba(0,0,0,.04)}
+  .ws__foot__note{flex:1;font-size:12.5px;color:var(--t3);display:flex;align-items:center;gap:7px}
+  .pill{display:inline-flex;align-items:center;gap:5px;background:#fdf6ec;color:#b88230;border:1px solid #faecd8;border-radius:11px;padding:2px 10px;font-size:12px}
+
+  /* ============ 方案对比 ============ */
+  .compare{margin-top:22px;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);overflow:hidden}
+  .compare__head{padding:14px 18px;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .compare__head i{width:3px;height:14px;background:var(--primary);border-radius:2px;display:inline-block}
+  .compare table{width:100%;border-collapse:collapse;font-size:13px}
+  .compare th,.compare td{padding:10px 16px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+  .compare thead th{background:#fafafa;font-weight:500;color:var(--t2);font-size:12.5px;white-space:nowrap}
+  .compare tbody th{font-weight:500;color:var(--t2);width:150px;white-space:nowrap;background:#fcfcfd}
+  .compare tbody tr:last-child td,.compare tbody tr:last-child th{border-bottom:0}
+  .compare .good{color:#529b2e}
+  .compare .bad{color:#c45656}
+  .compare .mid{color:#b88230}
+  .compare .col-a{background:#fcfdff}
+  .compare .rec{font-size:11px;background:#ecf5ff;color:var(--primary);border:1px solid #d9ecff;border-radius:8px;padding:0 6px;line-height:16px;margin-left:6px;vertical-align:1px}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ========== 侧边栏 ========== -->
+  <aside class="aside">
+    <div class="aside__logo">TickCart <em>管理后台</em></div>
+    <nav class="menu">
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        搜索分析
+      </div>
+      <div class="menu__item is-active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg>
+        商品管理
+      </div>
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        分类管理
+      </div>
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/></svg>
+        订单管理
+      </div>
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg>
+        秒杀管理
+      </div>
+    </nav>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar__title">商品管理</div>
+      <div class="topbar__user"><b>admin</b><span class="link">退出</span></div>
+    </div>
+
+    <div class="content">
+      <!-- ========== 方案切换 ========== -->
+      <div class="switcher">
+        <div class="switcher__head">
+          <h1>商品管理 · 界面重设计</h1>
+          <span>三个方案共用同一套后端接口，切换查看 · 地址栏 #a / #b / #c 可直达</span>
+        </div>
+        <div class="switcher__tabs">
+          <div class="tab is-on" data-p="a">
+            <span class="tab__cost">后端 +2 字段</span>
+            <div class="tab__kicker">方案 A</div>
+            <div class="tab__name">精修表格 · 抽屉表单</div>
+            <div class="tab__desc">保留表格心智，重做商品列与库存表达，弹窗换抽屉并分段</div>
+          </div>
+          <div class="tab" data-p="b">
+            <span class="tab__cost tab__cost--zero">后端 0 改动</span>
+            <div class="tab__kicker">方案 B</div>
+            <div class="tab__name">商品墙 · 卡片网格</div>
+            <div class="tab__desc">以图为主，4 列卡片，角标表达状态与库存，hover 出操作</div>
+          </div>
+          <div class="tab" data-p="c">
+            <span class="tab__cost tab__cost--zero">后端 0 改动</span>
+            <div class="tab__kicker">方案 C</div>
+            <div class="tab__name">工作台 · 左列表右编辑</div>
+            <div class="tab__desc">零弹窗，选中即就地编辑，连续调价补货不跳页</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           方案 A
+           ============================================================ -->
+      <section class="proposal is-on" id="pa">
+        <div class="a-head">
+          <div>
+            <h2>商品管理</h2>
+            <p>共 156 个商品 · 上架 148 · 下架 8 · 3 个库存告急</p>
+          </div>
+          <div class="a-head__acts">
+            <button class="btn btn--primary" onclick="openDrawer()">＋ 新增商品</button>
+          </div>
+        </div>
+
+        <!-- 筛选 -->
+        <div class="card a-filter">
+          <div class="a-filter__row">
+            <div class="field field--search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+              <span>商品名称 / 关键词</span>
+            </div>
+            <div class="seg">
+              <button class="is-on">全部</button>
+              <button>在售</button>
+              <button>已下架</button>
+            </div>
+            <div class="a-filter__sep"></div>
+            <div class="field" style="width:150px;justify-content:space-between;color:var(--t3)">
+              <span>排序：最近更新</span><span style="font-size:10px">▾</span>
+            </div>
+            <div class="a-filter__sep"></div>
+            <button class="chip chip--warn">库存告急 3</button>
+            <button class="chip">秒杀中 1</button>
+          </div>
+          <div class="a-filter__row">
+            <span class="a-filter__label">分类</span>
+            <div class="chips">
+              <button class="chip is-on">全部 <b>156</b></button>
+              <button class="chip">手机数码 <b>86</b></button>
+              <button class="chip">家用电器 <b>24</b></button>
+              <button class="chip">服饰鞋包 <b>31</b></button>
+              <button class="chip">食品生鲜 <b>15</b></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 表格 -->
+        <div class="card">
+          <div class="a-bar">
+            <div class="a-bar__count">共 <b>156</b> 条 · 当前页 12 条 · <i>3 条库存低于 10</i></div>
+            <div class="a-bar__right">
+              <span>每页</span>
+              <div class="field" style="width:64px;height:28px;font-size:12.5px;justify-content:space-between">12 <span style="font-size:9px;color:var(--t4)">▾</span></div>
+              <button class="btn btn--sm">列设置</button>
+            </div>
+          </div>
+
+          <!-- 勾选后浮出 -->
+          <div class="batch is-on">
+            <span>已选 <b>2</b> 项</span>
+            <div class="batch__sp"></div>
+            <button class="btn btn--sm">批量上架</button>
+            <button class="btn btn--sm">批量下架</button>
+            <button class="btn btn--sm">改分类</button>
+            <button class="btn btn--sm" style="color:var(--danger);border-color:#fde2e2">删除</button>
+            <span class="link" style="margin-left:4px">取消选择</span>
+          </div>
+
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th class="c-check"><input type="checkbox"></th>
+                <th>商品</th>
+                <th style="width:118px">价格</th>
+                <th style="width:104px">库存</th>
+                <th class="num" style="width:88px">销量</th>
+                <th style="width:116px">状态</th>
+                <th class="c-ops">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- 1 -->
+              <tr>
+                <td class="c-check"><input type="checkbox" checked></td>
+                <td>
+                  <div class="goods">
+                    <div class="goods__img"><img src="../../imgs/phones/phone-01.jpg" alt=""></div>
+                    <div class="goods__body">
+                      <div class="goods__name">5G 旗舰智能手机 12+256G 曜夜黑</div>
+                      <div class="goods__sub">骁龙旗舰芯片，超清三摄</div>
+                      <div class="goods__meta"><span class="tag tag--info">手机数码</span><span>ID 101</span><span>2 个 SKU</span></div>
+                    </div>
+                  </div>
+                </td>
+                <td><div class="price"><small>¥</small>3,999.00</div><div class="price-sub">区间 3,999 – 4,599</div></td>
+                <td>
+                  <div class="stock"><span class="stock__num">74</span></div>
+                </td>
+                <td class="num">1,286</td>
+                <td>
+                  <div class="st-cell"><span class="sw is-on"></span><span>在售</span></div>
+                </td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">编辑</button>
+                    <div class="more">
+                      <button class="btn btn--ghost" onclick="toggleMore(this)">更多 ⌄</button>
+                      <div class="more__menu">
+                        <a>复制商品</a>
+                        <a>加入秒杀</a>
+                        <a>预览详情页</a>
+                        <a class="is-danger">删除</a>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <!-- 2 -->
+              <tr>
+                <td class="c-check"><input type="checkbox"></td>
+                <td>
+                  <div class="goods">
+                    <div class="goods__img"><img src="../../imgs/phones/phone-02.jpg" alt=""></div>
+                    <div class="goods__body">
+                      <div class="goods__name">5G 轻薄智能手机 8+128G 星空灰</div>
+                      <div class="goods__sub">轻至 168g，长续航</div>
+                      <div class="goods__meta"><span class="tag tag--info">手机数码</span><span>ID 102</span><span>2 个 SKU</span></div>
+                    </div>
+                  </div>
+                </td>
+                <td><div class="price"><small>¥</small>2,599.00</div><div class="price-sub">区间 2,599 – 2,999</div></td>
+                <td><div class="stock"><span class="stock__num">88</span></div></td>
+                <td class="num">2,431</td>
+                <td><div class="st-cell"><span class="sw is-on"></span><span>在售</span></div></td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">编辑</button>
+                    <div class="more">
+                      <button class="btn btn--ghost" onclick="toggleMore(this)">更多 ⌄</button>
+                      <div class="more__menu"><a>复制商品</a><a>加入秒杀</a><a>预览详情页</a><a class="is-danger">删除</a></div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <!-- 3 低库存 + 已选 -->
+              <tr class="is-low">
+                <td class="c-check"><input type="checkbox" checked></td>
+                <td>
+                  <div class="goods">
+                    <div class="goods__img"><img src="../../imgs/shoes/shoe-10.jpg" alt=""></div>
+                    <div class="goods__body">
+                      <div class="goods__name">竞速跑步鞋 全掌回弹</div>
+                      <div class="goods__sub">轻量碳板，专业竞速</div>
+                      <div class="goods__meta"><span class="tag tag--info">鞋类</span><span>ID 126</span><span>4 个 SKU</span></div>
+                    </div>
+                  </div>
+                </td>
+                <td><div class="price"><small>¥</small>1,099.00</div><div class="price-sub">区间 1,099 – 1,299</div></td>
+                <td>
+                  <div class="stock is-low"><span class="stock__num">8</span><span class="tag tag--danger">告急</span></div>
+                  <div class="price-sub" style="color:var(--danger)">低于安全线 10</div>
+                </td>
+                <td class="num">975</td>
+                <td><div class="st-cell"><span class="sw is-on"></span><span>在售</span></div></td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">编辑</button>
+                    <div class="more">
+                      <button class="btn btn--ghost" onclick="toggleMore(this)">更多 ⌄</button>
+                      <div class="more__menu"><a>复制商品</a><a>加入秒杀</a><a>预览详情页</a><a class="is-danger">删除</a></div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <!-- 4 秒杀中 -->
+              <tr>
+                <td class="c-check"><input type="checkbox"></td>
+                <td>
+                  <div class="goods">
+                    <div class="goods__img"><img src="../../imgs/phones/phone-11.jpg" alt=""></div>
+                    <div class="goods__body">
+                      <div class="goods__name">真无线主动降噪耳机</div>
+                      <div class="goods__sub">通透模式，无线充电盒</div>
+                      <div class="goods__meta"><span class="tag tag--info">手机数码</span><span>ID 111</span><span>1 个 SKU</span><span class="tag tag--danger">秒杀中</span></div>
+                    </div>
+                  </div>
+                </td>
+                <td><div class="price"><small>¥</small>1,099.00</div><div class="price-sub" style="color:var(--danger)">秒杀价 ¥799.00</div></td>
+                <td><div class="stock"><span class="stock__num">214</span></div></td>
+                <td class="num">4,208</td>
+                <td><div class="st-cell"><span class="sw is-on"></span><span>在售</span></div></td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">编辑</button>
+                    <div class="more">
+                      <button class="btn btn--ghost" onclick="toggleMore(this)">更多 ⌄</button>
+                      <div class="more__menu"><a>复制商品</a><a>加入秒杀</a><a>预览详情页</a><a class="is-danger">删除</a></div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <!-- 5 低库存 -->
+              <tr class="is-low">
+                <td class="c-check"><input type="checkbox"></td>
+                <td>
+                  <div class="goods">
+                    <div class="goods__img"><img src="../../imgs/shoes/shoe-07.jpg" alt=""></div>
+                    <div class="goods__body">
+                      <div class="goods__name">复古工装马丁靴 棕色</div>
+                      <div class="goods__sub">厚底防滑，秋冬必备</div>
+                      <div class="goods__meta"><span class="tag tag--info">鞋类</span><span>ID 123</span><span>3 个 SKU</span></div>
+                    </div>
+                  </div>
+                </td>
+                <td><div class="price"><small>¥</small>899.00</div><div class="price-sub">区间 899 – 1,099</div></td>
+                <td>
+                  <div class="stock is-low"><span class="stock__num">3</span><span class="tag tag--danger">告急</span></div>
+                  <div class="price-sub" style="color:var(--danger)">低于安全线 10</div>
+                </td>
+                <td class="num">866</td>
+                <td><div class="st-cell"><span class="sw is-on"></span><span>在售</span></div></td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">编辑</button>
+                    <div class="more">
+                      <button class="btn btn--ghost" onclick="toggleMore(this)">更多 ⌄</button>
+                      <div class="more__menu"><a>复制商品</a><a>加入秒杀</a><a>预览详情页</a><a class="is-danger">删除</a></div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <!-- 6 已下架 -->
+              <tr>
+                <td class="c-check"><input type="checkbox"></td>
+                <td>
+                  <div class="goods">
+                    <div class="goods__img" style="opacity:.55"><img src="../../imgs/phones/phone-06.jpg" alt=""></div>
+                    <div class="goods__body">
+                      <div class="goods__name" style="color:var(--t3)">一体机电脑 24 英寸 16G+512G</div>
+                      <div class="goods__sub">4.5K 视网膜屏，简约桌面</div>
+                      <div class="goods__meta"><span class="tag tag--info">手机数码</span><span>ID 106</span><span>2 个 SKU</span></div>
+                    </div>
+                  </div>
+                </td>
+                <td><div class="price" style="color:var(--t3)"><small>¥</small>7,299.00</div><div class="price-sub">区间 7,299 – 7,999</div></td>
+                <td><div class="stock"><span class="stock__num">144</span></div></td>
+                <td class="num">205</td>
+                <td><div class="st-cell"><span class="sw"></span><span style="color:var(--t3)">已下架</span></div></td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">编辑</button>
+                    <div class="more">
+                      <button class="btn btn--ghost" onclick="toggleMore(this)">更多 ⌄</button>
+                      <div class="more__menu"><a>复制商品</a><a>加入秒杀</a><a>预览详情页</a><a class="is-danger">删除</a></div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <!-- 7 -->
+              <tr>
+                <td class="c-check"><input type="checkbox"></td>
+                <td>
+                  <div class="goods">
+                    <div class="goods__img"><img src="../../imgs/phones/phone-09.jpg" alt=""></div>
+                    <div class="goods__body">
+                      <div class="goods__name">智能运动手表 血氧心率监测</div>
+                      <div class="goods__sub">14 天续航，100+ 运动模式</div>
+                      <div class="goods__meta"><span class="tag tag--info">手机数码</span><span>ID 109</span><span>2 个 SKU</span></div>
+                    </div>
+                  </div>
+                </td>
+                <td><div class="price"><small>¥</small>1,299.00</div><div class="price-sub">区间 1,299 – 1,499</div></td>
+                <td><div class="stock"><span class="stock__num">186</span></div></td>
+                <td class="num">2,077</td>
+                <td><div class="st-cell"><span class="sw is-on"></span><span>在售</span></div></td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">编辑</button>
+                    <div class="more">
+                      <button class="btn btn--ghost" onclick="toggleMore(this)">更多 ⌄</button>
+                      <div class="more__menu"><a>复制商品</a><a>加入秒杀</a><a>预览详情页</a><a class="is-danger">删除</a></div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <!-- 8 -->
+              <tr>
+                <td class="c-check"><input type="checkbox"></td>
+                <td>
+                  <div class="goods">
+                    <div class="goods__img"><img src="../../imgs/phones/phone-12.jpg" alt=""></div>
+                    <div class="goods__body">
+                      <div class="goods__name">真无线蓝牙耳机 长续航</div>
+                      <div class="goods__sub">半入耳舒适佩戴，低延迟</div>
+                      <div class="goods__meta"><span class="tag tag--info">手机数码</span><span>ID 112</span><span>1 个 SKU</span></div>
+                    </div>
+                  </div>
+                </td>
+                <td><div class="price"><small>¥</small>399.00</div><div class="price-sub">单一价格</div></td>
+                <td><div class="stock"><span class="stock__num">228</span></div></td>
+                <td class="num">5,612</td>
+                <td><div class="st-cell"><span class="sw is-on"></span><span>在售</span></div></td>
+                <td class="c-ops">
+                  <div class="ops">
+                    <button class="btn btn--ghost" onclick="openDrawer()">编辑</button>
+                    <div class="more">
+                      <button class="btn btn--ghost" onclick="toggleMore(this)">更多 ⌄</button>
+                      <div class="more__menu"><a>复制商品</a><a>加入秒杀</a><a>预览详情页</a><a class="is-danger">删除</a></div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="pager">
+            <span class="pager__total">共 156 条</span>
+            <button class="pager__btn">‹</button>
+            <button class="pager__btn is-on">1</button>
+            <button class="pager__btn">2</button>
+            <button class="pager__btn">3</button>
+            <button class="pager__btn">…</button>
+            <button class="pager__btn">13</button>
+            <button class="pager__btn">›</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           方案 B
+           ============================================================ -->
+      <section class="proposal" id="pb">
+        <!-- 工具条 -->
+        <div class="card b-toolbar">
+          <div class="field field--search" style="min-width:280px;flex:0 0 280px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <span>搜商品名 / 关键词，回车</span>
+          </div>
+          <div class="seg">
+            <button class="is-on">全部 156</button>
+            <button>在售 148</button>
+            <button>下架 8</button>
+          </div>
+          <div class="b-toolbar__sp"></div>
+          <div class="field" style="width:148px;justify-content:space-between;color:var(--t3)">
+            <span>销量从高到低</span><span style="font-size:10px">▾</span>
+          </div>
+          <div class="seg">
+            <button class="is-on" title="网格">▦</button>
+            <button title="列表">☰</button>
+          </div>
+          <button class="btn btn--primary">＋ 新增</button>
+        </div>
+
+        <!-- 分类 + 统计 -->
+        <div class="card b-strip">
+          <div class="chips">
+            <button class="chip is-on">全部</button>
+            <button class="chip">手机数码</button>
+            <button class="chip">家用电器</button>
+            <button class="chip">服饰鞋包</button>
+            <button class="chip">食品生鲜</button>
+            <button class="chip">鞋类</button>
+          </div>
+          <div class="b-strip__sp"></div>
+          <div class="b-strip__info">本页 12 个 · <b>3</b> 个库存告急 · <b>1</b> 个秒杀中</div>
+        </div>
+
+        <!-- 卡片网格 -->
+        <div class="card">
+          <div class="grid">
+            <!-- 1 -->
+            <article class="pcard">
+              <div class="pcard__media">
+                <img src="../../imgs/phones/phone-01.jpg" alt="">
+                <span class="pcard__state pcard__state--on">在售</span>
+                <span class="pcard__pick"></span>
+                <div class="pcard__hover">
+                  <button>编辑</button><button>下架</button><button class="is-danger">删除</button>
+                </div>
+              </div>
+              <div class="pcard__body">
+                <div class="pcard__name">5G 旗舰智能手机 12+256G 曜夜黑</div>
+                <div class="pcard__sub">骁龙旗舰芯片，超清三摄</div>
+                <div class="pcard__foot">
+                  <span class="price"><small>¥</small>3,999</span>
+                  <span class="pcard__stat">库存 <b>74</b> · 销量 <b>1,286</b></span>
+                </div>
+              </div>
+            </article>
+            <!-- 2 强制 hover 展示态 -->
+            <article class="pcard is-hover">
+              <div class="pcard__media">
+                <img src="../../imgs/phones/phone-02.jpg" alt="">
+                <span class="pcard__state pcard__state--on">在售</span>
+                <span class="pcard__pick"></span>
+                <div class="pcard__hover">
+                  <button>编辑</button><button>下架</button><button class="is-danger">删除</button>
+                </div>
+              </div>
+              <div class="pcard__body">
+                <div class="pcard__name">5G 轻薄智能手机 8+128G 星空灰</div>
+                <div class="pcard__sub">轻至 168g，长续航</div>
+                <div class="pcard__foot">
+                  <span class="price"><small>¥</small>2,599</span>
+                  <span class="pcard__stat">库存 <b>88</b> · 销量 <b>2,431</b></span>
+                </div>
+              </div>
+            </article>
+            <!-- 3 低库存 -->
+            <article class="pcard">
+              <div class="pcard__media">
+                <img src="../../imgs/shoes/shoe-10.jpg" alt="">
+                <span class="pcard__state pcard__state--on">在售</span>
+                <span class="pcard__pick"></span>
+                <span class="pcard__low">仅剩 8</span>
+                <div class="pcard__hover">
+                  <button>编辑</button><button>下架</button><button class="is-danger">删除</button>
+                </div>
+              </div>
+              <div class="pcard__body">
+                <div class="pcard__name">竞速跑步鞋 全掌回弹</div>
+                <div class="pcard__sub">轻量碳板，专业竞速</div>
+                <div class="pcard__foot">
+                  <span class="price"><small>¥</small>1,099</span>
+                  <span class="pcard__stat">库存 <span class="low">8</span> · 销量 <b>975</b></span>
+                </div>
+              </div>
+            </article>
+            <!-- 4 秒杀中 + 已勾选 -->
+            <article class="pcard is-picked">
+              <div class="pcard__media">
+                <img src="../../imgs/phones/phone-11.jpg" alt="">
+                <span class="pcard__state pcard__state--seckill">秒杀中</span>
+                <span class="pcard__pick">✓</span>
+                <div class="pcard__hover">
+                  <button>编辑</button><button>下架</button><button class="is-danger">删除</button>
+                </div>
+              </div>
+              <div class="pcard__body">
+                <div class="pcard__name">真无线主动降噪耳机</div>
+                <div class="pcard__sub">通透模式，无线充电盒</div>
+                <div class="pcard__foot">
+                  <span class="price"><small>¥</small>1,099</span>
+                  <span class="pcard__stat">库存 <b>214</b> · 销量 <b>4,208</b></span>
+                </div>
+              </div>
+            </article>
+            <!-- 5 低库存 -->
+            <article class="pcard">
+              <div class="pcard__media">
+                <img src="../../imgs/shoes/shoe-07.jpg" alt="">
+                <span class="pcard__state pcard__state--on">在售</span>
+                <span class="pcard__pick"></span>
+                <span class="pcard__low">仅剩 3</span>
+                <div class="pcard__hover">
+                  <button>编辑</button><button>下架</button><button class="is-danger">删除</button>
+                </div>
+              </div>
+              <div class="pcard__body">
+                <div class="pcard__name">复古工装马丁靴 棕色</div>
+                <div class="pcard__sub">厚底防滑，秋冬必备</div>
+                <div class="pcard__foot">
+                  <span class="price"><small>¥</small>899</span>
+                  <span class="pcard__stat">库存 <span class="low">3</span> · 销量 <b>866</b></span>
+                </div>
+              </div>
+            </article>
+            <!-- 6 已下架 -->
+            <article class="pcard">
+              <div class="pcard__media">
+                <img src="../../imgs/phones/phone-06.jpg" alt="" style="opacity:.6">
+                <span class="pcard__state pcard__state--off">已下架</span>
+                <span class="pcard__pick"></span>
+                <div class="pcard__hover">
+                  <button>编辑</button><button>上架</button><button class="is-danger">删除</button>
+                </div>
+              </div>
+              <div class="pcard__body">
+                <div class="pcard__name" style="color:var(--t3)">一体机电脑 24 英寸 16G+512G</div>
+                <div class="pcard__sub">4.5K 视网膜屏，简约桌面</div>
+                <div class="pcard__foot">
+                  <span class="price" style="color:var(--t3)"><small>¥</small>7,299</span>
+                  <span class="pcard__stat">库存 <b>144</b> · 销量 <b>205</b></span>
+                </div>
+              </div>
+            </article>
+            <!-- 7 -->
+            <article class="pcard">
+              <div class="pcard__media">
+                <img src="../../imgs/phones/phone-09.jpg" alt="">
+                <span class="pcard__state pcard__state--on">在售</span>
+                <span class="pcard__pick"></span>
+                <div class="pcard__hover">
+                  <button>编辑</button><button>下架</button><button class="is-danger">删除</button>
+                </div>
+              </div>
+              <div class="pcard__body">
+                <div class="pcard__name">智能运动手表 血氧心率监测</div>
+                <div class="pcard__sub">14 天续航，100+ 运动模式</div>
+                <div class="pcard__foot">
+                  <span class="price"><small>¥</small>1,299</span>
+                  <span class="pcard__stat">库存 <b>186</b> · 销量 <b>2,077</b></span>
+                </div>
+              </div>
+            </article>
+            <!-- 8 -->
+            <article class="pcard">
+              <div class="pcard__media">
+                <img src="../../imgs/phones/phone-12.jpg" alt="">
+                <span class="pcard__state pcard__state--on">在售</span>
+                <span class="pcard__pick"></span>
+                <div class="pcard__hover">
+                  <button>编辑</button><button>下架</button><button class="is-danger">删除</button>
+                </div>
+              </div>
+              <div class="pcard__body">
+                <div class="pcard__name">真无线蓝牙耳机 长续航</div>
+                <div class="pcard__sub">半入耳舒适佩戴，低延迟</div>
+                <div class="pcard__foot">
+                  <span class="price"><small>¥</small>399</span>
+                  <span class="pcard__stat">库存 <b>228</b> · 销量 <b>5,612</b></span>
+                </div>
+              </div>
+            </article>
+            <!-- 9 -->
+            <article class="pcard">
+              <div class="pcard__media">
+                <img src="../../imgs/phones/phone-13.jpg" alt="">
+                <span class="pcard__state pcard__state--on">在售</span>
+                <span class="pcard__pick"></span>
+                <div class="pcard__hover">
+                  <button>编辑</button><button>下架</button><button class="is-danger">删除</button>
+                </div>
+              </div>
+              <div class="pcard__body">
+                <div class="pcard__name">便携式蓝牙音箱 防水低音炮</div>
+                <div class="pcard__sub">IPX7 防水，12 小时播放</div>
+                <div class="pcard__foot">
+                  <span class="price"><small>¥</small>499</span>
+                  <span class="pcard__stat">库存 <b>62</b> · 销量 <b>1,893</b></span>
+                </div>
+              </div>
+            </article>
+            <!-- 10 -->
+            <article class="pcard">
+              <div class="pcard__media">
+                <img src="../../imgs/shoes/shoe-01.jpg" alt="">
+                <span class="pcard__state pcard__state--on">在售</span>
+                <span class="pcard__pick"></span>
+                <div class="pcard__hover">
+                  <button>编辑</button><button>下架</button><button class="is-danger">删除</button>
+                </div>
+              </div>
+              <div class="pcard__body">
+                <div class="pcard__name">复古高帮板鞋 白色</div>
+                <div class="pcard__sub">经典高帮，百搭耐磨</div>
+                <div class="pcard__foot">
+                  <span class="price"><small>¥</small>499</span>
+                  <span class="pcard__stat">库存 <b>148</b> · 销量 <b>1,876</b></span>
+                </div>
+              </div>
+            </article>
+            <!-- 11 -->
+            <article class="pcard">
+              <div class="pcard__media">
+                <img src="../../imgs/shoes/shoe-05.jpg" alt="">
+                <span class="pcard__state pcard__state--on">在售</span>
+                <span class="pcard__pick"></span>
+                <div class="pcard__hover">
+                  <button>编辑</button><button>下架</button><button class="is-danger">删除</button>
+                </div>
+              </div>
+              <div class="pcard__body">
+                <div class="pcard__name">经典低帮小白鞋</div>
+                <div class="pcard__sub">全白百搭，四季可穿</div>
+                <div class="pcard__foot">
+                  <span class="price"><small>¥</small>459</span>
+                  <span class="pcard__stat">库存 <b>260</b> · 销量 <b>3,268</b></span>
+                </div>
+              </div>
+            </article>
+            <!-- 12 -->
+            <article class="pcard">
+              <div class="pcard__media">
+                <img src="../../imgs/phones/phone-05.jpg" alt="">
+                <span class="pcard__state pcard__state--on">在售</span>
+                <span class="pcard__pick"></span>
+                <div class="pcard__hover">
+                  <button>编辑</button><button>下架</button><button class="is-danger">删除</button>
+                </div>
+              </div>
+              <div class="pcard__body">
+                <div class="pcard__name">高性能游戏笔记本 15.6 英寸 32G+1T</div>
+                <div class="pcard__sub">独显直连，165Hz 电竞屏</div>
+                <div class="pcard__foot">
+                  <span class="price"><small>¥</small>8,999</span>
+                  <span class="pcard__stat">库存 <b>130</b> · 销量 <b>318</b></span>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <div class="loadmore">
+            <button class="btn">加载更多（已显示 12 / 156）</button>
+            <span>或切换为「每页 48」减少翻页</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           方案 C
+           ============================================================ -->
+      <section class="proposal" id="pc">
+        <div class="ws">
+          <!-- 左列表 -->
+          <div class="ws__list">
+            <div class="ws__search">
+              <div class="field field--search" style="flex:1;min-width:0;height:30px">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+                <span>搜索</span>
+              </div>
+              <button class="btn btn--primary" style="padding:0 10px;height:30px">＋</button>
+            </div>
+            <div class="ws__filter">
+              <button class="chip is-on">全部</button>
+              <button class="chip">在售</button>
+              <button class="chip">告急</button>
+              <button class="chip">下架</button>
+            </div>
+            <div class="ws__scroll">
+              <div class="ws__item">
+                <img src="../../imgs/phones/phone-01.jpg" alt="">
+                <div class="ws__item__b">
+                  <div class="ws__item__n">5G 旗舰智能手机 12+256G 曜夜黑</div>
+                  <div class="ws__item__m"><span class="price">¥3,999</span><span>库存 74</span><span class="ws__dot"></span></div>
+                </div>
+              </div>
+              <div class="ws__item">
+                <img src="../../imgs/phones/phone-02.jpg" alt="">
+                <div class="ws__item__b">
+                  <div class="ws__item__n">5G 轻薄智能手机 8+128G 星空灰</div>
+                  <div class="ws__item__m"><span class="price">¥2,599</span><span>库存 88</span><span class="ws__dot"></span></div>
+                </div>
+              </div>
+              <div class="ws__item is-on">
+                <img src="../../imgs/shoes/shoe-10.jpg" alt="">
+                <div class="ws__item__b">
+                  <div class="ws__item__n">竞速跑步鞋 全掌回弹</div>
+                  <div class="ws__item__m"><span class="price">¥1,099</span><span class="low">库存 8</span><span class="ws__dot ws__dot--low"></span></div>
+                </div>
+              </div>
+              <div class="ws__item">
+                <img src="../../imgs/phones/phone-11.jpg" alt="">
+                <div class="ws__item__b">
+                  <div class="ws__item__n">真无线主动降噪耳机</div>
+                  <div class="ws__item__m"><span class="price">¥1,099</span><span>库存 214</span><span class="ws__dot"></span></div>
+                </div>
+              </div>
+              <div class="ws__item">
+                <img src="../../imgs/shoes/shoe-07.jpg" alt="">
+                <div class="ws__item__b">
+                  <div class="ws__item__n">复古工装马丁靴 棕色</div>
+                  <div class="ws__item__m"><span class="price">¥899</span><span class="low">库存 3</span><span class="ws__dot ws__dot--low"></span></div>
+                </div>
+              </div>
+              <div class="ws__item">
+                <img src="../../imgs/phones/phone-06.jpg" alt="" style="opacity:.6">
+                <div class="ws__item__b">
+                  <div class="ws__item__n" style="color:var(--t3)">一体机电脑 24 英寸 16G+512G</div>
+                  <div class="ws__item__m"><span class="price" style="color:var(--t3)">¥7,299</span><span>库存 144</span><span class="ws__dot ws__dot--off"></span></div>
+                </div>
+              </div>
+              <div class="ws__item">
+                <img src="../../imgs/phones/phone-09.jpg" alt="">
+                <div class="ws__item__b">
+                  <div class="ws__item__n">智能运动手表 血氧心率监测</div>
+                  <div class="ws__item__m"><span class="price">¥1,299</span><span>库存 186</span><span class="ws__dot"></span></div>
+                </div>
+              </div>
+              <div class="ws__item">
+                <img src="../../imgs/phones/phone-12.jpg" alt="">
+                <div class="ws__item__b">
+                  <div class="ws__item__n">真无线蓝牙耳机 长续航</div>
+                  <div class="ws__item__m"><span class="price">¥399</span><span>库存 228</span><span class="ws__dot"></span></div>
+                </div>
+              </div>
+              <div class="ws__item">
+                <img src="../../imgs/shoes/shoe-01.jpg" alt="">
+                <div class="ws__item__b">
+                  <div class="ws__item__n">复古高帮板鞋 白色</div>
+                  <div class="ws__item__m"><span class="price">¥499</span><span>库存 148</span><span class="ws__dot"></span></div>
+                </div>
+              </div>
+            </div>
+            <div class="ws__listfoot">
+              <span>共 156 个</span>
+              <span><kbd>↑</kbd> <kbd>↓</kbd> 切换</span>
+            </div>
+          </div>
+
+          <!-- 右面板 -->
+          <div class="ws__panel">
+            <div class="ws__head">
+              <img src="../../imgs/shoes/shoe-10.jpg" alt="">
+              <div class="ws__head__b">
+                <div class="ws__head__t">竞速跑步鞋 全掌回弹</div>
+                <div class="ws__head__m">
+                  <span class="tag tag--info">鞋类</span>
+                  <span>ID 126</span>
+                  <span>更新于 10-25 09:12</span>
+                  <span class="tag tag--danger">库存告急</span>
+                </div>
+              </div>
+              <div class="ws__head__r">
+                <span class="sw is-on"></span><span>在售</span>
+              </div>
+            </div>
+
+            <div class="ws__body">
+              <!-- 价格与库存 -->
+              <div class="sect">
+                <div class="sect__head">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 6H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+                  价格与库存
+                  <span class="sect__sp"></span>
+                  <span class="badge">直接改，改完保存</span>
+                </div>
+                <div class="sect__body">
+                  <div class="erow">
+                    <div class="erow__lb">展示价格</div>
+                    <div class="erow__ct">
+                      <input class="inp inp--num" value="1099.00">
+                      <span class="erow__unit">元</span>
+                      <span class="erow__hint">详情页与列表展示价</span>
+                    </div>
+                  </div>
+                  <div class="erow">
+                    <div class="erow__lb">总库存</div>
+                    <div class="erow__ct">
+                      <span class="ro-num">120</span>
+                      <span class="erow__unit">件</span>
+                      <span class="erow__hint">= 下方 SKU 库存之和，自动汇总（只读）</span>
+                    </div>
+                  </div>
+                  <div class="erow">
+                    <div class="erow__lb">累计销量</div>
+                    <div class="erow__ct">
+                      <input class="inp inp--num" value="975">
+                      <span class="erow__unit">件</span>
+                      <span class="erow__hint">支付成功后自动累加，这里只做人工校正</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- SKU -->
+              <div class="sect">
+                <div class="sect__head">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/></svg>
+                  SKU 规格
+                  <span class="badge">4 个</span>
+                  <span class="sect__sp"></span>
+                  <button class="btn btn--sm">按规格批量生成</button>
+                  <button class="btn btn--sm">＋ 添加</button>
+                </div>
+                <div class="sect__body" style="padding:12px">
+                  <table class="sku-tbl">
+                    <thead>
+                      <tr>
+                        <th style="width:34px"></th>
+                        <th>规格名</th>
+                        <th>规格值</th>
+                        <th style="width:112px">价格</th>
+                        <th style="width:96px">库存</th>
+                        <th style="width:48px"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td><img class="sku-thumb" src="../../imgs/shoes/shoe-10.jpg" alt=""></td>
+                        <td><input class="inp" value="尺码"></td>
+                        <td><input class="inp" value="40"></td>
+                        <td><input class="inp" value="1099.00" style="text-align:right"></td>
+                        <td><span class="dirty-mark" style="display:inline-block;margin-right:6px"></span><input class="inp is-dirty" value="42" style="width:56px;text-align:right"></td>
+                        <td><span class="link" style="color:var(--danger);font-size:12px">删</span></td>
+                      </tr>
+                      <tr>
+                        <td><img class="sku-thumb" src="../../imgs/shoes/shoe-10.jpg" alt=""></td>
+                        <td><input class="inp" value="尺码"></td>
+                        <td><input class="inp" value="41"></td>
+                        <td><input class="inp" value="1099.00" style="text-align:right"></td>
+                        <td><span class="dirty-mark" style="display:inline-block;margin-right:6px"></span><input class="inp is-dirty" value="38" style="width:56px;text-align:right"></td>
+                        <td><span class="link" style="color:var(--danger);font-size:12px">删</span></td>
+                      </tr>
+                      <tr>
+                        <td><img class="sku-thumb" src="../../imgs/shoes/shoe-10.jpg" alt=""></td>
+                        <td><input class="inp" value="尺码"></td>
+                        <td><input class="inp" value="42"></td>
+                        <td><input class="inp" value="1199.00" style="text-align:right"></td>
+                        <td><input class="inp" value="40" style="width:56px;text-align:right"></td>
+                        <td><span class="link" style="color:var(--danger);font-size:12px">删</span></td>
+                      </tr>
+                      <tr>
+                        <td><img class="sku-thumb" src="../../imgs/shoes/shoe-10.jpg" alt=""></td>
+                        <td><input class="inp" value="尺码"></td>
+                        <td><input class="inp" value="43"></td>
+                        <td><input class="inp" value="1299.00" style="text-align:right"></td>
+                        <td><input class="inp" value="0" style="width:56px;text-align:right"></td>
+                        <td><span class="link" style="color:var(--danger);font-size:12px">删</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- 图片 -->
+              <div class="sect">
+                <div class="sect__head">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 18l5-4 4 3 3-2 4 3"/></svg>
+                  图片
+                  <span class="sect__sp"></span>
+                  <span class="badge">主图 1 · 图集 5</span>
+                </div>
+                <div class="sect__body">
+                  <div style="display:flex;gap:16px;align-items:flex-start">
+                    <div>
+                      <div style="font-size:12px;color:var(--t3);margin-bottom:6px">主图</div>
+                      <div class="up-box"><img src="../../imgs/shoes/shoe-10.jpg" alt=""></div>
+                    </div>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-size:12px;color:var(--t3);margin-bottom:6px">图集（拖拽排序，第一张为详情首图）</div>
+                      <div class="gal">
+                        <div class="gal__it">
+                          <div class="gal__th"><img src="../../imgs/shoes/shoe-10.jpg" alt=""><span class="tag tag--primary">首图</span></div>
+                          <div class="gal__ops"><a class="is-off">←</a><span>1</span><a>→</a></div>
+                        </div>
+                        <div class="gal__it">
+                          <div class="gal__th"><img src="../../imgs/shoes/shoe-09.jpg" alt=""></div>
+                          <div class="gal__ops"><a>←</a><span>2</span><a>→</a></div>
+                        </div>
+                        <div class="gal__it">
+                          <div class="gal__th"><img src="../../imgs/shoes/shoe-11.jpg" alt=""></div>
+                          <div class="gal__ops"><a>←</a><span>3</span><a>→</a></div>
+                        </div>
+                        <div class="gal__it">
+                          <div class="up-box" style="width:88px;height:88px">＋<span>添加</span></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 文案 -->
+              <div class="sect">
+                <div class="sect__head">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+                  文案与搜索
+                </div>
+                <div class="sect__body">
+                  <div class="erow">
+                    <div class="erow__lb">商品名称</div>
+                    <div class="erow__ct"><input class="inp" value="竞速跑步鞋 全掌回弹"></div>
+                  </div>
+                  <div class="erow">
+                    <div class="erow__lb">副标题</div>
+                    <div class="erow__ct"><input class="inp" value="轻量碳板，专业竞速"></div>
+                  </div>
+                  <div class="erow">
+                    <div class="erow__lb">搜索关键词</div>
+                    <div class="erow__ct">
+                      <input class="inp" value="跑鞋,跑步鞋,碳板鞋,竞速">
+                      <span class="erow__hint">逗号分隔</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 固定保存条 -->
+            <div class="ws__foot">
+              <div class="ws__foot__note">
+                <span class="pill"><span class="dot" style="background:#b88230"></span>2 处未保存改动</span>
+                <span>切到别的商品前会提示</span>
+              </div>
+              <button class="btn">放弃改动</button>
+              <button class="btn btn--primary">保存（⌘S）</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== 对比表 ========== -->
+      <div class="compare">
+        <div class="compare__head"><i></i>三个方案怎么选</div>
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th class="col-a">A · 精修表格<span class="rec">推荐基线</span></th>
+              <th>B · 商品墙</th>
+              <th>C · 工作台</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th>核心场景</th>
+              <td class="col-a">按条件筛一批，逐条核对改</td>
+              <td>看图挑品、检查图片质量</td>
+              <td>连续调价 / 补货，一次改 5 个</td>
+            </tr>
+            <tr>
+              <th>单屏信息量</th>
+              <td class="col-a"><span class="good">高</span> 12 行 × 7 字段</td>
+              <td><span class="mid">低</span> 12 张卡 × 5 字段</td>
+              <td><span class="good">高</span> 9 条 + 完整详情</td>
+            </tr>
+            <tr>
+              <th>认图找货</th>
+              <td class="col-a"><span class="mid">中</span> 56px 缩略图</td>
+              <td><span class="good">强</span> 4:3 大图</td>
+              <td><span class="bad">弱</span> 40px 缩略图</td>
+            </tr>
+            <tr>
+              <th>改价改库存</th>
+              <td class="col-a">开抽屉 → 改 → 存（3 步）</td>
+              <td>开抽屉 → 改 → 存（3 步）</td>
+              <td><span class="good">就地改 → 存（1 步）</span></td>
+            </tr>
+            <tr>
+              <th>批量操作</th>
+              <td class="col-a"><span class="good">天然好做</span> 勾选浮条</td>
+              <td><span class="mid">可以但别扭</span> 卡片勾选</td>
+              <td><span class="bad">不适合</span></td>
+            </tr>
+            <tr>
+              <th>窄屏（1366）</th>
+              <td class="col-a"><span class="good">无压力</span></td>
+              <td><span class="good">自适应</span></td>
+              <td><span class="bad">吃紧</span> 左栏 352 + 右栏表单</td>
+            </tr>
+            <tr>
+              <th>前端改动</th>
+              <td class="col-a">1 文件重写 + 1 个抽屉组件</td>
+              <td>1 文件重写 + 1 个抽屉组件</td>
+              <td>1 文件重写，需 dirty 状态管理</td>
+            </tr>
+            <tr>
+              <th>后端改动</th>
+              <td class="col-a"><span class="mid">+2 字段</span>（SKU 数 / 价格区间，可砍）<br><span style="color:var(--t3);font-size:12px">批量接口可选：不加以前端循环替代</span></td>
+              <td><span class="good">0</span></td>
+              <td><span class="good">0</span><br><span style="color:var(--t3);font-size:12px">SKU 库存接口 <code>PUT /admin/skus/:id/stock</code> 已有</span></td>
+            </tr>
+            <tr>
+              <th>主要风险</th>
+              <td class="col-a">视觉提升有限，仍是"后台感"</td>
+              <td>翻页多，库存/价格对比不直观</td>
+              <td>状态管理复杂度最高，容易丢改动</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 方案 A 的编辑抽屉 ========== -->
+<div class="drawer" id="drawer">
+  <div class="drawer__mask" onclick="closeDrawer()"></div>
+  <div class="drawer__panel">
+    <div class="dr-head">
+      <img class="dr-head__img" src="../../imgs/phones/phone-01.jpg" alt="">
+      <div class="dr-head__body">
+        <div class="dr-head__t">5G 旗舰智能手机 12+256G 曜夜黑</div>
+        <div class="dr-head__m">
+          <span>ID 101</span><span>·</span><span>手机数码</span><span>·</span><span>更新于 10-25 09:12</span>
+        </div>
+      </div>
+      <button class="dr-close" onclick="closeDrawer()">✕</button>
+    </div>
+
+    <div class="dr-tabs">
+      <div class="dr-tab is-on" data-t="1">基础信息</div>
+      <div class="dr-tab" data-t="2">图片 <em>1+5</em></div>
+      <div class="dr-tab" data-t="3">规格 SKU <em>2</em></div>
+    </div>
+
+    <div class="dr-body">
+      <!-- tab1 -->
+      <div class="dr-pane is-on" data-p="1">
+        <div class="fr">
+          <div class="fr__lb"><i>*</i>商品名称</div>
+          <div class="fr__ct"><input class="inp" value="5G 旗舰智能手机 12+256G 曜夜黑"></div>
+        </div>
+        <div class="fr">
+          <div class="fr__lb">副标题</div>
+          <div class="fr__ct"><input class="inp" value="骁龙旗舰芯片，超清三摄"></div>
+        </div>
+        <div class="fr">
+          <div class="fr__lb"><i>*</i>分类</div>
+          <div class="fr__ct">
+            <div class="field" style="width:200px;justify-content:space-between">手机数码 <span style="font-size:10px;color:var(--t4)">▾</span></div>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fr__lb">搜索关键词</div>
+          <div class="fr__ct">
+            <input class="inp" value="手机,智能手机,5G手机,旗舰手机">
+            <div class="fr__hint">用户会搜、但商品名里没有的品类词与别名，英文逗号分隔。搜索时与名称、副标题一起参与匹配。</div>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fr__lb">展示价格</div>
+          <div class="fr__ct">
+            <div class="fr__inline">
+              <input class="inp inp--w" value="3999.00">
+              <span style="font-size:12px;color:var(--t3)">元 · SKU 价格区间 3,999 – 4,599</span>
+            </div>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fr__lb">累计销量</div>
+          <div class="fr__ct">
+            <div class="fr__inline">
+              <input class="inp inp--w" value="1286">
+              <span style="font-size:12px;color:var(--t3)">支付成功后自动累加，这里只做人工校正</span>
+            </div>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fr__lb">状态</div>
+          <div class="fr__ct">
+            <div class="fr__inline">
+              <span class="sw is-on"></span><span style="font-size:13px">上架（商城可见）</span>
+            </div>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fr__lb">商品详情</div>
+          <div class="fr__ct">
+            <textarea class="inp inp--area" rows="4">骁龙旗舰芯片，超清三摄。本商品为演示数据，规格与库存仅用于功能验证。</textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- tab2 -->
+      <div class="dr-pane" data-p="2">
+        <div class="fr">
+          <div class="fr__lb">商品主图</div>
+          <div class="fr__ct">
+            <div style="display:flex;gap:14px;align-items:flex-start">
+              <div class="up-box"><img src="../../imgs/phones/phone-01.jpg" alt=""></div>
+              <div style="font-size:12px;color:var(--t3);line-height:1.8">
+                <div>JPG / PNG / GIF / WEBP，单张 ≤ 5MB</div>
+                <div>建议 1:1，最小 800×800</div>
+                <div style="margin-top:6px"><span class="link">重新上传</span> · <span class="link" style="color:var(--danger)">移除</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fr__lb">商品图集</div>
+          <div class="fr__ct">
+            <div class="gal">
+              <div class="gal__it">
+                <div class="gal__th"><img src="../../imgs/phones/phone-01.jpg" alt=""><span class="tag tag--primary">首图</span></div>
+                <div class="gal__ops"><a class="is-off">←</a><span>1</span><a>→</a></div>
+              </div>
+              <div class="gal__it">
+                <div class="gal__th"><img src="../../imgs/phones/phone-02.jpg" alt=""></div>
+                <div class="gal__ops"><a>←</a><span>2</span><a>→</a></div>
+              </div>
+              <div class="gal__it">
+                <div class="gal__th"><img src="../../imgs/phones/phone-03.jpg" alt=""></div>
+                <div class="gal__ops"><a>←</a><span>3</span><a>→</a></div>
+              </div>
+              <div class="gal__it">
+                <div class="gal__th"><img src="../../imgs/phones/phone-04.jpg" alt=""></div>
+                <div class="gal__ops"><a>←</a><span>4</span><a>→</a></div>
+              </div>
+              <div class="gal__it">
+                <div class="up-box" style="width:88px;height:88px">＋<span>添加</span></div>
+              </div>
+            </div>
+            <div class="fr__hint">按顺序展示，第一张为详情页图集首图；不添加时详情页退回主图。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- tab3 -->
+      <div class="dr-pane" data-p="3">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <span style="font-size:12.5px;color:var(--t3)">规格名相同时可一键生成组合</span>
+          <div style="flex:1"></div>
+          <button class="btn btn--sm">按规格批量生成</button>
+          <button class="btn btn--sm">＋ 添加 SKU</button>
+        </div>
+        <table class="sku-tbl">
+          <thead>
+            <tr>
+              <th style="width:38px">图</th>
+              <th style="width:104px">规格名</th>
+              <th>规格值</th>
+              <th style="width:120px">价格</th>
+              <th style="width:100px">库存</th>
+              <th style="width:48px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><img class="sku-thumb" src="../../imgs/phones/phone-01.jpg" alt=""></td>
+              <td><input class="inp" value="版本"></td>
+              <td><input class="inp" value="12+256G"></td>
+              <td><input class="inp" value="3999.00" style="text-align:right"></td>
+              <td><input class="inp" value="37" style="text-align:right"></td>
+              <td><span class="link" style="color:var(--danger);font-size:12px">删</span></td>
+            </tr>
+            <tr>
+              <td><img class="sku-thumb" src="../../imgs/phones/phone-01.jpg" alt=""></td>
+              <td><input class="inp" value="版本"></td>
+              <td><input class="inp" value="16+512G"></td>
+              <td><input class="inp" value="4599.00" style="text-align:right"></td>
+              <td><input class="inp" value="37" style="text-align:right"></td>
+              <td><span class="link" style="color:var(--danger);font-size:12px">删</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="fr__hint" style="margin-top:10px">
+          SKU 库存与商品总库存是两套账：秒杀走 Redis 独立扣减，这里的库存只影响普通下单。
+        </div>
+      </div>
+    </div>
+
+    <div class="dr-foot">
+      <div class="dr-foot__note"><span class="dot"></span>有未保存的改动</div>
+      <button class="btn" onclick="closeDrawer()">取消</button>
+      <button class="btn btn--primary" onclick="closeDrawer()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= 方案切换 ================= */
+function activate(p){
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('is-on', t.dataset.p === p))
+  document.querySelectorAll('.proposal').forEach(el => el.classList.toggle('is-on', el.id === 'p' + p))
+}
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    activate(tab.dataset.p)
+    try { history.replaceState(null, '', '#' + tab.dataset.p) } catch (e) { /* file:// 下忽略 */ }
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  })
+})
+const initial = (window.location.hash || '').replace('#', '')
+if (['a','b','c'].includes(initial)) activate(initial)
+
+/* ================= 抽屉 ================= */
+function openDrawer(){ document.getElementById('drawer').classList.add('is-open') }
+function closeDrawer(){ document.getElementById('drawer').classList.remove('is-open') }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer() })
+
+/* 抽屉内 tab */
+document.querySelectorAll('.dr-tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.dr-tab').forEach(x => x.classList.toggle('is-on', x === t))
+    document.querySelectorAll('.dr-pane').forEach(p => p.classList.toggle('is-on', p.dataset.p === t.dataset.t))
+  })
+})
+
+/* 更多菜单 */
+function toggleMore(btn){
+  const wrap = btn.closest('.more')
+  const open = wrap.classList.contains('is-open')
+  document.querySelectorAll('.more').forEach(m => m.classList.remove('is-open'))
+  if (!open) wrap.classList.add('is-open')
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('.more')) document.querySelectorAll('.more').forEach(m => m.classList.remove('is-open'))
+})
+
+/* 演示用：点击 chip / seg 切换选中态（纯视觉） */
+document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => {
+  const group = c.parentElement
+  group.querySelectorAll('.chip').forEach(x => x.classList.remove('is-on'))
+  c.classList.add('is-on')
+}))
+document.querySelectorAll('.seg').forEach(s => s.querySelectorAll('button').forEach(b => {
+  b.addEventListener('click', () => {
+    s.querySelectorAll('button').forEach(x => x.classList.remove('is-on'))
+    b.classList.add('is-on')
+  })
+}))
+/* 开关 / 卡片勾选 */
+document.querySelectorAll('.sw').forEach(s => s.addEventListener('click', () => s.classList.toggle('is-on')))
+document.querySelectorAll('.pcard__pick').forEach(p => p.addEventListener('click', e => {
+  e.stopPropagation()
+  const card = p.closest('.pcard')
+  card.classList.toggle('is-picked')
+  p.textContent = card.classList.contains('is-picked') ? '✓' : ''
+}))
+/* 工作台左列表切换 */
+document.querySelectorAll('.ws__item').forEach(it => it.addEventListener('click', () => {
+  document.querySelectorAll('.ws__item').forEach(x => x.classList.toggle('is-on', x === it))
+}))
+</script>
+</body>
+</html>
