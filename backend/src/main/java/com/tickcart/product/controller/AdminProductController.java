@@ -3,6 +3,7 @@ package com.tickcart.product.controller;
 import com.tickcart.common.api.PageResult;
 import com.tickcart.common.api.R;
 import com.tickcart.product.dto.CategorySaveRequest;
+import com.tickcart.product.dto.ProductBatchCategoryRequest;
 import com.tickcart.product.dto.ProductQuery;
 import com.tickcart.product.dto.ProductSaveRequest;
 import com.tickcart.product.entity.Category;
@@ -82,6 +83,26 @@ public class AdminProductController {
     public R<Void> delete(@PathVariable Long id) {
         productService.delete(id);
         return R.ok();
+    }
+
+    // ---------------- 批量（单事务，全部成功或全部不做） ----------------
+
+    @Operation(summary = "批量上架/下架", description = "返回实际更新行数；选中项里有已删除的会整批取消")
+    @PutMapping("/products/batch/status")
+    public R<Integer> batchChangeStatus(@RequestParam Integer status, @RequestBody List<Long> ids) {
+        return R.ok(productService.batchChangeStatus(ids, status));
+    }
+
+    @Operation(summary = "批量改分类", description = "只改 category_id，不重建 SKU")
+    @PutMapping("/products/batch/category")
+    public R<Integer> batchChangeCategory(@Valid @RequestBody ProductBatchCategoryRequest req) {
+        return R.ok(productService.batchChangeCategory(req.getIds(), req.getCategoryId()));
+    }
+
+    @Operation(summary = "批量删除", description = "连同 SKU 与图集，单事务")
+    @PostMapping("/products/batch/delete")
+    public R<Integer> batchDelete(@RequestBody List<Long> ids) {
+        return R.ok(productService.batchDelete(ids));
     }
 
     @Operation(summary = "修改 SKU 库存")

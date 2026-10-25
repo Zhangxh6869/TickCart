@@ -419,6 +419,119 @@ public class ProductService {
     }
 
     // -------------------------------------------------------------------------
+    // 批量操作
+    //
+    // 为什么不复用单条接口循环调用：
+    //   · 循环 = N 个独立事务，第 13 条失败时前 12 条已提交，用户看到「部分失败」
+    //     却不知道是哪几条成了 —— 「以为都下架了、实际有 3 个还在卖」是真实会出事的；
+    //   · 批量删除还有级联（SKU + 图集），必须同一个事务里一起删。
+    // 也不复用 update()：它是全量覆盖语义，会重建 SKU（先逻辑删再插），
+    // product_sku.id 一变，seckill_activity.sku_id 的引用就全断了。
+    // -------------------------------------------------------------------------
+
+    /** 单次批量操作的条数上限：防止误传全表 id 把行锁住。 */
+    private static final int BATCH_MAX_SIZE = 100;
+
+    /**
+     * 校验并规整批量操作的 id 列表。
+     *
+     * <p><b>要求全部存在</b>，不存在的直接整批拒绝 —— 这是刻意的：
+     * 「部分成功」在批量操作里是最难收拾的状态，运营无法从一句「部分失败」
+     * 判断出到底哪几条生效了。宁可全不做，让他刷新后重试。</p>
+     */
+    private List<Long> normalizeBatchIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw BizException.badRequest("请先选择商品");
+        }
+        List<Long> distinct = ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinct.isEmpty()) {
+            throw BizException.badRequest("请先选择商品");
+        }
+        if (distinct.size() > BATCH_MAX_SIZE) {
+            throw BizException.badRequest("单次最多处理 " + BATCH_MAX_SIZE + " 个商品");
+        }
+        Long found = productMapper.selectCount(
+                new LambdaQueryWrapper<Product>().in(Product::getId, distinct));
+        if (found == null || found != distinct.size()) {
+            throw BizException.notFound("选中的商品里有已删除的，本次操作已取消，请刷新后重试");
+        }
+        return distinct;
+    }
+
+    /** 批量失效详情缓存（一条命令发多个 key，而不是逐条往返）。 */
+    private void evictProductDetails(List<Long> ids) {
+        if (ids.isEmpty()) {
+            return;
+        }
+        cacheService.evictAfterCommit(ids.stream()
+                .map(CacheKeys::productDetail)
+                .toArray(String[]::new));
+    }
+
+    /**
+     * 批量上架/下架。
+     *
+     * @return 实际更新的行数
+     */
+    @Transactional
+    public int batchChangeStatus(List<Long> ids, Integer status) {
+        if (status == null || (status != STATUS_ON && status != STATUS_OFF)) {
+            throw BizException.badRequest("状态值不合法");
+        }
+        List<Long> target = normalizeBatchIds(ids);
+
+        Product patch = new Product();
+        patch.setStatus(status);
+        int affected = productMapper.update(patch,
+                new LambdaQueryWrapper<Product>().in(Product::getId, target));
+        evictProductDetails(target);
+        return affected;
+    }
+
+    /**
+     * 批量改分类。
+     *
+     * <p>只更新 {@code category_id} 一列 —— 不走 {@link #update} 的全量覆盖，
+     * 否则会把每个商品的 SKU 删了重建。</p>
+     *
+     * @return 实际更新的行数
+     */
+    @Transactional
+    public int batchChangeCategory(List<Long> ids, Long categoryId) {
+        if (categoryId == null) {
+            throw BizException.badRequest("请选择目标分类");
+        }
+        requireCategory(categoryId);
+        List<Long> target = normalizeBatchIds(ids);
+
+        Product patch = new Product();
+        patch.setCategoryId(categoryId);
+        int affected = productMapper.update(patch,
+                new LambdaQueryWrapper<Product>().in(Product::getId, target));
+        evictProductDetails(target);
+        return affected;
+    }
+
+    /**
+     * 批量删除（连同 SKU、图集，单事务）。
+     *
+     * @return 实际删除的行数
+     */
+    @Transactional
+    public int batchDelete(List<Long> ids) {
+        List<Long> target = normalizeBatchIds(ids);
+
+        skuMapper.delete(new LambdaQueryWrapper<ProductSku>()
+                .in(ProductSku::getProductId, target));
+        imageMapper.delete(new LambdaQueryWrapper<ProductImage>()
+                .in(ProductImage::getProductId, target));
+        int affected = productMapper.delete(new LambdaQueryWrapper<Product>()
+                .in(Product::getId, target));
+        evictProductDetails(target);
+        return affected;
+    }
+
+    // -------------------------------------------------------------------------
     // 库存（供 trade/seckill 阶段复用的原子更新入口）
     // -------------------------------------------------------------------------
 

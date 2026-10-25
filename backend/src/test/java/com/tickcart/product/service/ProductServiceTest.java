@@ -36,6 +36,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -45,6 +46,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -439,6 +441,122 @@ class ProductServiceTest {
                         tuple(102L, false),
                         tuple(103L, false),
                         tuple(104L, true));
+    }
+
+    // ---------------- 批量操作 ----------------
+
+    /** 让 normalizeBatchIds 的存在性校验通过：返回 count 条。 */
+    private void productsExist(int count) {
+        when(productMapper.selectCount(any())).thenReturn((long) count);
+    }
+
+    @Test
+    @DisplayName("批量上下架：一次 UPDATE 覆盖全部选中商品")
+    void batchChangeStatusUpdatesInOneStatement() {
+        productsExist(2);
+        when(productMapper.update(any(), any())).thenReturn(2);
+
+        int affected = productService.batchChangeStatus(List.of(1L, 2L), 0);
+
+        assertThat(affected).isEqualTo(2);
+        ArgumentCaptor<Product> patch = ArgumentCaptor.forClass(Product.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaQueryWrapper<Product>> wrapper =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(productMapper).update(patch.capture(), wrapper.capture());
+        assertThat(patch.getValue().getStatus()).isEqualTo(0);
+        assertThat(wrapper.getValue().getSqlSegment()).contains("IN");
+    }
+
+    @Test
+    @DisplayName("批量改分类只写 category_id，不重建 SKU")
+    void batchChangeCategoryTouchesOnlyCategoryColumn() {
+        categoryExists();
+        productsExist(2);
+        when(productMapper.update(any(), any())).thenReturn(2);
+
+        productService.batchChangeCategory(List.of(1L, 2L), 5L);
+
+        ArgumentCaptor<Product> patch = ArgumentCaptor.forClass(Product.class);
+        verify(productMapper).update(patch.capture(), any());
+        assertThat(patch.getValue().getCategoryId()).isEqualTo(5L);
+        // 其余字段必须为 null，否则 MyBatis-Plus 会把这些列一起写进 UPDATE，
+        // 等于走了一次全量覆盖
+        assertThat(patch.getValue().getName()).isNull();
+        assertThat(patch.getValue().getPrice()).isNull();
+        assertThat(patch.getValue().getStock()).isNull();
+        // 关键：SKU 与图集一行都不能动 —— 动了 product_sku.id 就会变，
+        // seckill_activity.sku_id 的引用会全部失联
+        verify(skuMapper, never()).delete(any());
+        verify(imageMapper, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("批量删除级联删除 SKU 与图集")
+    void batchDeleteCascadesToSkuAndImages() {
+        productsExist(2);
+        when(productMapper.delete(any())).thenReturn(2);
+
+        int affected = productService.batchDelete(List.of(1L, 2L));
+
+        assertThat(affected).isEqualTo(2);
+        verify(skuMapper).delete(any());
+        verify(imageMapper).delete(any());
+        verify(productMapper).delete(any());
+    }
+
+    @Test
+    @DisplayName("选中项里有已删除的商品时整批取消，不做半成功")
+    void batchRejectsPartiallyMissingIds() {
+        when(productMapper.selectCount(any())).thenReturn(1L);
+
+        assertThatThrownBy(() -> productService.batchChangeStatus(List.of(1L, 2L), 0))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("已取消");
+        verify(productMapper, never()).update(any(), any());
+    }
+
+    @Test
+    @DisplayName("空选择直接拒绝")
+    void batchRejectsEmptySelection() {
+        assertThatThrownBy(() -> productService.batchDelete(List.of()))
+                .isInstanceOf(BizException.class)
+                .hasMessage("请先选择商品");
+    }
+
+    @Test
+    @DisplayName("单次超过 100 条被拒绝")
+    void batchRejectsTooManyIds() {
+        List<Long> ids = IntStream.rangeClosed(1, 101).mapToObj(Long::valueOf).toList();
+
+        assertThatThrownBy(() -> productService.batchDelete(ids))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("单次最多处理 100");
+    }
+
+    @Test
+    @DisplayName("重复 id 先去重再校验，不会误判为缺失")
+    void batchDedupesIds() {
+        productsExist(2);
+        when(productMapper.update(any(), any())).thenReturn(2);
+
+        productService.batchChangeStatus(List.of(1L, 2L, 1L), 1);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaQueryWrapper<Product>> wrapper =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(productMapper).update(any(), wrapper.capture());
+        // ★必须先 getSqlSegment() 把条件实体化，参数表才是填充的（MP 是懒解析）
+        assertThat(wrapper.getValue().getSqlSegment()).contains("IN");
+        assertThat(wrapper.getValue().getParamNameValuePairs()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("批量上下架的状态值不合法时拒绝")
+    void batchRejectsInvalidStatus() {
+        assertThatThrownBy(() -> productService.batchChangeStatus(List.of(1L), 2))
+                .isInstanceOf(BizException.class)
+                .hasMessage("状态值不合法");
     }
 
     // ---------------- 规格判断（加购 / 下单共用） ----------------
