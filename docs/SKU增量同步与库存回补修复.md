@@ -1,7 +1,9 @@
 # SKU 全量重建导致「库存回补静默失效」——根因与修复
 
-> 状态：**已修复**，commit `4d08aa0`
-> 涉及：`ProductService#syncSkus`（新）、`InventoryService#restore`（加告警）、`ProductServiceTest`（+5 用例）
+> 状态：**已修复**，两个 commit：
+> ① `4d08aa0` SKU 增量同步 + 回补未命中告警
+> ② `product.stock` 与 SKU 合计同步（见 §七）
+> 涉及：`ProductService#syncSkus`（新）、`InventoryService`（汇总同步 + 告警）、`ProductServiceTest`（+6 用例）
 > 关联文档：`docs/订单管理界面重设计方案.md` §六.10（问题是在做订单管理页时发现的）
 
 ## 一、现象
@@ -91,5 +93,86 @@ if (rows == 0) {
 |---|---|
 | 2 个待付款订单仍指向已删的 sku 34 | 修复只防未来，不修历史。这两单关闭时库存仍补不回来；要补得手工 `UPDATE product_sku SET stock = stock + 1 WHERE id = 39`（同一规格的当前行） |
 | 存量 106 行已删 SKU | 不影响功能，不必清理（清理反而会破坏历史订单的 `sku_id` 追溯） |
-| `product.stock` 与 SKU 合计漂移 | `product.stock` 只在保存时 `= sum(提交的 SKU 库存)`，下单不扣它 → 162 个有规格商品里 7 个已不一致（iPhone17：195 vs 实际 192）。商品列表的库存列与库存告急判定都基于这个快照值，属于独立问题 |
 | 编辑 SKU 时的并发 | 两个管理员同时编辑同一商品，后保存的会覆盖先保存的 SKU 值（无乐观锁）。当前单管理员场景可接受 |
+
+---
+
+## 七、顺带修掉的第二个口径问题：`product.stock` 不随下单递减
+
+### 7.1 现象
+
+库存其实有两本账：
+
+| 字段 | 角色 | 谁在改它 |
+|---|---|---|
+| `product_sku.stock` | **真账**，能不能卖看它 | 下单扣、取消补 |
+| `product.stock` | 派生汇总值，商品列表 / 库存告急 / 分类页告急数都读它 | 只有「保存商品」「单独改 SKU 库存」会重算 |
+
+下单只动前者，于是后者变成一张**只有保存时才刷新**的旧快照。
+
+实测（商品 302 精选牛油果，2 件）：
+
+| 时刻 | `product.stock` | SKU 合计 |
+|---|---|---|
+| 下单前 | 198 | 198 |
+| 下单 2 件 | **198（没动）** | **196** |
+| 取消后 | 198 | 198 |
+
+后果不是超卖（扣的是 SKU），而是**后台看到的数字偏大**，以及**漏报告急**：
+某商品剩 8 件、分类预警线 8，卖 1 件后真实 7（该报），但 `product.stock` 仍是 8 → 不报。
+
+修复前存量：162 个有规格商品里 **7 个已漂**，最大差 9 件（针织衫 213 vs 204），合计虚高 18 件。
+
+### 7.2 修法（3 处）
+
+**① `InventoryService.deduct` / `restore` 同步汇总值**
+
+```java
+if (hasSku(skuId)) {
+    int rows = productSkuMapper.update(... stock = stock - n ...);   // 真账，带 stock >= n
+    if (rows == 0) throw BizException.badRequest("库存不足");
+    adjustProductStock(productId, -quantity);                        // 汇总跟着动
+    return;
+}
+// 无规格商品：product.stock 就是真账，只扣这一次
+```
+
+★ 两个必须守住的点：
+- **无规格商品不能扣两次** —— 必须按 `hasSku` 分支，两个分支各自只更新一次（测试里用 `verify(...)` 的「恰好一次」语义锁住）。
+- **`restore` 时 SKU 没命中就不要加汇总值** —— 否则汇总会比真实合计更大，从「少算」变成「多算」，更坏。宁可两边都不动，只打 warn。
+
+**② `ProductService.update` 的总库存改成从库里重算**
+
+```java
+syncSkus(id, req.getSkus(), product.getPrice());
+product.setStock(skuStockTotal(id));   // 原来是 sumSkuStock(req.getSkus())
+```
+
+去掉「用请求参数算一遍」的第二套算法，`product.stock` 只认库里的 SKU 合计。
+
+**③ 存量校准（一次性）**
+
+```sql
+UPDATE product p
+JOIN (SELECT product_id, SUM(stock) t FROM product_sku WHERE deleted=0 GROUP BY product_id) s
+  ON s.product_id = p.id
+SET p.stock = s.t
+WHERE p.deleted = 0 AND p.stock <> s.t;
+```
+
+实测校准 7 行，校准后漂移 0：iPhone17 195 → 192、针织衫 213 → 204。
+
+### 7.3 验证
+
+| 项 | 结果 |
+|---|---|
+| 单元测试 | ✅ 403 通过（库存服务 6 → 8：有 SKU 同步汇总 / SKU 扣失败不动汇总 / 回补未命中不加汇总 / 无规格只扣一次；商品服务 56 → 57：总库存取库里合计） |
+| 端到端 | ✅ 下单 2 件：`product.stock` 198 → **196**、SKU 合计 198 → 196（同步）；取消后双双回到 198 |
+| 存量 | ✅ 漂移 7 → 0 |
+
+### 7.4 不改的地方与已知风险
+
+- 商品列表、告急筛选、分类页的 SQL **一行没动**，它们继续读 `product.stock`，只是这个值从此准确了
+- 前台详情页不动（优先显示选中规格的 SKU 库存，本来就是对的）
+- 秒杀完全不经过 `InventoryService`（走 Redis + 活动库存），所以它既不扣 SKU 也不扣汇总 —— 两边一致，不引入新账
+- `product.stock` 理论上可能变负（只在有人手改库时）。**刻意不加 `GREATEST(...,0)`**：负数说明账真错了，应该暴露而不是掩盖
