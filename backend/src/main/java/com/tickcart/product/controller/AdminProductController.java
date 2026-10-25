@@ -9,6 +9,7 @@ import com.tickcart.product.dto.ProductSaveRequest;
 import com.tickcart.product.entity.Category;
 import com.tickcart.product.service.CategoryService;
 import com.tickcart.product.service.ProductService;
+import com.tickcart.product.vo.LowStockReport;
 import com.tickcart.product.vo.ProductDetail;
 import com.tickcart.product.vo.ProductListItem;
 import io.swagger.v3.oas.annotations.Operation;
@@ -110,6 +111,13 @@ public class AdminProductController {
     public R<Void> updateSkuStock(@PathVariable Long skuId, @RequestParam Integer stock) {
         productService.updateSkuStock(skuId, stock);
         return R.ok();
+    }
+
+    @Operation(summary = "补货待办",
+            description = "库存低于所属分类预警线的 SKU 清单，按剩余比例升序（断货最前）。total 不受 limit 影响")
+    @GetMapping("/products/low-stock")
+    public R<LowStockReport> lowStock(@RequestParam(defaultValue = "100") int limit) {
+        return R.ok(productService.lowStock(limit));
     }
 
     // ---------------- 分类 ----------------

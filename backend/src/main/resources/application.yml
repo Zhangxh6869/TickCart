@@ -167,6 +167,9 @@ tickcart:
     # 商品数超过 5000 或该接口 P95 > 50ms 时，应改为「权重列 + 游标翻页」，
     # 见 docs/读放大与可靠性收尾设计.md §4
     random-pool-limit: ${PRODUCT_RANDOM_POOL_LIMIT:2000}
+    # 补货待办一次最多扫多少个在售商品（按库存升序取前 N 个，最可能告急的优先）。
+    # 超过上限时返回 truncated=true —— 该换 SQL 聚合了，不是靠调大这个值硬撑
+    low-stock-scan-limit: ${PRODUCT_LOW_STOCK_SCAN_LIMIT:2000}
   # 库存
   stock:
     # 库存预警线兜底值：库存低于该值在后台标记「告急」。

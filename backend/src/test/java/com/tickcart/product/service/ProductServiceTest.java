@@ -19,6 +19,8 @@ import com.tickcart.product.mapper.ProductImageMapper;
 import com.tickcart.product.mapper.ProductMapper;
 import com.tickcart.search.service.SynonymService;
 import com.tickcart.product.mapper.ProductSkuMapper;
+import com.tickcart.product.vo.LowStockItem;
+import com.tickcart.product.vo.LowStockReport;
 import com.tickcart.product.vo.ProductDetail;
 import com.tickcart.product.vo.ProductListItem;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -93,7 +95,7 @@ class ProductServiceTest {
     void stubCacheTransparent() {
         stockWarnService = new StockWarnService(categoryMapper, new StockProperties());
         productService = new ProductService(productMapper, skuMapper, imageMapper, categoryMapper,
-                synonymService, cacheService, cacheProperties, stockWarnService, 2000);
+                synonymService, cacheService, cacheProperties, stockWarnService, 2000, 2000);
         lenient().when(cacheService.get(anyString(), anyLong(), eq(ProductDetail.class), any()))
                 .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(3)).get());
     }
@@ -396,10 +398,15 @@ class ProductServiceTest {
     // ---------------- 库存告急标记 ----------------
 
     private Category category(Long id, Long parentId, Integer threshold) {
+        return category(id, parentId, threshold, "分类" + id);
+    }
+
+    private Category category(Long id, Long parentId, Integer threshold, String name) {
         Category c = new Category();
         c.setId(id);
         c.setParentId(parentId);
         c.setStockWarnThreshold(threshold);
+        c.setName(name);
         return c;
     }
 
@@ -557,6 +564,123 @@ class ProductServiceTest {
         assertThatThrownBy(() -> productService.batchChangeStatus(List.of(1L), 2))
                 .isInstanceOf(BizException.class)
                 .hasMessage("状态值不合法");
+    }
+
+    // ---------------- 补货待办 ----------------
+
+    private ProductSku sku(long id, long productId, String specValue, int stock) {
+        ProductSku s = new ProductSku();
+        s.setId(id);
+        s.setProductId(productId);
+        s.setSpecName("尺码");
+        s.setSpecValue(specValue);
+        s.setStock(stock);
+        s.setPrice(new BigDecimal("99.00"));
+        return s;
+    }
+
+    private void stubLowStockSource(List<Product> products, List<ProductSku> skus,
+                                    List<Category> categories) {
+        when(productMapper.selectList(any())).thenReturn(products);
+        when(skuMapper.selectList(any())).thenReturn(skus);
+        when(categoryMapper.selectList(any())).thenReturn(categories);
+    }
+
+    @Test
+    @DisplayName("补货待办：总库存充足但某个 SKU 断货，也要出现在清单里")
+    void lowStockIsSkuLevel() {
+        // 商品总库存 120，远高于阈值 8，但 43 码是 0 —— 商品级判断完全看不出问题
+        stubLowStockSource(
+                List.of(product(126L, 5L, 120)),
+                List.of(sku(1L, 126L, "42", 120), sku(2L, 126L, "43", 0)),
+                List.of(category(5L, 0L, 8, "鞋类")));
+
+        LowStockReport report = productService.lowStock(100);
+
+        assertThat(report.getTotal()).isEqualTo(1);
+        assertThat(report.getItems()).singleElement()
+                .satisfies(it -> {
+                    assertThat(it.getSkuId()).isEqualTo(2L);
+                    assertThat(it.getSpecValue()).isEqualTo("43");
+                    assertThat(it.getStock()).isZero();
+                    assertThat(it.getThreshold()).isEqualTo(8);
+                    assertThat(it.getShortage()).isEqualTo(8);
+                    assertThat(it.getRemainRatio()).isZero();
+                    assertThat(it.getCategoryName()).isEqualTo("鞋类");
+                });
+    }
+
+    @Test
+    @DisplayName("补货待办：按剩余比例升序，断货排最前（不是按缺口绝对值）")
+    void lowStockSortsByRemainRatio() {
+        // 生鲜阈值 30 剩 5（缺 25，比例 0.17） vs 家电阈值 3 剩 0（缺 3，比例 0）
+        // 按缺口绝对值会误把生鲜排前面，但断货的家电更急
+        stubLowStockSource(
+                List.of(product(1L, 23L, 5), product(2L, 16L, 0)),
+                List.of(sku(11L, 1L, "标准", 5), sku(21L, 2L, "标准", 0)),
+                List.of(category(23L, 0L, 30), category(16L, 0L, 3)));
+
+        LowStockReport report = productService.lowStock(100);
+
+        assertThat(report.getItems())
+                .extracting(LowStockItem::getProductId)
+                .containsExactly(2L, 1L);
+    }
+
+    @Test
+    @DisplayName("补货待办：total 是全库数量，不受 limit 截断")
+    void lowStockTotalIgnoresLimit() {
+        stubLowStockSource(
+                List.of(product(1L, 5L, 0), product(2L, 5L, 0), product(3L, 5L, 0)),
+                List.of(sku(11L, 1L, "A", 0), sku(21L, 2L, "A", 0), sku(31L, 3L, "A", 0)),
+                List.of(category(5L, 0L, 8)));
+
+        LowStockReport report = productService.lowStock(2);
+
+        assertThat(report.getTotal()).isEqualTo(3);
+        assertThat(report.getItems()).hasSize(2);
+        assertThat(report.isTruncated()).isTrue();
+    }
+
+    @Test
+    @DisplayName("补货待办：预警线配成 0 表示该分类不告警，不是全部告急")
+    void lowStockSkipsZeroThreshold() {
+        stubLowStockSource(
+                List.of(product(1L, 5L, 0)),
+                List.of(sku(11L, 1L, "A", 0)),
+                List.of(category(5L, 0L, 0)));
+
+        LowStockReport report = productService.lowStock(100);
+
+        assertThat(report.getTotal()).isZero();
+        assertThat(report.getItems()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("补货待办：没有在售商品时返回空清单，不再查 SKU")
+    void lowStockEmptyWhenNoOnSaleProduct() {
+        when(productMapper.selectList(any())).thenReturn(List.of());
+
+        LowStockReport report = productService.lowStock(100);
+
+        assertThat(report.getTotal()).isZero();
+        assertThat(report.isTruncated()).isFalse();
+        verify(skuMapper, never()).selectList(any());
+    }
+
+    @Test
+    @DisplayName("补货待办：只查在售商品，且带扫描上限")
+    void lowStockQueryOnlyOnSale() {
+        when(productMapper.selectList(any())).thenReturn(List.of());
+
+        productService.lowStock(100);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaQueryWrapper<Product>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(productMapper).selectList(captor.capture());
+        String sql = captor.getValue().getSqlSegment();
+        assertThat(sql).contains("status").contains("LIMIT");
     }
 
     // ---------------- 规格判断（加购 / 下单共用） ----------------

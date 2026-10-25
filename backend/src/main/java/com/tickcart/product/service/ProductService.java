@@ -17,6 +17,8 @@ import com.tickcart.product.mapper.CategoryMapper;
 import com.tickcart.product.mapper.ProductImageMapper;
 import com.tickcart.product.mapper.ProductMapper;
 import com.tickcart.product.mapper.ProductSkuMapper;
+import com.tickcart.product.vo.LowStockItem;
+import com.tickcart.product.vo.LowStockReport;
 import com.tickcart.product.vo.ProductDetail;
 import com.tickcart.product.vo.ProductListItem;
 import com.tickcart.search.service.SynonymService;
@@ -28,6 +30,7 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -55,6 +58,8 @@ public class ProductService {
     private final StockWarnService stockWarnService;
     /** 随机分页时最多参与打乱的商品数，见 {@code tickcart.product.random-pool-limit} */
     private final int randomPoolLimit;
+    /** 补货待办一次最多扫多少个在售商品，见 {@code tickcart.product.low-stock-scan-limit} */
+    private final int lowStockScanLimit;
 
     public ProductService(ProductMapper productMapper,
                           ProductSkuMapper skuMapper,
@@ -64,7 +69,8 @@ public class ProductService {
                           CacheService cacheService,
                           CacheProperties cacheProperties,
                           StockWarnService stockWarnService,
-                          @Value("${tickcart.product.random-pool-limit:2000}") int randomPoolLimit) {
+                          @Value("${tickcart.product.random-pool-limit:2000}") int randomPoolLimit,
+                          @Value("${tickcart.product.low-stock-scan-limit:2000}") int lowStockScanLimit) {
         this.productMapper = productMapper;
         this.skuMapper = skuMapper;
         this.imageMapper = imageMapper;
@@ -74,6 +80,7 @@ public class ProductService {
         this.cacheProperties = cacheProperties;
         this.stockWarnService = stockWarnService;
         this.randomPoolLimit = Math.max(1, randomPoolLimit);
+        this.lowStockScanLimit = Math.max(1, lowStockScanLimit);
     }
 
     /**
@@ -529,6 +536,108 @@ public class ProductService {
                 .in(Product::getId, target));
         evictProductDetails(target);
         return affected;
+    }
+
+    // -------------------------------------------------------------------------
+    // 补货待办
+    // -------------------------------------------------------------------------
+
+    /**
+     * 补货待办：库存低于所属分类预警线的 SKU 清单。
+     *
+     * <p><b>粒度是 SKU 不是商品。</b>总库存 120 但某个尺码 0 件时，商品级判断
+     * 完全看不出问题，用户却买不到那个尺码。所以这里不能复用列表的 {@code stockLow}
+     * （那是商品级总库存）——两者不一致是刻意的：列表回答「整体缺不缺货」，
+     * 这里回答「具体补哪个规格」。</p>
+     *
+     * <p><b>为什么不用一条 JOIN SQL：</b>项目里没有 Mapper XML；而且阈值继承是在
+     * Java 里沿 {@code parent_id} 解析的，放进 SQL 就变成第二份实现，两边规则一有
+     * 出入就会出现「清单里有、页面没标红」。两段式（在售商品 → 它们的所有 SKU）
+     * 与 {@link #randomPage} 取 id 到内存是同一套路，当前 162 商品 / 383 SKU
+     * 的量级完全够用。</p>
+     *
+     * <p><b>注意不能先按「商品总库存」粗筛：</b>总库存 120、2 个 SKU（120 + 0）时，
+     * 总库存远高于阈值但其中一个 SKU 已断货。所以必须把所有在售商品的 SKU 都看一遍。</p>
+     *
+     * @param limit 返回条数上限（1~500），只影响明细，不影响 {@code total}
+     */
+    public LowStockReport lowStock(int limit) {
+        int safeLimit = Math.min(Math.max(limit, 1), 500);
+
+        // ① 只算在售商品：下架商品不需要补货。按库存升序取前 N 个，超限时优先保留最可能告急的
+        List<Product> products = productMapper.selectList(new LambdaQueryWrapper<Product>()
+                .select(Product::getId, Product::getCategoryId, Product::getName,
+                        Product::getMainImage, Product::getStock)
+                .eq(Product::getStatus, STATUS_ON)
+                .orderByAsc(Product::getStock)
+                .orderByAsc(Product::getId)
+                .last("LIMIT " + lowStockScanLimit));
+        if (products.isEmpty()) {
+            return LowStockReport.empty();
+        }
+
+        Map<Long, Integer> thresholds = stockWarnService.effectiveThresholds();
+        Map<Long, String> categoryNames = stockWarnService.categoryNameMap();
+
+        // ② 一次取回这些商品的 SKU（含无规格商品的占位 SKU）
+        List<Long> productIds = products.stream().map(Product::getId).toList();
+        Map<Long, List<ProductSku>> skusByProduct = skuMapper.selectList(
+                        new LambdaQueryWrapper<ProductSku>()
+                                .in(ProductSku::getProductId, productIds))
+                .stream()
+                .collect(Collectors.groupingBy(ProductSku::getProductId));
+
+        // ③ 逐 SKU 判定
+        List<LowStockItem> all = new ArrayList<>();
+        for (Product product : products) {
+            int threshold = stockWarnService.thresholdOf(product.getCategoryId(), thresholds);
+            if (threshold <= 0) {
+                // 预警线配成 0 表示「该分类不告警」，不是「所有 SKU 都告急」
+                continue;
+            }
+            for (ProductSku sku : skusByProduct.getOrDefault(product.getId(), List.of())) {
+                int stock = sku.getStock() == null ? 0 : sku.getStock();
+                if (stock >= threshold) {
+                    continue;
+                }
+                all.add(toLowStockItem(product, sku, threshold,
+                        categoryNames.get(product.getCategoryId())));
+            }
+        }
+
+        // ④ 排序：剩余比例升序（0 = 断货最急）→ 缺口降序 → id 稳定
+        all.sort(Comparator
+                .comparingDouble(LowStockItem::getRemainRatio)
+                .thenComparing(Comparator.comparingInt(LowStockItem::getShortage).reversed())
+                .thenComparing(LowStockItem::getProductId)
+                .thenComparing(LowStockItem::getSkuId));
+
+        boolean truncated = all.size() > safeLimit || products.size() >= lowStockScanLimit;
+        List<LowStockItem> items = all.size() > safeLimit
+                ? new ArrayList<>(all.subList(0, safeLimit))
+                : all;
+        return new LowStockReport(all.size(), truncated, items);
+    }
+
+    private LowStockItem toLowStockItem(Product product, ProductSku sku,
+                                        int threshold, String categoryName) {
+        int stock = sku.getStock() == null ? 0 : sku.getStock();
+        LowStockItem item = new LowStockItem();
+        item.setProductId(product.getId());
+        item.setProductName(product.getName());
+        item.setMainImage(product.getMainImage());
+        item.setCategoryId(product.getCategoryId());
+        item.setCategoryName(categoryName);
+        item.setSkuId(sku.getId());
+        item.setSpecName(sku.getSpecName());
+        item.setSpecValue(sku.getSpecValue());
+        item.setSkuImage(sku.getSkuImage());
+        item.setStock(stock);
+        item.setThreshold(threshold);
+        item.setShortage(threshold - stock);
+        // 保留两位小数：前端直接当百分比展示，不必再处理浮点尾巴
+        item.setRemainRatio(Math.round(stock * 100.0 / threshold) / 100.0);
+        return item;
     }
 
     // -------------------------------------------------------------------------

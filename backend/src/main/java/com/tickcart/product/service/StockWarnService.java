@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 库存预警线解析：把「分类级配置 + 全局兜底」摊平成 {@code categoryId → 有效阈值}。
@@ -73,6 +74,20 @@ public class StockWarnService {
         }
         Integer value = thresholds.get(categoryId);
         return value == null ? globalThreshold() : value;
+    }
+
+    /**
+     * 分类 id → 名称，供补货待办展示。
+     *
+     * <p>与 {@link #effectiveThresholds()} 各查一次分类表：两件事的查询列不同
+     * （一个要 parent_id + 阈值，一个只要名称），为省一次 20 行的查询把它们
+     * 硬凑进一个返回值，只会让接口变难懂。</p>
+     */
+    public Map<Long, String> categoryNameMap() {
+        return categoryMapper.selectList(new LambdaQueryWrapper<Category>()
+                        .select(Category::getId, Category::getName))
+                .stream()
+                .collect(Collectors.toMap(Category::getId, Category::getName));
     }
 
     /**
