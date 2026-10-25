@@ -1,6 +1,7 @@
 package com.tickcart.product.entity;
 
 import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -40,7 +41,13 @@ public class Category {
      * <p><b>null 有明确语义 —— 表示「没配过」，继承父分类、最终继承全局配置</b>
      * （{@code tickcart.stock.warn-threshold}）。所以这里不能用基本类型，
      * 也不能在库里给 DEFAULT 值，否则「继承」和「恰好等于默认值」会被混成一种状态。</p>
+     *
+     * <p><b>★ updateStrategy = ALWAYS 不能省。</b>MyBatis-Plus 默认策略是 NOT_NULL，
+     * 会把值为 null 的字段从 UPDATE 的 SET 里剔掉 —— 结果是「清空阈值改回继承」这条
+     * 请求返回 success、库里却纹丝不动（实测过：传 null 后仍是 8）。
+     * 这个字段每次更新都必须写进去，null 才是「改回继承」的有效意图。</p>
      */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Integer stockWarnThreshold;
 
     @TableLogic

@@ -51,9 +51,17 @@ public class StockWarnService {
      * 在内存里沿父链解析，避免逐商品回查数据库。</p>
      */
     public Map<Long, Integer> effectiveThresholds() {
-        List<Category> all = categoryMapper.selectList(new LambdaQueryWrapper<Category>()
-                .select(Category::getId, Category::getParentId, Category::getStockWarnThreshold));
+        return effectiveThresholds(categoryMapper.selectList(new LambdaQueryWrapper<Category>()
+                .select(Category::getId, Category::getParentId, Category::getStockWarnThreshold)));
+    }
 
+    /**
+     * 同上，但复用调用方已经查出来的分类列表。
+     *
+     * <p>分类总览要同时用到分类实体和阈值，传进来可以省一次 20 行的查询；
+     * 关键是**继承规则仍然只有这一份实现**，不因为多一个入口就多一套逻辑。</p>
+     */
+    public Map<Long, Integer> effectiveThresholds(List<Category> all) {
         Map<Long, Category> byId = new HashMap<>();
         for (Category c : all) {
             byId.put(c.getId(), c);

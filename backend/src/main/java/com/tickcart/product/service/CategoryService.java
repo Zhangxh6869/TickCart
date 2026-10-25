@@ -1,6 +1,7 @@
 package com.tickcart.product.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.tickcart.common.cache.CacheKeys;
 import com.tickcart.common.cache.CacheProperties;
 import com.tickcart.common.cache.CacheService;
@@ -10,10 +11,14 @@ import com.tickcart.product.entity.Category;
 import com.tickcart.product.mapper.CategoryMapper;
 import com.tickcart.product.mapper.ProductMapper;
 import com.tickcart.product.entity.Product;
+import com.tickcart.product.vo.CategoryOverview;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * 分类服务：CRUD。
@@ -25,15 +30,19 @@ public class CategoryService {
     private final ProductMapper productMapper;
     private final CacheService cacheService;
     private final CacheProperties cacheProperties;
+    /** 阈值继承规则只在这里实现一份，分类总览复用同一个解析结果 */
+    private final StockWarnService stockWarnService;
 
     public CategoryService(CategoryMapper categoryMapper,
                            ProductMapper productMapper,
                            CacheService cacheService,
-                           CacheProperties cacheProperties) {
+                           CacheProperties cacheProperties,
+                           StockWarnService stockWarnService) {
         this.categoryMapper = categoryMapper;
         this.productMapper = productMapper;
         this.cacheService = cacheService;
         this.cacheProperties = cacheProperties;
+        this.stockWarnService = stockWarnService;
     }
 
     /**
@@ -126,6 +135,114 @@ public class CategoryService {
             throw BizException.conflict("该分类下存在商品，无法删除");
         }
         categoryMapper.deleteById(id);
+        cacheService.evictAfterCommit(CacheKeys.categoryListEnabled());
+    }
+
+    // -------------------------------------------------------------------------
+    // 列表页用的窄接口
+    //
+    // 为什么不复用 update()：它要求 name / parentId 必填（@NotBlank / @NotNull），
+    // 行内改一个阈值却得先把整个对象读出来再整体提交；并发下还可能把别人刚改的
+    // 名字覆盖回去。行内操作就该有只改一列的入口。
+    // -------------------------------------------------------------------------
+
+    /**
+     * 分类总览：分类本身 + 该分类下商品数与告急数。
+     *
+     * <p>商品数与告急数在内存里算：一次取出全部商品的 {@code (category_id, stock)}
+     * （当前 162 行），用 {@link StockWarnService} 的阈值判断是否告急。
+     * 不写 GROUP BY + 阈值条件，是因为阈值要按分类继承，SQL 里再实现一遍会分叉。</p>
+     */
+    public List<CategoryOverview> overview() {
+        List<Category> categories = queryList(false);
+        if (categories.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, Integer> thresholds = stockWarnService.effectiveThresholds(categories);
+
+        List<Product> products = productMapper.selectList(new LambdaQueryWrapper<Product>()
+                .select(Product::getCategoryId, Product::getStock));
+        // [0] = 商品总数，[1] = 告急数
+        Map<Long, int[]> counts = new HashMap<>();
+        for (Product product : products) {
+            int[] bucket = counts.computeIfAbsent(product.getCategoryId(), k -> new int[2]);
+            bucket[0]++;
+            if (stockWarnService.isLow(product.getStock(), product.getCategoryId(), thresholds)) {
+                bucket[1]++;
+            }
+        }
+
+        return categories.stream().map(category -> {
+            CategoryOverview vo = new CategoryOverview();
+            vo.setId(category.getId());
+            vo.setName(category.getName());
+            vo.setParentId(category.getParentId());
+            vo.setSort(category.getSort());
+            vo.setStatus(category.getStatus());
+            vo.setStockWarnThreshold(category.getStockWarnThreshold());
+            int[] bucket = counts.getOrDefault(category.getId(), new int[2]);
+            vo.setProductCount(bucket[0]);
+            vo.setLowStockCount(bucket[1]);
+            return vo;
+        }).toList();
+    }
+
+    /**
+     * 只改库存预警线；{@code value == null} 表示改回继承。
+     *
+     * <p>用 {@code LambdaUpdateWrapper.set(...)} 而不是 {@code updateById}：
+     * MP 默认策略会把 null 字段从 SET 里剔掉，导致「清空」请求返回成功但库里没变
+     * （实测过）。{@code set} 显式写列，null 才会真的落库。</p>
+     */
+    @Transactional
+    public void updateStockThreshold(Long id, Integer value) {
+        getById(id);
+        if (value != null && value < 0) {
+            throw BizException.badRequest("库存预警线不能为负");
+        }
+        categoryMapper.update(null, new LambdaUpdateWrapper<Category>()
+                .eq(Category::getId, id)
+                .set(Category::getStockWarnThreshold, value));
+        cacheService.evictAfterCommit(CacheKeys.categoryListEnabled());
+    }
+
+    /** 只改启用状态。 */
+    @Transactional
+    public void updateStatus(Long id, Integer status) {
+        if (status == null || (status != 0 && status != 1)) {
+            throw BizException.badRequest("状态值不合法");
+        }
+        getById(id);
+        categoryMapper.update(null, new LambdaUpdateWrapper<Category>()
+                .eq(Category::getId, id)
+                .set(Category::getStatus, status));
+        cacheService.evictAfterCommit(CacheKeys.categoryListEnabled());
+    }
+
+    /**
+     * 按传入顺序重写 sort（从 1 开始）。
+     *
+     * <p>要求传**全部分类**的 id，不接受只传一部分：拖拽时前端拿到的是完整列表，
+     * 只重排子集会让未提交的分类 sort 与新区间撞车，前台顺序就乱了。</p>
+     */
+    @Transactional
+    public void reorder(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw BizException.badRequest("排序列表不能为空");
+        }
+        List<Long> distinct = ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinct.size() != ids.size()) {
+            throw BizException.badRequest("排序列表里有重复的分类");
+        }
+        Long total = categoryMapper.selectCount(new LambdaQueryWrapper<Category>());
+        if (total == null || total != distinct.size()) {
+            throw BizException.notFound("分类列表已变化，请刷新后重试");
+        }
+        for (int i = 0; i < distinct.size(); i++) {
+            categoryMapper.update(null, new LambdaUpdateWrapper<Category>()
+                    .eq(Category::getId, distinct.get(i))
+                    .set(Category::getSort, i + 1));
+        }
         cacheService.evictAfterCommit(CacheKeys.categoryListEnabled());
     }
 

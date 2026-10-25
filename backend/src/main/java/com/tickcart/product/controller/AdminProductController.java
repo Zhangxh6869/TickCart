@@ -9,6 +9,7 @@ import com.tickcart.product.dto.ProductSaveRequest;
 import com.tickcart.product.entity.Category;
 import com.tickcart.product.service.CategoryService;
 import com.tickcart.product.service.ProductService;
+import com.tickcart.product.vo.CategoryOverview;
 import com.tickcart.product.vo.LowStockReport;
 import com.tickcart.product.vo.ProductDetail;
 import com.tickcart.product.vo.ProductListItem;
@@ -126,6 +127,34 @@ public class AdminProductController {
     @GetMapping("/categories")
     public R<List<Category>> categories() {
         return R.ok(categoryService.list(false));
+    }
+
+    @Operation(summary = "分类总览", description = "含每个分类的商品数与告急数，供分类管理页一次取全")
+    @GetMapping("/categories/overview")
+    public R<List<CategoryOverview>> categoryOverview() {
+        return R.ok(categoryService.overview());
+    }
+
+    @Operation(summary = "只改库存预警线", description = "不传 value 表示改回继承（NULL），不影响名称等其他字段")
+    @PutMapping("/categories/{id}/stock-threshold")
+    public R<Void> updateCategoryThreshold(@PathVariable Long id,
+                                           @RequestParam(required = false) Integer value) {
+        categoryService.updateStockThreshold(id, value);
+        return R.ok();
+    }
+
+    @Operation(summary = "只改分类启用状态")
+    @PutMapping("/categories/{id}/status")
+    public R<Void> updateCategoryStatus(@PathVariable Long id, @RequestParam Integer status) {
+        categoryService.updateStatus(id, status);
+        return R.ok();
+    }
+
+    @Operation(summary = "拖拽排序", description = "body 为全部分类按新顺序的 id 数组，后端重写 sort = 下标 + 1")
+    @PutMapping("/categories/reorder")
+    public R<Void> reorderCategories(@RequestBody List<Long> ids) {
+        categoryService.reorder(ids);
+        return R.ok();
     }
 
     @Operation(summary = "新增分类")
