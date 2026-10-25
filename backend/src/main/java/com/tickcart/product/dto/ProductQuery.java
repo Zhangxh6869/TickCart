@@ -23,6 +23,15 @@ public class ProductQuery {
     @Schema(description = "状态 0下架 1上架（后台可传，前台固定查上架）")
     private Integer status;
 
+    /**
+     * 只看库存告急（库存低于所属分类的有效预警线）。
+     *
+     * <p><b>仅后台生效</b>：前台调用 {@code onlyOnSale=true} 时这个参数会被忽略 ——
+     * 前后台共用同一个 ProductQuery，放开等于把「哪些商品快断货」暴露给商城端。</p>
+     */
+    @Schema(description = "只看库存告急（仅后台生效）")
+    private Boolean stockLow;
+
     @Schema(description = "排序字段：price / sales / createdAt", example = "createdAt")
     private String sortBy;
 
@@ -79,6 +88,14 @@ public class ProductQuery {
 
     public void setStatus(Integer status) {
         this.status = status;
+    }
+
+    public Boolean getStockLow() {
+        return stockLow;
+    }
+
+    public void setStockLow(Boolean stockLow) {
+        this.stockLow = stockLow;
     }
 
     public String getSortBy() {

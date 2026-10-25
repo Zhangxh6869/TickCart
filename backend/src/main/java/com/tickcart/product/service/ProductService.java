@@ -224,7 +224,54 @@ public class ProductService {
         } else if (query.getStatus() != null) {
             wrapper.eq(Product::getStatus, query.getStatus());
         }
+
+        // 库存告急筛选：只在后台生效。前台（onlyOnSale=true）即使传了 stockLow 也忽略 ——
+        // ProductQuery 前后台共用，放开等于把「哪些商品快断货」暴露给商城端
+        if (!onlyOnSale && Boolean.TRUE.equals(query.getStockLow())) {
+            applyLowStockFilter(wrapper);
+        }
         return wrapper;
+    }
+
+    /**
+     * 「库存告急」筛选条件。
+     *
+     * <p>阈值按分类差异化后，{@code stock < 10} 这种常量写法就不成立了 ——
+     * 语义是「库存小于<b>该商品所属分类</b>的有效阈值」。SQL 里没有这个概念，
+     * 而把继承链（分类 → 父分类 → 全局）放进 SQL 又会变成 {@link StockWarnService}
+     * 之外的第二份实现，两边规则一有出入就会出现「筛出 5 个、页面只标红 3 个」。
+     *
+     * <p>所以做法是：把 Java 里已经算好的阈值<b>按取值归并</b>，拼成若干个
+     * {@code (category_id IN (...) AND stock < 阈值)} 的 OR 分支。
+     * 分支数 = 阈值取值种类数（当前 4 种），不是分类数（20 个），也不是商品数。
+     * 阈值取值种类超过 10 种时就该改成 JOIN 分类表了。</p>
+     */
+    private void applyLowStockFilter(LambdaQueryWrapper<Product> wrapper) {
+        Map<Long, Integer> thresholds = stockWarnService.effectiveThresholds();
+        int global = stockWarnService.globalThreshold();
+        if (thresholds.isEmpty()) {
+            wrapper.lt(Product::getStock, global);
+            return;
+        }
+
+        List<StockWarnService.ThresholdGroup> groups = StockWarnService.groupByThreshold(thresholds);
+        wrapper.and(outer -> {
+            boolean first = true;
+            for (StockWarnService.ThresholdGroup group : groups) {
+                if (first) {
+                    // 首个分支必须用 nested 而不是 or：or 会带出前导 OR，SQL 直接非法
+                    outer.nested(x -> x.in(Product::getCategoryId, group.categoryIds())
+                            .lt(Product::getStock, group.threshold()));
+                    first = false;
+                } else {
+                    outer.or(x -> x.in(Product::getCategoryId, group.categoryIds())
+                            .lt(Product::getStock, group.threshold()));
+                }
+            }
+            // 兜底：商品挂在已删除/不存在的分类上时，上面几条都匹配不到，会被整个漏掉
+            outer.or(x -> x.notIn(Product::getCategoryId, thresholds.keySet())
+                    .lt(Product::getStock, global));
+        });
     }
 
     /**

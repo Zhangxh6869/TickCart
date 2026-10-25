@@ -53,6 +53,8 @@ const query = reactive({
   keyword: '',
   categoryId: null as number | null,
   status: null as number | null,
+  /** 只看库存告急（商品级总库存口径，SKU 级见补货清单） */
+  stockLow: false,
 })
 
 // ---------------- 列表 ----------------
@@ -112,6 +114,19 @@ function onStatusSeg(value: number | null) {
 }
 
 function onSortChange() {
+  query.page = 1
+  load()
+}
+
+/**
+ * 切换「只看库存告急」。
+ *
+ * <p>这是**商品级**口径（总库存 < 分类阈值），和补货清单的 SKU 级不是一回事：
+ * 这里用来在完整列表上下文里处理告急商品（能编辑、能批量），
+ * 补货清单用来回答「今天补哪个规格」。</p>
+ */
+function toggleStockLow() {
+  query.stockLow = !query.stockLow
   query.page = 1
   load()
 }
@@ -573,9 +588,15 @@ async function onSubmit() {
     <!-- 页头：标题由顶栏提供，这里只放统计与主操作 -->
     <div class="pm__head">
       <div class="pm__summary">
-        共 <b>{{ total }}</b> 个商品
-        <template v-if="lowStockCount > 0">
-          · <span class="pm__danger">本页 {{ lowStockCount }} 个库存告急</span>
+        <template v-if="query.stockLow">
+          共 <b>{{ total }}</b> 个库存告急商品
+          <el-button link type="primary" class="pm__clear" @click="toggleStockLow">取消筛选</el-button>
+        </template>
+        <template v-else>
+          共 <b>{{ total }}</b> 个商品
+          <template v-if="lowStockCount > 0">
+            · <span class="pm__danger">本页 {{ lowStockCount }} 个库存告急</span>
+          </template>
         </template>
       </div>
       <el-button type="primary" :icon="Plus" @click="openCreate">新增商品</el-button>
@@ -614,6 +635,13 @@ async function onSubmit() {
           ]"
           @change="(v: any) => onStatusSeg(v as number | null)"
         />
+        <el-check-tag
+          :checked="query.stockLow"
+          class="pm__chip pm__warn-chip"
+          @change="toggleStockLow"
+        >
+          只看库存告急
+        </el-check-tag>
         <div class="pm__spacer" />
         <el-select v-model="sortIndex" class="pm__sort" @change="onSortChange">
           <el-option
@@ -1129,6 +1157,16 @@ async function onSubmit() {
 }
 .pm__chip {
   margin: 0;
+}
+/* 告急筛选用警示色，和分类 chips 区分开 */
+.pm__warn-chip.is-checked {
+  color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
+  border-color: var(--el-color-danger-light-5);
+}
+.pm__clear {
+  margin-left: 8px;
+  font-size: 12px;
 }
 
 /* ---------------- 批量条 ---------------- */

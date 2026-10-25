@@ -685,6 +685,49 @@ class ProductServiceTest {
         assertThat(sql).contains("status").contains("LIMIT");
     }
 
+    // ---------------- 库存告急筛选 ----------------
+
+    @Test
+    @DisplayName("库存告急筛选：按阈值取值归并成 OR 分支，不是每个分类一条")
+    void stockLowFilterBuildsGroupedBranches() {
+        when(categoryMapper.selectList(any())).thenReturn(List.of(
+                category(1L, 0L, null),   // 继承全局 10
+                category(6L, 0L, null),   // 继承全局 10（与 1 合并成一组）
+                category(5L, 0L, 8),
+                category(23L, 0L, 30)));
+        when(productMapper.selectPage(any(), any())).thenReturn(new Page<>(1, 12));
+
+        ProductQuery query = new ProductQuery();
+        query.setStockLow(true);
+        productService.page(query, false);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaQueryWrapper<Product>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(productMapper).selectPage(any(), captor.capture());
+        String sql = captor.getValue().getSqlSegment();
+        assertThat(sql).contains("stock <").contains("OR");
+        // 兜底分支：挂在已删分类上的商品按全局阈值判断，否则会被整个漏掉
+        assertThat(sql).contains("NOT IN");
+    }
+
+    @Test
+    @DisplayName("库存告急筛选对前台不生效（避免暴露动销）")
+    void stockLowFilterIgnoredForMall() {
+        when(productMapper.selectPage(any(), any())).thenReturn(new Page<>(1, 12));
+
+        ProductQuery query = new ProductQuery();
+        query.setStockLow(true);
+        // onlyOnSale = true 即前台调用
+        productService.page(query, true);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaQueryWrapper<Product>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(productMapper).selectPage(any(), captor.capture());
+        assertThat(captor.getValue().getSqlSegment()).doesNotContain("stock <");
+    }
+
     // ---------------- 规格判断（加购 / 下单共用） ----------------
 
     @Test

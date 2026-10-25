@@ -6,8 +6,10 @@ import com.tickcart.product.entity.Category;
 import com.tickcart.product.mapper.CategoryMapper;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -74,6 +76,30 @@ public class StockWarnService {
         }
         Integer value = thresholds.get(categoryId);
         return value == null ? globalThreshold() : value;
+    }
+
+    /**
+     * 一组「阈值相同」的分类。
+     *
+     * <p>用于把 Java 侧算好的阈值翻译成 SQL 条件：{@code category_id IN (ids) AND stock < threshold}。</p>
+     */
+    public record ThresholdGroup(int threshold, List<Long> categoryIds) {
+    }
+
+    /**
+     * 按阈值取值归并分类。
+     *
+     * <p>这是「库存告急筛选」能在一条 SQL 里表达的关键：阈值的<b>取值种类</b>很少
+     * （演示数据 4 种），所以 OR 分支数是 4~5 个，而不是 20 个分类各来一条。
+     * 纯函数，便于单测。</p>
+     */
+    public static List<ThresholdGroup> groupByThreshold(Map<Long, Integer> thresholds) {
+        Map<Integer, List<Long>> grouped = new LinkedHashMap<>();
+        thresholds.forEach((categoryId, threshold) ->
+                grouped.computeIfAbsent(threshold, k -> new ArrayList<>()).add(categoryId));
+        return grouped.entrySet().stream()
+                .map(e -> new ThresholdGroup(e.getKey(), List.copyOf(e.getValue())))
+                .toList();
     }
 
     /**

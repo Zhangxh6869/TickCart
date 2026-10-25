@@ -14,6 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -141,5 +142,23 @@ class StockWarnServiceTest {
     @DisplayName("库存为 null 时不标记告急")
     void nullStockIsNotLow() {
         assertThat(stockWarnService.isLow(null, 1L, Map.of())).isFalse();
+    }
+
+    @Test
+    @DisplayName("按阈值取值归并：组数等于取值种类数，不是分类数")
+    void groupsByThresholdValue() {
+        Map<Long, Integer> thresholds = new LinkedHashMap<>();
+        thresholds.put(1L, 10);
+        thresholds.put(6L, 10);
+        thresholds.put(7L, 10);
+        thresholds.put(5L, 8);
+        thresholds.put(23L, 30);
+
+        List<StockWarnService.ThresholdGroup> groups = StockWarnService.groupByThreshold(thresholds);
+
+        assertThat(groups).hasSize(3);
+        assertThat(groups).extracting(StockWarnService.ThresholdGroup::threshold)
+                .containsExactly(10, 8, 30);
+        assertThat(groups.get(0).categoryIds()).containsExactly(1L, 6L, 7L);
     }
 }

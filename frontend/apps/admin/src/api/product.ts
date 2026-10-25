@@ -54,6 +54,13 @@ export interface ProductQueryParams {
   keyword?: string
   categoryId?: number | null
   status?: number | null
+  /**
+   * 只看库存告急（商品级总库存 < 所属分类的有效预警线）。
+   *
+   * <p>仅后台生效，前台传了也会被忽略。想看「哪个规格要补」用 {@link fetchLowStock}，
+   * 那是 SKU 粒度的。</p>
+   */
+  stockLow?: boolean
   sortBy?: string
   order?: string
 }
