@@ -27,6 +27,9 @@ public class AdminOrderListItemVO {
     @Schema(description = "收货人手机号（快照）")
     private String receiverPhone;
 
+    @Schema(description = "收货地址（快照）。列表直接展示摘要，客服不用点开详情就能确认地址")
+    private String receiverAddr;
+
     @Schema(description = "订单状态码 0待付款 1待发货 2待收货 3已完成 4已取消 5已超时关闭")
     private Integer status;
 
@@ -44,6 +47,18 @@ public class AdminOrderListItemVO {
 
     @Schema(description = "下单时间")
     private LocalDateTime createdAt;
+
+    @Schema(description = "支付时间；未支付时为 null。后台用它算「已付款等待时长」")
+    private LocalDateTime payTime;
+
+    @Schema(description = "发货时间；未发货时为 null")
+    private LocalDateTime shipTime;
+
+    @Schema(description = "取消时间；未取消时为 null")
+    private LocalDateTime cancelTime;
+
+    @Schema(description = "是否秒杀订单（订单来源渠道，与支付渠道无关）")
+    private Boolean seckill;
 
     @Schema(description = "最新一笔支付流水号；用户尚未发起过支付时为 null")
     private String payNo;
@@ -84,6 +99,14 @@ public class AdminOrderListItemVO {
 
     public void setReceiverPhone(String receiverPhone) {
         this.receiverPhone = receiverPhone;
+    }
+
+    public String getReceiverAddr() {
+        return receiverAddr;
+    }
+
+    public void setReceiverAddr(String receiverAddr) {
+        this.receiverAddr = receiverAddr;
     }
 
     public Integer getStatus() {
@@ -156,5 +179,37 @@ public class AdminOrderListItemVO {
 
     public void setItems(List<OrderItemVO> items) {
         this.items = items;
+    }
+
+    public LocalDateTime getPayTime() {
+        return payTime;
+    }
+
+    public void setPayTime(LocalDateTime payTime) {
+        this.payTime = payTime;
+    }
+
+    public LocalDateTime getShipTime() {
+        return shipTime;
+    }
+
+    public void setShipTime(LocalDateTime shipTime) {
+        this.shipTime = shipTime;
+    }
+
+    public LocalDateTime getCancelTime() {
+        return cancelTime;
+    }
+
+    public void setCancelTime(LocalDateTime cancelTime) {
+        this.cancelTime = cancelTime;
+    }
+
+    public Boolean getSeckill() {
+        return seckill;
+    }
+
+    public void setSeckill(Boolean seckill) {
+        this.seckill = seckill;
     }
 }

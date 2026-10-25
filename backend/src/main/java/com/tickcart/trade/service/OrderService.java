@@ -26,14 +26,18 @@ import com.tickcart.trade.entity.Order;
 import com.tickcart.trade.entity.OrderItem;
 import com.tickcart.trade.entity.PaymentRecord;
 import com.tickcart.trade.enums.OrderStatus;
+import com.tickcart.trade.enums.PaymentStatus;
 import com.tickcart.trade.mapper.OrderItemMapper;
 import com.tickcart.trade.mapper.OrderMapper;
 import com.tickcart.trade.mapper.PaymentRecordMapper;
+import com.tickcart.trade.vo.AdminOrderDetailVO;
 import com.tickcart.trade.vo.AdminOrderListItemVO;
+import com.tickcart.trade.vo.BatchShipResultVO;
 import com.tickcart.trade.vo.OrderCountVO;
 import com.tickcart.trade.vo.OrderDetailVO;
 import com.tickcart.trade.vo.OrderItemVO;
 import com.tickcart.trade.vo.OrderListItemVO;
+import com.tickcart.trade.vo.OrderOverviewVO;
 import com.tickcart.trade.vo.OrderVO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,7 +49,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
@@ -75,6 +81,9 @@ public class OrderService {
 
     /** 无规格商品的 SKU 占位值 */
     private static final long NO_SKU = 0L;
+
+    /** 批量发货单次上限（与商品批量接口保持同一量级） */
+    private static final int BATCH_MAX_SIZE = 100;
 
     private static final DateTimeFormatter ORDER_NO_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
@@ -392,24 +401,82 @@ public class OrderService {
         return value instanceof Number number ? number.longValue() : 0L;
     }
 
+    /** 从 {@code selectMaps} 的一行里取金额列（SUM 结果为 BigDecimal，空值为 null）。 */
+    private static BigDecimal decimalValue(Map<String, Object> row, String column) {
+        Object value = row.get(column);
+        if (value == null) {
+            for (Map.Entry<String, Object> entry : row.entrySet()) {
+                if (entry.getKey().equalsIgnoreCase(column)) {
+                    value = entry.getValue();
+                    break;
+                }
+            }
+        }
+        if (value instanceof BigDecimal decimal) {
+            return decimal;
+        }
+        return value instanceof Number number
+                ? BigDecimal.valueOf(number.doubleValue())
+                : BigDecimal.ZERO;
+    }
+
     /**
-     * 后台订单分页列表：不限用户，可按状态与关键字筛选。
+     * 从 {@code selectMaps} 的一行里取时间列（MIN(pay_time)）。
      *
-     * <p>关键字对「订单号 / 收货人 / 收货人手机号」三者做 OR 模糊匹配，
+     * <p>MySQL 驱动对 DATETIME 列默认返回 {@link LocalDateTime}，但聚合函数的结果
+     * 在部分配置下会退化成 {@link java.sql.Timestamp}，这里两种都接。</p>
+     */
+    private static LocalDateTime dateTimeValue(Map<String, Object> row, String column) {
+        Object value = row.get(column);
+        if (value == null) {
+            for (Map.Entry<String, Object> entry : row.entrySet()) {
+                if (entry.getKey().equalsIgnoreCase(column)) {
+                    value = entry.getValue();
+                    break;
+                }
+            }
+        }
+        if (value instanceof LocalDateTime dateTime) {
+            return dateTime;
+        }
+        return value instanceof java.sql.Timestamp timestamp ? timestamp.toLocalDateTime() : null;
+    }
+
+    /**
+     * 后台订单分页列表：不限用户，可按状态、关键字、下单日期筛选并指定排序。
+     *
+     * <p>关键字对「订单号 / 收货人 / 收货人手机号 / 商品名」四者做 OR 模糊匹配，
      * 便于客服按任一信息定位订单。</p>
+     *
+     * <p><b>★ 排序为什么重要</b>：待发货订单里最早的可能已经等了十几天，
+     * 默认按 id 倒序会让「最该处理的那单」沉在最后一页。传
+     * {@code sortBy=payTime&order=asc} 才能做到「等最久优先」。</p>
      */
     public PageResult<AdminOrderListItemVO> adminPage(AdminOrderQuery query) {
         String keyword = query.getKeyword() == null ? null : query.getKeyword().trim();
         boolean hasKeyword = StringUtils.hasText(keyword);
 
+        LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<Order>()
+                .eq(query.getStatus() != null, Order::getStatus, query.getStatus());
+        // 日期范围按「下单时间」闭区间：起日 00:00 起，止日次日 00:00 前
+        if (query.getBeginDate() != null) {
+            wrapper.ge(Order::getCreatedAt, query.getBeginDate().atStartOfDay());
+        }
+        if (query.getEndDate() != null) {
+            wrapper.lt(Order::getCreatedAt, query.getEndDate().plusDays(1).atStartOfDay());
+        }
+        wrapper.and(hasKeyword, w -> w
+                .like(Order::getOrderNo, keyword)
+                .or().like(Order::getReceiver, keyword)
+                .or().like(Order::getReceiverPhone, keyword)
+                // 按商品名找单：本项目没有 Mapper XML，只能用子查询；{0} 是参数绑定，
+                // 不要改成 inSql 拼字符串（那样有注入风险）
+                .or().apply("order_no IN (SELECT order_no FROM order_item WHERE product_name LIKE {0})",
+                        "%" + keyword + "%"));
+        applyAdminSort(wrapper, query.getSortBy(), query.getOrder());
+
         Page<Order> page = new Page<>(query.getPage(), query.getSize());
-        orderMapper.selectPage(page, new LambdaQueryWrapper<Order>()
-                .eq(query.getStatus() != null, Order::getStatus, query.getStatus())
-                .and(hasKeyword, w -> w
-                        .like(Order::getOrderNo, keyword)
-                        .or().like(Order::getReceiver, keyword)
-                        .or().like(Order::getReceiverPhone, keyword))
-                .orderByDesc(Order::getId));
+        orderMapper.selectPage(page, wrapper);
 
         Map<String, PaymentRecord> latestPayments = loadLatestPayments(page.getRecords());
         Map<String, List<OrderItemVO>> itemsByOrder = loadItemsGrouped(page.getRecords());
@@ -422,11 +489,151 @@ public class OrderService {
     }
 
     /**
-     * 批量取本页订单的最新一条支付流水（一次 IN 查询，避免逐单查询造成 N+1）。
+     * 后台列表排序：白名单映射，绝不把前端字符串拼进 ORDER BY。
      *
-     * <p>同一订单可能有多条流水（支付失败/取消后重试都会新落一条），这里只保留 id 最大的那条 ——
-     * 对已支付订单而言成功那条必然是最新那条（订单已不是待付款，不会再发起新的支付），
-     * 因此「最新一条」对后台展示足够且不需要额外状态判断。</p>
+     * <p>只认 {@code createdAt}（默认）与 {@code payTime}；未知字段回落到下单时间。
+     * 末尾补主键兜底：排序键不唯一时（演示数据里有大量同一秒下的单）MySQL 不保证行序稳定，
+     * 翻页会重复/漏项。</p>
+     *
+     * <p>★ {@code payTime} 升序时，未支付订单的 {@code pay_time} 为 NULL，
+     * MySQL 会把它们排在最前 —— 对「待发货」筛选无影响（该状态必有付款时间），
+     * 但在「全部」下会先看到待付款单，这是可接受的语义（它们同样需要处理）。</p>
+     */
+    private void applyAdminSort(LambdaQueryWrapper<Order> wrapper, String sortBy, String order) {
+        boolean asc = "asc".equalsIgnoreCase(order);
+        String field = sortBy == null ? "createdAt" : sortBy;
+        switch (field) {
+            case "payTime" -> wrapper.orderBy(true, asc, Order::getPayTime);
+            default -> wrapper.orderBy(true, asc, Order::getCreatedAt);
+        }
+        wrapper.orderBy(true, asc, Order::getId);
+    }
+
+    /**
+     * 后台订单概览：一次 {@code GROUP BY status} 算出全部计数与成交额。
+     *
+     * <p>★ 不要拆成 6 次 {@code count(*)}：这里每个状态一行，行内顺带带上
+     * {@code SUM(pay_amount)} 与 {@code MIN(pay_time)}，一次往返就够。</p>
+     */
+    public OrderOverviewVO adminOverview() {
+        List<Map<String, Object>> rows = orderMapper.selectMaps(new QueryWrapper<Order>()
+                .select("status", "COUNT(*) AS cnt", "SUM(pay_amount) AS amt", "MIN(pay_time) AS min_pay")
+                .groupBy("status"));
+
+        OrderOverviewVO vo = new OrderOverviewVO();
+        BigDecimal paidAmount = BigDecimal.ZERO;
+        long paidOrderCount = 0;
+        for (Map<String, Object> row : rows) {
+            int status = (int) numberValue(row, "status");
+            long count = numberValue(row, "cnt");
+            vo.setTotal(vo.getTotal() + count);
+            if (status == OrderStatus.PENDING_PAYMENT.getCode()) {
+                vo.setPendingPayment(count);
+            } else if (status == OrderStatus.PENDING_SHIPMENT.getCode()) {
+                vo.setPendingShipment(count);
+                vo.setOldestPendingShipmentTime(dateTimeValue(row, "min_pay"));
+            } else if (status == OrderStatus.PENDING_RECEIPT.getCode()) {
+                vo.setPendingReceipt(count);
+            } else if (status == OrderStatus.COMPLETED.getCode()) {
+                vo.setCompleted(count);
+            } else if (status == OrderStatus.CANCELLED.getCode()) {
+                vo.setCancelled(count);
+            } else if (status == OrderStatus.TIMEOUT_CLOSED.getCode()) {
+                vo.setTimeoutClosed(count);
+            }
+            // 成交口径 = 收到钱的单（待发货 / 待收货 / 已完成），已取消与超时不进
+            if (status == OrderStatus.PENDING_SHIPMENT.getCode()
+                    || status == OrderStatus.PENDING_RECEIPT.getCode()
+                    || status == OrderStatus.COMPLETED.getCode()) {
+                paidOrderCount += count;
+                paidAmount = paidAmount.add(decimalValue(row, "amt"));
+            }
+        }
+        vo.setPaidOrderCount(paidOrderCount);
+        vo.setPaidAmount(paidAmount);
+        return vo;
+    }
+
+    /**
+     * 批量发货：逐单推进「待发货 → 待收货」。
+     *
+     * <p><b>★ 允许部分成功</b>，与商品批量接口「整批拒绝」刻意不同：发货对应的是
+     * 已经发生的物理动作，不能因为某一单状态被他人改过，就把其余几十单一起回滚。
+     * 失败项带原因返回，由前端列出来让管理员单独处理。</p>
+     *
+     * <p>每单仍用「带状态条件的 UPDATE」收口，与支付回调/超时关单并发时只有一方能成功。</p>
+     */
+    @Transactional
+    public BatchShipResultVO batchShip(List<String> orderNos) {
+        List<String> targets = normalizeBatchOrderNos(orderNos);
+
+        // 一次 IN 查回全部目标订单：既能区分「不存在」与「状态不对」，也避免逐单回查
+        Map<String, Order> byNo = new HashMap<>();
+        for (Order order : orderMapper.selectList(
+                new LambdaQueryWrapper<Order>().in(Order::getOrderNo, targets))) {
+            byNo.put(order.getOrderNo(), order);
+        }
+
+        BatchShipResultVO result = new BatchShipResultVO();
+        for (String orderNo : targets) {
+            Order order = byNo.get(orderNo);
+            if (order == null) {
+                result.getFailed().add(new BatchShipResultVO.Failure(orderNo, "订单不存在"));
+                continue;
+            }
+            OrderStatus status = OrderStatus.of(order.getStatus());
+            if (!status.canTransitionTo(OrderStatus.PENDING_RECEIPT)) {
+                result.getFailed().add(new BatchShipResultVO.Failure(
+                        orderNo, "订单当前为「" + status.getLabel() + "」，无法发货"));
+                continue;
+            }
+            int affected = orderMapper.update(null, new LambdaUpdateWrapper<Order>()
+                    .eq(Order::getOrderNo, orderNo)
+                    .eq(Order::getStatus, OrderStatus.PENDING_SHIPMENT.getCode())
+                    .set(Order::getStatus, OrderStatus.PENDING_RECEIPT.getCode())
+                    .set(Order::getShipTime, LocalDateTime.now()));
+            if (affected == 0) {
+                result.getFailed().add(new BatchShipResultVO.Failure(
+                        orderNo, "订单状态已变更，请刷新后重试"));
+            } else {
+                result.getSuccess().add(orderNo);
+            }
+        }
+        log.info("批量发货：成功 {} 单，失败 {} 单", result.getSuccess().size(), result.getFailed().size());
+        return result;
+    }
+
+    /** 批量订单号去空、去重并校验上限。 */
+    private List<String> normalizeBatchOrderNos(List<String> orderNos) {
+        if (orderNos == null || orderNos.isEmpty()) {
+            throw BizException.badRequest("请先选择要发货的订单");
+        }
+        LinkedHashSet<String> distinct = new LinkedHashSet<>();
+        for (String orderNo : orderNos) {
+            if (StringUtils.hasText(orderNo)) {
+                distinct.add(orderNo.trim());
+            }
+        }
+        if (distinct.isEmpty()) {
+            throw BizException.badRequest("请先选择要发货的订单");
+        }
+        if (distinct.size() > BATCH_MAX_SIZE) {
+            throw BizException.badRequest("单次最多处理 " + BATCH_MAX_SIZE + " 单");
+        }
+        return new ArrayList<>(distinct);
+    }
+
+    /**
+     * 批量取本页订单的「代表性」支付流水（一次 IN 查询，避免逐单查询造成 N+1）。
+     *
+     * <p><b>★ 优先取支付成功的那条，没有成功记录才取 id 最大的那条。</b></p>
+     *
+     * <p>为什么不是「只取 id 最大」：同一订单可能有多条流水（支付失败/用户取消后重试都会新落一条），
+     * 最新那条完全可能是「待支付」或「已关闭」。只按 id 取，会让**已取消的订单**
+     * 也展示出一个流水号，后台读起来像「已付款后又取消了」，是纯粹的误导。</p>
+     *
+     * <p>优先成功的正确性：订单一旦支付成功就不会再发起新支付，所以成功那条是唯一的；
+     * 没有成功记录时（待付款/已取消/已超时）退回最新一条，用于展示「最后尝试的渠道」。</p>
      */
     private Map<String, PaymentRecord> loadLatestPayments(List<Order> orders) {
         if (orders.isEmpty()) {
@@ -436,31 +643,59 @@ public class OrderService {
         List<PaymentRecord> payments = paymentRecordMapper.selectList(
                 new LambdaQueryWrapper<PaymentRecord>().in(PaymentRecord::getOrderNo, orderNos));
 
-        Map<String, PaymentRecord> latest = new LinkedHashMap<>();
+        Map<String, PaymentRecord> picked = new LinkedHashMap<>();
         for (PaymentRecord payment : payments) {
-            PaymentRecord exist = latest.get(payment.getOrderNo());
-            if (exist == null || payment.getId() > exist.getId()) {
-                latest.put(payment.getOrderNo(), payment);
+            PaymentRecord exist = picked.get(payment.getOrderNo());
+            if (exist == null || preferPayment(payment, exist)) {
+                picked.put(payment.getOrderNo(), payment);
             }
         }
-        return latest;
+        return picked;
+    }
+
+    /** 候选流水是否比现有那条更值得展示：先看是否支付成功，再比 id。 */
+    private static boolean preferPayment(PaymentRecord candidate, PaymentRecord current) {
+        boolean candidateSuccess = Integer.valueOf(PaymentRecord.STATUS_SUCCESS).equals(candidate.getStatus());
+        boolean currentSuccess = Integer.valueOf(PaymentRecord.STATUS_SUCCESS).equals(current.getStatus());
+        if (candidateSuccess != currentSuccess) {
+            return candidateSuccess;
+        }
+        return candidate.getId() != null && current.getId() != null && candidate.getId() > current.getId();
     }
 
     /** 订单详情（含收货快照与明细）。 */
     public OrderDetailVO detail(Long userId, String orderNo) {
-        return buildDetail(getOwned(userId, orderNo));
+        return buildDetail(getOwned(userId, orderNo), new OrderDetailVO());
     }
 
     /**
      * 后台订单详情：不做归属校验，管理员可查看任意用户的订单。
+     *
+     * <p>比前台详情多一组「支付语义」字段（状态 / 渠道 / 流水号）。
+     * ★ 判断「有没有收到钱」只看 {@code payStatus}，不要看流水号是否为空 ——
+     * 已取消的订单也可能挂着一条「待支付」流水。</p>
      */
-    public OrderDetailVO adminDetail(String orderNo) {
-        return buildDetail(loadByOrderNo(orderNo));
+    public AdminOrderDetailVO adminDetail(String orderNo) {
+        Order order = loadByOrderNo(orderNo);
+        AdminOrderDetailVO vo = buildDetail(order, new AdminOrderDetailVO());
+        vo.setUserId(order.getUserId());
+
+        PaymentRecord payment = loadLatestPayments(List.of(order)).get(orderNo);
+        if (payment != null) {
+            vo.setPayStatus(payment.getStatus());
+            vo.setPayStatusLabel(PaymentStatus.of(payment.getStatus()).getLabel());
+            vo.setPayChannel(payment.getChannel());
+            vo.setPayNo(payment.getPayNo());
+        }
+        return vo;
     }
 
-    /** 组装订单详情 VO（前台与后台共用，避免两处字段拼装重复）。 */
-    private OrderDetailVO buildDetail(Order order) {
-        OrderDetailVO vo = new OrderDetailVO();
+    /**
+     * 组装订单详情 VO（前台与后台共用，避免两处字段拼装重复）。
+     *
+     * <p>泛型是为了让后台在共用字段之上再挂自己的支付字段，而不是复制一遍 13 个 set。</p>
+     */
+    private <T extends OrderDetailVO> T buildDetail(Order order, T vo) {
         vo.setOrderNo(order.getOrderNo());
         vo.setStatus(order.getStatus());
         vo.setStatusLabel(OrderStatus.of(order.getStatus()).getLabel());
@@ -479,10 +714,30 @@ public class OrderService {
         return vo;
     }
 
-    /** 取消订单：仅待付款可取消，取消时回补库存。 */
+    /**
+     * 取消订单：仅待付款可取消，取消时回补库存。
+     *
+     * <p>用户取消与后台关闭走同一个私有实现 {@link #doCancel(Order)}：
+     * 库存回补（含秒杀按渠道分流）的口径必须只有一份。</p>
+     */
     @Transactional
     public void cancel(Long userId, String orderNo) {
-        Order order = getOwned(userId, orderNo);
+        doCancel(getOwned(userId, orderNo));
+    }
+
+    /**
+     * 后台关闭订单：仅待付款可关闭，复用用户取消的库存回补逻辑。
+     *
+     * <p>用途是「用户打电话要求取消」这类场景 —— 在此之前后台只能干等 15 分钟超时。
+     * 与超时关单并发时靠状态机校验 + 单条 UPDATE 收口，不会重复回补库存。</p>
+     */
+    @Transactional
+    public void adminClose(String orderNo) {
+        doCancel(loadByOrderNo(orderNo));
+    }
+
+    /** 取消/关闭的共同实现：校验状态 → 回补库存 → 落库。 */
+    private void doCancel(Order order) {
         OrderStatus.of(order.getStatus()).assertTransitionTo(OrderStatus.CANCELLED, "取消");
 
         restoreStock(order);
@@ -866,11 +1121,17 @@ public class OrderService {
         vo.setUserId(order.getUserId());
         vo.setReceiver(order.getReceiver());
         vo.setReceiverPhone(order.getReceiverPhone());
+        vo.setReceiverAddr(order.getReceiverAddr());
         vo.setStatus(order.getStatus());
         vo.setStatusLabel(OrderStatus.of(order.getStatus()).getLabel());
         vo.setTotalAmount(order.getTotalAmount());
         vo.setPayAmount(order.getPayAmount());
         vo.setCreatedAt(order.getCreatedAt());
+        vo.setPayTime(order.getPayTime());
+        vo.setShipTime(order.getShipTime());
+        vo.setCancelTime(order.getCancelTime());
+        // 秒杀订单：订单来源渠道（0 普通 / 1 秒杀），与支付渠道无关
+        vo.setSeckill(Integer.valueOf(CHANNEL_SECKILL).equals(order.getChannel()));
         if (payment != null) {
             vo.setPayNo(payment.getPayNo());
             vo.setChannel(payment.getChannel());

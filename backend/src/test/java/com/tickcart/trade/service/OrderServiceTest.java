@@ -32,9 +32,12 @@ import com.tickcart.trade.enums.OrderStatus;
 import com.tickcart.trade.mapper.OrderItemMapper;
 import com.tickcart.trade.mapper.OrderMapper;
 import com.tickcart.trade.mapper.PaymentRecordMapper;
+import com.tickcart.trade.vo.AdminOrderDetailVO;
 import com.tickcart.trade.vo.AdminOrderListItemVO;
+import com.tickcart.trade.vo.BatchShipResultVO;
 import com.tickcart.trade.vo.OrderCountVO;
 import com.tickcart.trade.vo.OrderDetailVO;
+import com.tickcart.trade.vo.OrderOverviewVO;
 import com.tickcart.trade.vo.OrderVO;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
@@ -49,10 +52,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -1109,5 +1114,336 @@ class OrderServiceTest {
         when(orderMapper.selectMaps(ArgumentMatchers.<Wrapper<Order>>any())).thenReturn(List.of(row));
 
         assertThat(orderService.countByStatus(UID).getPendingShipment()).isEqualTo(3);
+    }
+
+    // ---------------- 后台：概览 ----------------
+
+    /** 构造一行概览分组结果：列名与 Service 里的 SQL 别名保持一致。 */
+    private Map<String, Object> overviewRow(OrderStatus status, long count, String amount,
+                                            LocalDateTime minPayTime) {
+        Map<String, Object> row = new HashMap<>();
+        row.put("status", status.getCode());
+        row.put("cnt", count);
+        row.put("amt", new BigDecimal(amount));
+        row.put("min_pay", minPayTime);
+        return row;
+    }
+
+    @Test
+    @DisplayName("后台概览：一次分组算出各状态计数、最早待发货时间与成交额")
+    void adminOverviewAggregatesGroupedRows() {
+        LocalDateTime oldest = LocalDateTime.of(2026, 10, 6, 19, 23, 13);
+        when(orderMapper.selectMaps(ArgumentMatchers.<Wrapper<Order>>any())).thenReturn(List.of(
+                overviewRow(OrderStatus.PENDING_PAYMENT, 2, "13998.00", null),
+                overviewRow(OrderStatus.PENDING_SHIPMENT, 48, "1000.00", oldest),
+                overviewRow(OrderStatus.PENDING_RECEIPT, 4, "200.00", LocalDateTime.of(2026, 10, 8, 18, 2)),
+                overviewRow(OrderStatus.COMPLETED, 10, "500.50", LocalDateTime.of(2026, 10, 7, 13, 35)),
+                overviewRow(OrderStatus.CANCELLED, 101, "0.00", null),
+                overviewRow(OrderStatus.TIMEOUT_CLOSED, 7, "0.00", null)));
+
+        OrderOverviewVO vo = orderService.adminOverview();
+
+        assertThat(vo.getTotal()).isEqualTo(172);
+        assertThat(vo.getPendingPayment()).isEqualTo(2);
+        assertThat(vo.getPendingShipment()).isEqualTo(48);
+        assertThat(vo.getPendingReceipt()).isEqualTo(4);
+        assertThat(vo.getCompleted()).isEqualTo(10);
+        assertThat(vo.getCancelled()).isEqualTo(101);
+        assertThat(vo.getTimeoutClosed()).isEqualTo(7);
+        assertThat(vo.getOldestPendingShipmentTime()).isEqualTo(oldest);
+        // 成交口径 = 收到钱的三种状态；已取消/已超时不进（待付款的 13998 也不进）
+        assertThat(vo.getPaidOrderCount()).isEqualTo(62);
+        assertThat(vo.getPaidAmount()).isEqualByComparingTo("1700.50");
+        // 一次查询就够，不是 6 次 count
+        verify(orderMapper).selectMaps(ArgumentMatchers.<Wrapper<Order>>any());
+    }
+
+    @Test
+    @DisplayName("后台概览：没有待发货订单时最早付款时间为空")
+    void adminOverviewWithoutPendingShipment() {
+        when(orderMapper.selectMaps(ArgumentMatchers.<Wrapper<Order>>any())).thenReturn(List.of(
+                overviewRow(OrderStatus.COMPLETED, 3, "30.00", LocalDateTime.of(2026, 10, 7, 9, 0))));
+
+        OrderOverviewVO vo = orderService.adminOverview();
+
+        assertThat(vo.getTotal()).isEqualTo(3);
+        assertThat(vo.getPendingShipment()).isZero();
+        assertThat(vo.getOldestPendingShipmentTime()).isNull();
+    }
+
+    @Test
+    @DisplayName("后台概览：空表时全部为 0，成交额为 0 而不是 null")
+    void adminOverviewOnEmptyTable() {
+        when(orderMapper.selectMaps(ArgumentMatchers.<Wrapper<Order>>any())).thenReturn(List.of());
+
+        OrderOverviewVO vo = orderService.adminOverview();
+
+        assertThat(vo.getTotal()).isZero();
+        assertThat(vo.getPaidAmount()).isEqualByComparingTo("0");
+    }
+
+    // ---------------- 后台：排序 / 日期范围 ----------------
+
+    /** 抓取后台列表实际下发的 wrapper。 */
+    @SuppressWarnings("unchecked")
+    private LambdaQueryWrapper<Order> captureAdminWrapper(AdminOrderQuery query) {
+        when(orderMapper.selectPage(ArgumentMatchers.<IPage<Order>>any(), any()))
+                .thenAnswer(inv -> inv.getArgument(0));
+        orderService.adminPage(query);
+        ArgumentCaptor<LambdaQueryWrapper<Order>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(orderMapper).selectPage(ArgumentMatchers.<IPage<Order>>any(), captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    @DisplayName("后台列表：按付款时间升序（等最久优先）")
+    void adminPageSortsByPayTimeAsc() {
+        AdminOrderQuery query = new AdminOrderQuery();
+        query.setSortBy("payTime");
+        query.setOrder("asc");
+
+        LambdaQueryWrapper<Order> wrapper = captureAdminWrapper(query);
+
+        String sql = wrapper.getSqlSegment();
+        assertThat(sql).contains("pay_time").contains("ASC");
+        assertThat(sql).doesNotContain("created_at");
+    }
+
+    @Test
+    @DisplayName("后台列表：未知排序字段回落到下单时间，不把前端字符串拼进 SQL")
+    void adminPageFallsBackForUnknownSort() {
+        AdminOrderQuery query = new AdminOrderQuery();
+        query.setSortBy("payAmount; DROP TABLE t_order");
+        query.setOrder("desc");
+
+        String sql = captureAdminWrapper(query).getSqlSegment();
+
+        assertThat(sql).contains("created_at").doesNotContain("payAmount").doesNotContain("DROP");
+    }
+
+    @Test
+    @DisplayName("后台列表：日期范围按「起日 00:00 起、止日次日 00:00 前」闭区间")
+    void adminPageFiltersByDateRange() {
+        AdminOrderQuery query = new AdminOrderQuery();
+        query.setBeginDate(LocalDate.of(2026, 10, 1));
+        query.setEndDate(LocalDate.of(2026, 10, 8));
+
+        LambdaQueryWrapper<Order> wrapper = captureAdminWrapper(query);
+        wrapper.getSqlSegment(); // 先实体化占位符，再断言参数
+
+        assertThat(wrapper.getParamNameValuePairs().values()).contains(
+                LocalDateTime.of(2026, 10, 1, 0, 0),
+                LocalDateTime.of(2026, 10, 9, 0, 0));
+    }
+
+    // ---------------- 后台：支付口径 ----------------
+
+    @Test
+    @DisplayName("后台列表：同一单有多条流水时优先取支付成功那条，而不是最新那条")
+    void adminPagePrefersSuccessfulPayment() {
+        when(orderMapper.selectPage(ArgumentMatchers.<IPage<Order>>any(), any())).thenAnswer(inv -> {
+            IPage<Order> p = inv.getArgument(0);
+            p.setRecords(List.of(order("NO38", UID, OrderStatus.CANCELLED)));
+            p.setTotal(1);
+            return p;
+        });
+        when(orderItemMapper.selectList(any())).thenReturn(List.of());
+        // 旧的一条成功、新的一条待支付：只按 id 取会把「待支付」当成已付款展示
+        PaymentRecord pending = payment(3L, "PAY_PENDING", "NO38");
+        pending.setStatus(PaymentRecord.STATUS_PENDING);
+        when(paymentRecordMapper.selectList(any())).thenReturn(List.of(
+                payment(1L, "PAY_OK", "NO38"), pending));
+
+        AdminOrderListItemVO vo = orderService.adminPage(new AdminOrderQuery()).getRecords().get(0);
+
+        assertThat(vo.getPayNo()).isEqualTo("PAY_OK");
+    }
+
+    @Test
+    @DisplayName("后台列表：没有成功流水时退回最新一条（展示最后尝试的渠道）")
+    void adminPageFallsBackToLatestWhenNoSuccess() {
+        when(orderMapper.selectPage(ArgumentMatchers.<IPage<Order>>any(), any())).thenAnswer(inv -> {
+            IPage<Order> p = inv.getArgument(0);
+            p.setRecords(List.of(order("NO39", UID, OrderStatus.CANCELLED)));
+            p.setTotal(1);
+            return p;
+        });
+        when(orderItemMapper.selectList(any())).thenReturn(List.of());
+        PaymentRecord failed = payment(1L, "PAY_FAILED", "NO39");
+        failed.setStatus(PaymentRecord.STATUS_FAILED);
+        PaymentRecord closed = payment(2L, "PAY_CLOSED", "NO39");
+        closed.setStatus(PaymentRecord.STATUS_CLOSED);
+        when(paymentRecordMapper.selectList(any())).thenReturn(List.of(failed, closed));
+
+        AdminOrderListItemVO vo = orderService.adminPage(new AdminOrderQuery()).getRecords().get(0);
+
+        assertThat(vo.getPayNo()).isEqualTo("PAY_CLOSED");
+    }
+
+    @Test
+    @DisplayName("后台列表：秒杀订单带 seckill 标（订单渠道，不是支付渠道）")
+    void adminPageMarksSeckillOrder() {
+        Order seckillOrder = order("SK9", UID, OrderStatus.PENDING_SHIPMENT);
+        seckillOrder.setChannel(1);
+        when(orderMapper.selectPage(ArgumentMatchers.<IPage<Order>>any(), any())).thenAnswer(inv -> {
+            IPage<Order> p = inv.getArgument(0);
+            p.setRecords(List.of(seckillOrder));
+            p.setTotal(1);
+            return p;
+        });
+        when(orderItemMapper.selectList(any())).thenReturn(List.of());
+        when(paymentRecordMapper.selectList(any())).thenReturn(List.of());
+
+        AdminOrderListItemVO vo = orderService.adminPage(new AdminOrderQuery()).getRecords().get(0);
+
+        assertThat(vo.getSeckill()).isTrue();
+    }
+
+    @Test
+    @DisplayName("后台列表：带出付款/发货/取消时间，供前端算等待时长")
+    void adminPageMapsTimelineFields() {
+        Order shipping = order("NO40", UID, OrderStatus.PENDING_SHIPMENT);
+        shipping.setPayTime(LocalDateTime.of(2026, 10, 6, 19, 23));
+        shipping.setShipTime(LocalDateTime.of(2026, 10, 8, 9, 0));
+        shipping.setCancelTime(LocalDateTime.of(2026, 10, 9, 10, 0));
+        when(orderMapper.selectPage(ArgumentMatchers.<IPage<Order>>any(), any())).thenAnswer(inv -> {
+            IPage<Order> p = inv.getArgument(0);
+            p.setRecords(List.of(shipping));
+            p.setTotal(1);
+            return p;
+        });
+        when(orderItemMapper.selectList(any())).thenReturn(List.of());
+        when(paymentRecordMapper.selectList(any())).thenReturn(List.of());
+
+        AdminOrderListItemVO vo = orderService.adminPage(new AdminOrderQuery()).getRecords().get(0);
+
+        assertThat(vo.getPayTime()).isEqualTo(LocalDateTime.of(2026, 10, 6, 19, 23));
+        assertThat(vo.getShipTime()).isEqualTo(LocalDateTime.of(2026, 10, 8, 9, 0));
+        assertThat(vo.getCancelTime()).isEqualTo(LocalDateTime.of(2026, 10, 9, 10, 0));
+    }
+
+    @Test
+    @DisplayName("后台详情：已取消订单带出「已关闭」支付状态，而不是看起来像已付款")
+    void adminDetailIncludesPaymentStatus() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO41", 999L, OrderStatus.CANCELLED));
+        when(orderItemMapper.selectList(any())).thenReturn(List.of());
+        PaymentRecord closed = payment(9L, "PAY_CLOSED", "NO41");
+        closed.setStatus(PaymentRecord.STATUS_CLOSED);
+        when(paymentRecordMapper.selectList(any())).thenReturn(List.of(closed));
+
+        AdminOrderDetailVO detail = orderService.adminDetail("NO41");
+
+        assertThat(detail.getPayStatus()).isEqualTo(PaymentRecord.STATUS_CLOSED);
+        assertThat(detail.getPayStatusLabel()).isEqualTo("已关闭");
+        assertThat(detail.getUserId()).isEqualTo(999L);
+    }
+
+    @Test
+    @DisplayName("后台详情：从未发起支付时支付字段为空")
+    void adminDetailWithoutPayment() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO42", UID, OrderStatus.PENDING_PAYMENT));
+        when(orderItemMapper.selectList(any())).thenReturn(List.of());
+        when(paymentRecordMapper.selectList(any())).thenReturn(List.of());
+
+        AdminOrderDetailVO detail = orderService.adminDetail("NO42");
+
+        assertThat(detail.getPayStatus()).isNull();
+        assertThat(detail.getPayNo()).isNull();
+    }
+
+    // ---------------- 后台：批量发货 ----------------
+
+    @Test
+    @DisplayName("批量发货：部分成功，失败项带原因返回（不整批回滚）")
+    void batchShipAllowsPartialSuccess() {
+        when(orderMapper.selectList(any())).thenReturn(List.of(
+                order("NO50", UID, OrderStatus.PENDING_SHIPMENT),
+                order("NO51", UID, OrderStatus.CANCELLED)));
+        when(orderMapper.update(ArgumentMatchers.<Order>isNull(), any())).thenReturn(1);
+
+        BatchShipResultVO result = orderService.batchShip(List.of("NO50", "NO51", "NO52"));
+
+        assertThat(result.getSuccess()).containsExactly("NO50");
+        assertThat(result.getFailed()).extracting(BatchShipResultVO.Failure::getOrderNo)
+                .containsExactly("NO51", "NO52");
+        assertThat(result.getFailed()).extracting(BatchShipResultVO.Failure::getReason)
+                .containsExactly("订单当前为「已取消」，无法发货", "订单不存在");
+    }
+
+    @Test
+    @DisplayName("批量发货：并发下状态被抢先变更的单记为失败")
+    void batchShipMarksLostRaceAsFailed() {
+        when(orderMapper.selectList(any()))
+                .thenReturn(List.of(order("NO53", UID, OrderStatus.PENDING_SHIPMENT)));
+        when(orderMapper.update(ArgumentMatchers.<Order>isNull(), any())).thenReturn(0);
+
+        BatchShipResultVO result = orderService.batchShip(List.of("NO53"));
+
+        assertThat(result.getSuccess()).isEmpty();
+        assertThat(result.getFailed()).extracting(BatchShipResultVO.Failure::getReason)
+                .containsExactly("订单状态已变更，请刷新后重试");
+    }
+
+    @Test
+    @DisplayName("批量发货：重复订单号去重后只发一次")
+    void batchShipDeduplicates() {
+        when(orderMapper.selectList(any()))
+                .thenReturn(List.of(order("NO54", UID, OrderStatus.PENDING_SHIPMENT)));
+        when(orderMapper.update(ArgumentMatchers.<Order>isNull(), any())).thenReturn(1);
+
+        BatchShipResultVO result = orderService.batchShip(List.of("NO54", " NO54 ", "NO54"));
+
+        assertThat(result.getSuccess()).containsExactly("NO54");
+        verify(orderMapper, times(1)).update(ArgumentMatchers.<Order>isNull(), any());
+    }
+
+    @Test
+    @DisplayName("批量发货：空列表直接拒绝，不查库")
+    void batchShipRejectsEmpty() {
+        assertThatThrownBy(() -> orderService.batchShip(List.of()))
+                .isInstanceOf(BizException.class)
+                .hasMessage("请先选择要发货的订单");
+        verify(orderMapper, never()).update(any(), any());
+    }
+
+    @Test
+    @DisplayName("批量发货：单次超过 100 单拒绝")
+    void batchShipRejectsOverLimit() {
+        List<String> orderNos = IntStream.rangeClosed(1, 101).mapToObj(i -> "NO" + i).toList();
+
+        assertThatThrownBy(() -> orderService.batchShip(orderNos))
+                .isInstanceOf(BizException.class)
+                .hasMessage("单次最多处理 100 单");
+        verify(orderMapper, never()).update(any(), any());
+    }
+
+    // ---------------- 后台：关闭订单 ----------------
+
+    @Test
+    @DisplayName("后台关闭订单：待付款置为已取消并回补库存")
+    void adminCloseRestoresStock() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO60", 999L, OrderStatus.PENDING_PAYMENT));
+        when(orderItemMapper.selectList(any())).thenReturn(List.of(item(10L, 5L, 2)));
+        when(orderMapper.updateById(any(Order.class))).thenReturn(1);
+
+        orderService.adminClose("NO60");
+
+        ArgumentCaptor<Order> captor = ArgumentCaptor.forClass(Order.class);
+        verify(orderMapper).updateById(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(OrderStatus.CANCELLED.getCode());
+        assertThat(captor.getValue().getCancelTime()).isNotNull();
+        verify(inventoryService).restore(10L, 5L, 2);
+    }
+
+    @Test
+    @DisplayName("后台关闭订单：已支付订单不能关闭（与用户取消同一套状态机）")
+    void adminCloseRejectedForPaidOrder() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO61", 999L, OrderStatus.PENDING_SHIPMENT));
+
+        assertThatThrownBy(() -> orderService.adminClose("NO61"))
+                .isInstanceOf(BizException.class)
+                .hasMessage("订单当前为「待发货」，无法取消");
+        verify(orderMapper, never()).updateById(any(Order.class));
     }
 }
