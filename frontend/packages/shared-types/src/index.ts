@@ -241,10 +241,20 @@ export interface AdminOrderSummary extends OrderSummary {
   userId: number
   receiver: string
   receiverPhone: string
+  /** 收货地址（快照），列表直接展示摘要，客服不用点开详情 */
+  receiverAddr?: string | null
   /** 最新一笔支付流水号；用户尚未发起过支付时为 null */
   payNo?: string | null
   /** 支付渠道 0模拟 1微信 2支付宝；无支付流水时为 null */
   channel?: number | null
+  /** 支付时间；未支付时为 null。后台用它算「已付款等待时长」 */
+  payTime?: string | null
+  /** 发货时间；未发货时为 null */
+  shipTime?: string | null
+  /** 取消时间；未取消时为 null */
+  cancelTime?: string | null
+  /** 是否秒杀订单（订单来源渠道，与支付渠道 channel 无关） */
+  seckill?: boolean
 }
 
 /** 订单详情。 */
@@ -264,6 +274,44 @@ export interface OrderDetail {
   finishTime?: string | null
   cancelTime?: string | null
   items: OrderItem[]
+}
+
+/**
+ * 后台订单详情：在前台共用的 {@link OrderDetail} 之上补「支付语义」。
+ *
+ * ★ 判断「有没有收到钱」只看 `payStatus`，不要看 `payNo` 是否为空 ——
+ * 已取消的订单也可能挂着一条「待支付」流水。
+ */
+export interface AdminOrderDetail extends OrderDetail {
+  userId: number
+  /** 支付状态 0待支付 1支付成功 2支付失败 3已关闭；从未发起支付时为 null */
+  payStatus?: number | null
+  payStatusLabel?: string | null
+  /** 支付渠道 0模拟 1微信 2支付宝 */
+  payChannel?: number | null
+  payNo?: string | null
+}
+
+/** 后台订单概览（页头 KPI 与状态筛选计数）。 */
+export interface OrderOverview {
+  total: number
+  pendingPayment: number
+  pendingShipment: number
+  pendingReceipt: number
+  completed: number
+  cancelled: number
+  timeoutClosed: number
+  /** 待发货中最早一笔支付时间；无待发货订单时为 null */
+  oldestPendingShipmentTime?: string | null
+  /** 已付款订单数（待发货 + 待收货 + 已完成） */
+  paidOrderCount: number
+  paidAmount: number
+}
+
+/** 批量发货结果：允许部分成功，失败项带原因。 */
+export interface BatchShipResult {
+  success: string[]
+  failed: { orderNo: string; reason: string }[]
 }
 
 /** 创建订单请求（结算购物车中已勾选的商品）。 */
