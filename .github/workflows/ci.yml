@@ -96,7 +96,7 @@ jobs:
         run: pnpm --filter admin exec vue-tsc --noEmit
 
       - name: 构建（mall）
-        run: pnpm --filter mall exec vite build
+        run: pnpm --filter mall exec vite build --emptyOutDir false
 
       - name: 构建（admin）
-        run: pnpm --filter admin exec vite build
+        run: pnpm --filter admin exec vite build --emptyOutDir false
