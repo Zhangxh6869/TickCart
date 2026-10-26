@@ -21,6 +21,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 /**
  * 秒杀活动管理（后台，需 ADMIN 角色）。
  */
@@ -65,6 +67,19 @@ public class AdminSeckillController {
                           @Valid @RequestBody SeckillActivitySaveRequest req) {
         activityService.update(id, req);
         return R.ok();
+    }
+
+    @Operation(summary = "复制为新活动", description = "复制为草稿，时间平移到原结束次日同时段，已售归零")
+    @PostMapping("/activities/{id}/copy")
+    public R<Long> copy(@PathVariable Long id) {
+        return R.ok(activityService.copy(id));
+    }
+
+    @Operation(summary = "批量上线/下线", description = "整批成功或整批失败，单次上限 100")
+    @PutMapping("/activities/batch/enabled")
+    public R<Integer> batchEnabled(@Parameter(description = "0下线 1上线") @RequestParam Integer enabled,
+                                   @RequestBody List<Long> ids) {
+        return R.ok(activityService.batchEnabled(ids, enabled));
     }
 
     @Operation(summary = "上线/下线")

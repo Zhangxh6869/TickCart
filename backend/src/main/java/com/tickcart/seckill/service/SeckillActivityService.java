@@ -27,7 +27,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,6 +55,11 @@ public class SeckillActivityService {
     private static final int ENABLED_OFF = 0;
     private static final int ENABLED_ON = 1;
     private static final long NO_SKU = 0L;
+    /** 批量操作上限：与商品批量接口保持一致 */
+    private static final int BATCH_LIMIT = 100;
+    /** 活动标题最长 64 字（与 DDL 一致） */
+    private static final int TITLE_MAX = 64;
+    private static final DateTimeFormatter TIME_TEXT = DateTimeFormatter.ofPattern("MM-dd HH:mm");
 
     /** 排序白名单：key 是前端传的字段名，value 是数据库列名。 */
     private static final Map<String, String> SORT_COLUMNS = Map.of(
@@ -213,13 +220,20 @@ public class SeckillActivityService {
     // 写入
     // -------------------------------------------------------------------------
 
-    /** 新建活动。 */
+    /**
+     * 新建活动，<b>一律建成草稿（enabled=0）</b>。
+     *
+     * <p>旧实现默认上线并立即预热 —— 实测一场 2027 年的活动保存后立刻出现在前台，
+     * 日期填错一次就暴露一次。现在「上线」是一个显式动作（{@link #changeEnabled}），
+     * 它同时负责预热与二次校验。</p>
+     */
     @Transactional
     public Long create(SeckillActivitySaveRequest req) {
         long skuId = normalizeSkuId(req.getSkuId());
         BigDecimal originalPrice = validateProduct(req.getProductId(), skuId);
         validatePrice(req.getSeckillPrice(), originalPrice);
         validateTimeRange(req.getStartTime(), req.getEndTime());
+        validateNoOverlap(req.getProductId(), skuId, req.getStartTime(), req.getEndTime(), null);
 
         SeckillActivity activity = new SeckillActivity();
         activity.setTitle(req.getTitle().trim());
@@ -231,12 +245,8 @@ public class SeckillActivityService {
         activity.setLimitPerUser(req.getLimitPerUser());
         activity.setStartTime(req.getStartTime());
         activity.setEndTime(req.getEndTime());
-        // 新建默认上线：与「建完就能在后台看到」的直觉一致，需要下架再手动关
-        activity.setEnabled(ENABLED_ON);
+        activity.setEnabled(ENABLED_OFF);
         activityMapper.insert(activity);
-        // 新建默认上线，因此要立刻预热 —— 否则「建完就能抢」这个直觉不成立，
-        // 用户会先看到 30 秒的「活动尚未就绪」（等定时任务扫到）
-        syncCacheAfterCommit(() -> stockService.preload(activity));
         return activity.getId();
     }
 
@@ -253,6 +263,8 @@ public class SeckillActivityService {
         BigDecimal originalPrice = validateProduct(req.getProductId(), skuId);
         validatePrice(req.getSeckillPrice(), originalPrice);
         validateTimeRange(req.getStartTime(), req.getEndTime());
+
+        validateNoOverlap(req.getProductId(), skuId, req.getStartTime(), req.getEndTime(), id);
 
         SeckillActivityStatus status = SeckillActivityStatus.of(activity, LocalDateTime.now());
         if (status.isStarted()) {
@@ -296,12 +308,103 @@ public class SeckillActivityService {
             throw BizException.badRequest("enabled 只能是 0 或 1");
         }
         SeckillActivity activity = requireActivity(id);
+        if (enabled == ENABLED_ON) {
+            // 上线前二次校验：草稿期间商品可能已下架、别处可能已排了重叠的场
+            validateProduct(activity.getProductId(), activity.getSkuId());
+            validateNoOverlap(activity.getProductId(), activity.getSkuId(),
+                    activity.getStartTime(), activity.getEndTime(), id);
+        }
         activity.setEnabled(enabled);
         activityMapper.updateById(activity);
         syncCacheAfterCommit(enabled == ENABLED_ON
                 ? () -> stockService.preload(activity)
                 : () -> stockService.refreshSnapshot(activity));
         log.info("秒杀活动 {} 已{}", id, enabled == ENABLED_ON ? "上线" : "下线");
+    }
+
+    /**
+     * 批量上线 / 下线（整批成功或整批失败）。
+     *
+     * <p>语义与商品批量接口一致：id 必须全部存在、重复先去重、上限 100。
+     * 不做半成功 —— 运营点的是「把这 3 场都下线」，成功 2 场会让人以为都成了。</p>
+     *
+     * <p>批量上线时逐条校验重叠：同一批里两场互相重叠时，第一场上线后第二场就会被拦下，
+     * 整批回滚。</p>
+     */
+    @Transactional
+    public int batchEnabled(List<Long> ids, Integer enabled) {
+        if (enabled == null || (enabled != ENABLED_ON && enabled != ENABLED_OFF)) {
+            throw BizException.badRequest("enabled 只能是 0 或 1");
+        }
+        if (ids == null || ids.isEmpty()) {
+            throw BizException.badRequest("请选择要操作的活动");
+        }
+        List<Long> distinct = ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinct.isEmpty()) {
+            throw BizException.badRequest("请选择要操作的活动");
+        }
+        if (distinct.size() > BATCH_LIMIT) {
+            throw BizException.badRequest("单次最多操作 " + BATCH_LIMIT + " 场活动");
+        }
+        List<SeckillActivity> activities = activityMapper.selectBatchIds(distinct);
+        if (activities.size() != distinct.size()) {
+            throw BizException.badRequest("部分活动不存在，请刷新后重试");
+        }
+        for (SeckillActivity activity : activities) {
+            if (enabled == ENABLED_ON) {
+                validateProduct(activity.getProductId(), activity.getSkuId());
+                validateNoOverlap(activity.getProductId(), activity.getSkuId(),
+                        activity.getStartTime(), activity.getEndTime(), activity.getId());
+            }
+            activity.setEnabled(enabled);
+            activityMapper.updateById(activity);
+            syncCacheAfterCommit(enabled == ENABLED_ON
+                    ? () -> stockService.preload(activity)
+                    : () -> stockService.refreshSnapshot(activity));
+        }
+        log.info("秒杀活动批量{}：{} 场", enabled == ENABLED_ON ? "上线" : "下线", activities.size());
+        return activities.size();
+    }
+
+    /**
+     * 复制为新活动。
+     *
+     * <p>旧活动「改不了价（已开始 409）、删不掉（有成交 409）、也没有复制」，
+     * 复用只能手填一遍 —— 这个接口就是补这条路的。</p>
+     *
+     * <p>复制出来的<b>一律是草稿</b>，且 {@code soldCount} 必须显式归零：
+     * 直接把实体拷过去会带着「已售 1/100」开局。</p>
+     *
+     * <p>时间平移到「原结束时间的次日同一时刻」而不是「明天同一时段」：
+     * 跨天场（如 10-19 ~ 10-22）平移一天仍与原活动重叠，会自己撞自己。</p>
+     *
+     * <p>这里<b>不做重叠校验</b>：复制是「拿个模板」，时间必然要改；
+     * 校验放在 {@link #changeEnabled} 上线时。</p>
+     */
+    @Transactional
+    public Long copy(Long id) {
+        SeckillActivity source = requireActivity(id);
+        if (productMapper.selectById(source.getProductId()) == null) {
+            throw BizException.badRequest("商品已删除，无法复制");
+        }
+        Duration duration = Duration.between(source.getStartTime(), source.getEndTime());
+        LocalDateTime newStart = source.getEndTime().plusDays(1);
+        LocalDateTime newEnd = newStart.plus(duration);
+
+        SeckillActivity copy = new SeckillActivity();
+        copy.setTitle(truncateTitle(source.getTitle() + " 副本"));
+        copy.setProductId(source.getProductId());
+        copy.setSkuId(source.getSkuId());
+        copy.setSeckillPrice(source.getSeckillPrice());
+        copy.setSeckillStock(source.getSeckillStock());
+        copy.setSoldCount(0);
+        copy.setLimitPerUser(source.getLimitPerUser());
+        copy.setStartTime(newStart);
+        copy.setEndTime(newEnd);
+        copy.setEnabled(ENABLED_OFF);
+        activityMapper.insert(copy);
+        log.info("秒杀活动 {} 已复制为 {}（草稿）", id, copy.getId());
+        return copy.getId();
     }
 
     /**
@@ -461,6 +564,52 @@ public class SeckillActivityService {
         if (!start.isBefore(end)) {
             throw BizException.badRequest("开始时间必须早于结束时间");
         }
+    }
+
+    /**
+     * 同一规格在同一时间只能有一场<b>上线中</b>的活动。
+     *
+     * <p>不校验的后果是实测过的：同一 SKU 建两场重叠活动都会成功，前台同时出现两张
+     * 同商品卡，库存两套账，用户不知道抢哪个。</p>
+     *
+     * <p>只和 {@code enabled=1} 的活动比：草稿之间可以重叠（先排两个候选方案是正常操作），
+     * 但草稿<b>上线</b>时会再校验一次 —— 那时另一场已经上线，就会被拦下。</p>
+     *
+     * <p>规格维度：{@code skuId > 0} 时与「同规格」和「该商品的商品级活动」都冲突；
+     * {@code skuId = 0}（商品级）时与该商品下任何活动都冲突。</p>
+     *
+     * <p>区间用 {@code [start, end)}：前一场 22:00 结束、后一场 22:00 开始不算重叠。</p>
+     */
+    private void validateNoOverlap(long productId, long skuId, LocalDateTime start,
+                                   LocalDateTime end, Long selfId) {
+        LambdaQueryWrapper<SeckillActivity> wrapper = new LambdaQueryWrapper<SeckillActivity>()
+                .eq(SeckillActivity::getEnabled, ENABLED_ON)
+                .eq(SeckillActivity::getProductId, productId)
+                .lt(SeckillActivity::getStartTime, end)
+                .gt(SeckillActivity::getEndTime, start);
+        if (skuId > NO_SKU) {
+            wrapper.and(w -> w.eq(SeckillActivity::getSkuId, skuId)
+                    .or()
+                    .eq(SeckillActivity::getSkuId, NO_SKU));
+        }
+        if (selfId != null) {
+            wrapper.ne(SeckillActivity::getId, selfId);
+        }
+        wrapper.orderByAsc(SeckillActivity::getId).last("LIMIT 1");
+
+        List<SeckillActivity> conflicts = activityMapper.selectList(wrapper);
+        if (conflicts.isEmpty()) {
+            return;
+        }
+        SeckillActivity conflict = conflicts.get(0);
+        throw BizException.conflict("同一规格在 " + TIME_TEXT.format(start) + " ~ " + TIME_TEXT.format(end)
+                + " 已有一场上线中的活动（#" + conflict.getId() + "「" + conflict.getTitle()
+                + "」），请调整时间或先下线那场");
+    }
+
+    /** 标题超长时截断（复制时加的「 副本」后缀可能把 64 字撑爆）。 */
+    private static String truncateTitle(String title) {
+        return title.length() <= TITLE_MAX ? title : title.substring(0, TITLE_MAX);
     }
 
     /** 批量组装 VO：商品信息一次 IN 查回，避免列表页 N+1。 */

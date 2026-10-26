@@ -31,6 +31,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -40,6 +41,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -91,7 +94,7 @@ class SeckillActivityServiceTest {
     // ---------------- 创建 ----------------
 
     @Test
-    @DisplayName("创建成功：已售初始为 0、默认上线、skuId 归一为 0")
+    @DisplayName("创建成功：已售初始为 0、默认草稿（enabled=0）、skuId 保留")
     void createSuccess() {
         when(activityMapper.insert(any(SeckillActivity.class))).thenReturn(1);
 
@@ -101,9 +104,47 @@ class SeckillActivityServiceTest {
         verify(activityMapper).insert(captor.capture());
         SeckillActivity saved = captor.getValue();
         assertThat(saved.getSoldCount()).isZero();
-        assertThat(saved.getEnabled()).isEqualTo(1);
+        assertThat(saved.getEnabled()).isZero();
         assertThat(saved.getSkuId()).isEqualTo(SKU_ID);
         assertThat(saved.getSeckillPrice()).isEqualByComparingTo("9.90");
+    }
+
+    @Test
+    @DisplayName("创建：默认草稿，因此不预热 Redis（上线时才预热）")
+    void createDoesNotPreload() {
+        when(activityMapper.insert(any(SeckillActivity.class))).thenReturn(1);
+
+        service.create(req(100, 2, SKU_ID, "9.90"));
+
+        verify(stockService, never()).preload(any());
+    }
+
+    @Test
+    @DisplayName("创建：同规格时间重叠（已有上线活动）→ 409")
+    void createRejectsOverlap() {
+        when(activityMapper.selectList(any())).thenReturn(List.of(ongoingActivity()));
+
+        assertThatThrownBy(() -> service.create(req(100, 2, SKU_ID, "9.90")))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("已有一场上线中的活动");
+    }
+
+    @Test
+    @DisplayName("创建重叠校验：只和上线中的活动比，且区间左闭右开")
+    void createOverlapQueryShape() {
+        when(activityMapper.insert(any(SeckillActivity.class))).thenReturn(1);
+
+        service.create(req(100, 2, SKU_ID, "9.90"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaQueryWrapper<SeckillActivity>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(activityMapper).selectList(captor.capture());
+        String sql = captor.getValue().getSqlSegment();
+        assertThat(sql).contains("enabled =");
+        assertThat(sql).contains("start_time <");
+        assertThat(sql).contains("end_time >");
+        assertThat(sql).contains("sku_id =");
     }
 
     @Test
@@ -254,6 +295,146 @@ class SeckillActivityServiceTest {
         service.delete(ACTIVITY_ID);
 
         verify(activityMapper).deleteById(ACTIVITY_ID);
+    }
+
+    @Test
+    @DisplayName("编辑：改成与别的上线活动重叠的时间 → 409")
+    void updateRejectsOverlap() {
+        when(activityMapper.selectById(ACTIVITY_ID)).thenReturn(futureActivity());
+        when(activityMapper.selectList(any())).thenReturn(List.of(ongoingActivity()));
+
+        assertThatThrownBy(() -> service.update(ACTIVITY_ID, req(100, 2, SKU_ID, "9.90")))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("已有一场上线中的活动");
+    }
+
+    // ---------------- 上线校验 ----------------
+
+    @Test
+    @DisplayName("上线：商品已下架 → 拒绝（草稿期间商品可能被下架）")
+    void changeEnabledRejectsOfflineProduct() {
+        when(activityMapper.selectById(ACTIVITY_ID)).thenReturn(futureActivity());
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(product("99.00", 0));
+
+        assertThatThrownBy(() -> service.changeEnabled(ACTIVITY_ID, 1))
+                .isInstanceOf(BizException.class)
+                .hasMessage("商品不存在或已下架");
+    }
+
+    @Test
+    @DisplayName("上线：与别的上线活动重叠 → 409（草稿可重叠，上线时收口）")
+    void changeEnabledRejectsOverlap() {
+        when(activityMapper.selectById(ACTIVITY_ID)).thenReturn(futureActivity());
+        when(activityMapper.selectList(any())).thenReturn(List.of(ongoingActivity()));
+
+        assertThatThrownBy(() -> service.changeEnabled(ACTIVITY_ID, 1))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("已有一场上线中的活动");
+    }
+
+    @Test
+    @DisplayName("上线成功：写入 enabled=1 并预热库存")
+    void changeEnabledOnPreloads() {
+        when(activityMapper.selectById(ACTIVITY_ID)).thenReturn(futureActivity());
+        when(activityMapper.updateById(any(SeckillActivity.class))).thenReturn(1);
+
+        service.changeEnabled(ACTIVITY_ID, 1);
+
+        verify(stockService).preload(any());
+    }
+
+    // ---------------- 复制 ----------------
+
+    @Test
+    @DisplayName("复制：草稿、已售归零、时间平移到原结束次日同时刻")
+    void copyCreatesDraft() {
+        SeckillActivity source = futureActivity();
+        source.setSoldCount(1);
+        when(activityMapper.selectById(ACTIVITY_ID)).thenReturn(source);
+        when(activityMapper.insert(any(SeckillActivity.class))).thenReturn(1);
+
+        service.copy(ACTIVITY_ID);
+
+        ArgumentCaptor<SeckillActivity> captor = ArgumentCaptor.forClass(SeckillActivity.class);
+        verify(activityMapper).insert(captor.capture());
+        SeckillActivity copy = captor.getValue();
+        assertThat(copy.getEnabled()).isZero();
+        assertThat(copy.getSoldCount()).isZero();
+        assertThat(copy.getTitle()).isEqualTo("秒杀活动 副本");
+        assertThat(copy.getStartTime()).isEqualTo(source.getEndTime().plusDays(1));
+        assertThat(Duration.between(copy.getStartTime(), copy.getEndTime()))
+                .isEqualTo(Duration.between(source.getStartTime(), source.getEndTime()));
+    }
+
+    @Test
+    @DisplayName("复制：商品已删除 → 拒绝")
+    void copyRejectsDeletedProduct() {
+        when(activityMapper.selectById(ACTIVITY_ID)).thenReturn(futureActivity());
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.copy(ACTIVITY_ID))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("商品已删除");
+    }
+
+    @Test
+    @DisplayName("复制：标题超 64 字时截断（加「副本」后缀会撑爆）")
+    void copyTruncatesLongTitle() {
+        SeckillActivity source = futureActivity();
+        source.setTitle("超".repeat(64));
+        when(activityMapper.selectById(ACTIVITY_ID)).thenReturn(source);
+        when(activityMapper.insert(any(SeckillActivity.class))).thenReturn(1);
+
+        service.copy(ACTIVITY_ID);
+
+        ArgumentCaptor<SeckillActivity> captor = ArgumentCaptor.forClass(SeckillActivity.class);
+        verify(activityMapper).insert(captor.capture());
+        assertThat(captor.getValue().getTitle()).hasSize(64);
+    }
+
+    // ---------------- 批量上下线 ----------------
+
+    @Test
+    @DisplayName("批量下线：去重后逐条改 enabled，返回实际场次")
+    void batchEnabledOffDeduplicates() {
+        SeckillActivity a = futureActivity();
+        a.setId(1L);
+        SeckillActivity b = futureActivity();
+        b.setId(2L);
+        when(activityMapper.selectBatchIds(any())).thenReturn(List.of(a, b));
+        when(activityMapper.updateById(any(SeckillActivity.class))).thenReturn(1);
+
+        int count = service.batchEnabled(List.of(1L, 2L, 1L), 0);
+
+        assertThat(count).isEqualTo(2);
+        verify(activityMapper, times(2)).updateById(any(SeckillActivity.class));
+        assertThat(a.getEnabled()).isZero();
+        assertThat(b.getEnabled()).isZero();
+    }
+
+    @Test
+    @DisplayName("批量：部分活动不存在 → 整批拒绝（不做半成功）")
+    void batchEnabledRejectsMissing() {
+        SeckillActivity a = futureActivity();
+        a.setId(1L);
+        when(activityMapper.selectBatchIds(any())).thenReturn(List.of(a));
+
+        assertThatThrownBy(() -> service.batchEnabled(List.of(1L, 2L), 0))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("部分活动不存在");
+    }
+
+    @Test
+    @DisplayName("批量：空列表与超过 100 场都拒绝")
+    void batchEnabledRejectsBadSize() {
+        assertThatThrownBy(() -> service.batchEnabled(List.of(), 0))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("请选择");
+
+        List<Long> tooMany = java.util.stream.LongStream.rangeClosed(1, 101).boxed().toList();
+        assertThatThrownBy(() -> service.batchEnabled(tooMany, 0))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("最多操作");
     }
 
     // ---------------- 列表 ----------------
