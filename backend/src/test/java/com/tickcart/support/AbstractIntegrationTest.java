@@ -1,11 +1,13 @@
 package com.tickcart.support;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.containers.RabbitMQContainer;
@@ -31,6 +33,7 @@ import java.util.List;
  * 区分开，避免单测闸门被拖慢。</p>
  */
 @SpringBootTest
+@AutoConfigureMockMvc
 public abstract class AbstractIntegrationTest {
 
     @ServiceConnection
@@ -55,6 +58,16 @@ public abstract class AbstractIntegrationTest {
 
     @Autowired
     protected JdbcTemplate jdbc;
+
+    /**
+     * 用于发真实 HTTP 请求（经过完整 Spring Security filter chain）。
+     *
+     * <p>权限类测试必须走 MockMvc 而不是直接调 Service：越权检查发生在
+     * {@code JwtAuthenticationFilter} 与 {@code @PreAuthorize} / SecurityConfig 这一层，
+     * 直接调 Service 会绕过它们，测出来的「安全」是假的。</p>
+     */
+    @Autowired
+    protected MockMvc mockMvc;
 
     /**
      * 清空业务表。
