@@ -47,6 +47,10 @@ test.describe('下单主链路', () => {
     // 所以必须等地址真正渲染出来再点提交。
     await expect(page.locator('.card__name')).toBeVisible({ timeout: 20_000 })
 
+    // 确认订单页与 address / order-detail 保持一致：底部 tabbar 让位。
+    // 之前它没进 FULLSCREEN_ROUTES，靠 submit-bar 层级更高才没露馅（两者逐像素重叠）。
+    await expect(page.locator('.van-tabbar')).toBeHidden()
+
     // ---- 5. 确认订单 → 提交 ----
     const submitOrder = page.getByRole('button', { name: '提交订单' })
     await expect(submitOrder).toBeVisible({ timeout: 20_000 })

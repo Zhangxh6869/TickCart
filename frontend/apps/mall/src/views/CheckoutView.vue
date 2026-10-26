@@ -16,6 +16,13 @@ const cartStore = useCartStore()
 
 const addresses = ref<UserAddress[]>([])
 const selectedAddressId = ref<number | null>(null)
+/**
+ * 地址是否仍在加载。
+ *
+ * <p>加载期间 {@link selectedAddress} 必然为 null，只看它就会误判成「用户没选地址」——
+ * 表现为点「提交订单」只弹一个 1.5 秒就消失的 toast、页面毫无反应（网络慢时尤其明显）。</p>
+ */
+const addressLoading = ref(true)
 const remark = ref('')
 const submitting = ref(false)
 const addressPopupVisible = ref(false)
@@ -146,6 +153,7 @@ async function loadBuyNowItem(productId: number, skuId: number, quantity: number
  * @param preferId 希望保留的地址 ID（可能已在别处被删除）
  */
 async function loadAddresses(preferId: number | null = null) {
+  addressLoading.value = true
   try {
     addresses.value = await fetchAddresses()
     // 优先保留用户已选的地址；它已被删除时回落到默认地址，再否则取第一条
@@ -155,6 +163,8 @@ async function loadAddresses(preferId: number | null = null) {
     selectedAddressId.value = preferred ? preferred.id : null
   } catch {
     // 错误提示由请求拦截器统一处理
+  } finally {
+    addressLoading.value = false
   }
 }
 
@@ -195,6 +205,8 @@ function onAddressPopupClosed() {
 }
 
 async function onSubmit() {
+  // 按钮在「地址加载中」与「未选中地址」时已 disabled，这里只作兜底
+  // （防止绑定失效、或将来有人绕过按钮直接调用）
   if (!selectedAddress.value) {
     showToast('请先选择收货地址')
     return
@@ -303,9 +315,10 @@ async function onSubmit() {
     <van-submit-bar
       class="checkout__bar"
       :price="Math.round(totalAmount * 100)"
-      button-text="提交订单"
+      :button-text="addressLoading ? '地址加载中…' : '提交订单'"
       button-color="rgb(107,163,200)"
-      :loading="submitting"
+      :loading="submitting || addressLoading"
+      :disabled="addressLoading || !selectedAddress"
       @submit="onSubmit"
     />
 

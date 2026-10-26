@@ -50,6 +50,13 @@ const indicatorLeft = computed(() => `calc(${activeIndex.value} * 100% / 4 + 100
  *                     只剩顶部 4px 能点到（点中间会命中 tabbar 的「购物车」直接跳走）。
  *                     与其给按钮条加 z-index 硬压 tabbar（那会让 tabbar 彻底点不到），
  *                     不如让 tabbar 在这个二级页整体让位，用户走左上角返回。
+ *   checkout       —— 确认订单。页内自带 van-submit-bar（提交订单按钮），与 tabbar 完全重叠
+ *                     （实测 tabbar y677~727、按钮 y682~722，几乎逐像素重合）。之前只是靠
+ *                     submit-bar 的 z-index(100) 高于 tabbar(1) 才没露馅 —— 属于侥幸而非设计：
+ *                     tabbar 仍留在 DOM 里（屏幕阅读器会读出来），且 submit-bar 高度一变就会
+ *                     穿帮。与 address 同理，下单流程中也不该让人误切 tab。
+ *                     ★ 注意 CheckoutView 自己的 padding-bottom: 50px 是给 submit-bar 留的，
+ *                     与 tabbar 无关（对照 address 页：tabbar 早已隐藏，仍留 88px），不要删。
  *   orders / favorites / profile
  *                  —— 「我的」里的二级功能页（我的订单 / 我的收藏 / 个人信息）。
  *                     它们都自带 van-nav-bar 返回，属于从「我的」往下的独立层级，
@@ -74,6 +81,7 @@ const FULLSCREEN_ROUTES = [
   'login',
   'forgot-password',
   'address',
+  'checkout',
   'orders',
   'favorites',
   'view-history',
