@@ -13,6 +13,11 @@ dist/
 .vite/
 .eslintcache
 
+# ---- E2E（Playwright 的失败截图与报告不入库） ----
+test-results/
+playwright-report/
+blob-report/
+
 # ---- 环境与密钥 ----
 .env
 .env.*
