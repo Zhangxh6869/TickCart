@@ -6,6 +6,7 @@ import com.tickcart.seckill.dto.SeckillActivityQuery;
 import com.tickcart.seckill.dto.SeckillActivitySaveRequest;
 import com.tickcart.seckill.service.SeckillActivityService;
 import com.tickcart.seckill.vo.SeckillActivityVO;
+import com.tickcart.seckill.vo.SeckillOverviewVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -32,6 +33,12 @@ public class AdminSeckillController {
 
     public AdminSeckillController(SeckillActivityService activityService) {
         this.activityService = activityService;
+    }
+
+    @Operation(summary = "活动概览", description = "页头 KPI 与状态 chips 的计数；不含「今日」类指标")
+    @GetMapping("/overview")
+    public R<SeckillOverviewVO> overview() {
+        return R.ok(activityService.overview());
     }
 
     @Operation(summary = "活动分页列表", description = "status 为推导状态；指定后忽略 enabled 参数")

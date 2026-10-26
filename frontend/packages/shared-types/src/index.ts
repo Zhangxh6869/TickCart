@@ -457,6 +457,29 @@ export interface SeckillActivity {
   enabled: number
   status: SeckillStatus
   statusLabel: string
+  /** 秒杀成交额（仅已支付订单） */
+  paidAmount: number
+  /** 秒杀成交单数（仅已支付订单） */
+  paidOrderCount: number
+  /** 是否已预热到 Redis（已结束的活动按设计不预热） */
+  preloaded: boolean
+}
+
+/** 秒杀活动概览：页头 KPI 与状态 chips 的计数 */
+export interface SeckillOverview {
+  total: number
+  ongoing: number
+  pending: number
+  ended: number
+  disabled: number
+  /** 已结束但仍为上线状态的数量（不影响前台，只是数据没收尾） */
+  endedButEnabled: number
+  paidAmount: number
+  paidOrderCount: number
+  /** 已售件数（活动 sold_count 之和，含待付款） */
+  soldQuantity: number
+  nextStartTime?: string | null
+  ongoingEndTime?: string | null
 }
 
 export interface SeckillActivitySaveRequest {
@@ -475,7 +498,15 @@ export interface SeckillActivityQuery {
   size?: number
   enabled?: number
   status?: SeckillStatus
+  /** 活动标题或商品名 */
   keyword?: string
+  /** 排序字段；不传按「进行中→即将开始→已结束→已下线」沉底 */
+  sortBy?: 'startTime' | 'endTime' | 'id'
+  order?: 'asc' | 'desc'
+  /** 开始日期（含），格式 YYYY-MM-DD */
+  beginDate?: string
+  /** 结束日期（含），格式 YYYY-MM-DD */
+  endDate?: string
 }
 
 // ---------------------------------------------------------------------------

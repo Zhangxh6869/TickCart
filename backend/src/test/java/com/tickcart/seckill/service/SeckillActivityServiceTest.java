@@ -2,6 +2,7 @@ package com.tickcart.seckill.service;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.tickcart.common.exception.BizException;
@@ -15,6 +16,9 @@ import com.tickcart.seckill.entity.SeckillActivity;
 import com.tickcart.seckill.mapper.SeckillActivityMapper;
 import com.tickcart.seckill.service.SeckillStockService;
 import com.tickcart.seckill.vo.SeckillActivityVO;
+import com.tickcart.seckill.vo.SeckillOverviewVO;
+import com.tickcart.trade.entity.Order;
+import com.tickcart.trade.mapper.OrderMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,8 +31,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -59,6 +65,8 @@ class SeckillActivityServiceTest {
     private ProductSkuMapper productSkuMapper;
     @Mock
     private SeckillStockService stockService;
+    @Mock
+    private OrderMapper orderMapper;
 
     private SeckillActivityService service;
 
@@ -72,7 +80,7 @@ class SeckillActivityServiceTest {
     @BeforeEach
     void setUp() {
         service = new SeckillActivityService(
-                activityMapper, productMapper, productSkuMapper, stockService);
+                activityMapper, productMapper, productSkuMapper, stockService, orderMapper);
         // Mockito 对包装类型返回 0（不是 null），必须显式打桩成 null，
         // 否则 currentStock 会被当成「Redis 里剩 0 件」，把 DB 口径覆盖掉
         lenient().when(stockService.currentStock(any())).thenReturn(null);
@@ -321,7 +329,199 @@ class SeckillActivityServiceTest {
         assertThat(vo.getRemainingStock()).isZero();
     }
 
+    @Test
+    @DisplayName("列表默认排序：按「进行中→即将开始→已结束→已下线」沉底")
+    void pageDefaultSortSinksEnded() {
+        stubPage(futureActivity());
+
+        service.page(new SeckillActivityQuery());
+
+        String sql = capturedPageWrapper().getSqlSegment();
+        assertThat(sql).contains("CASE WHEN enabled = 0 THEN 4");
+        assertThat(sql).contains("start_time <= NOW() AND end_time > NOW() THEN 1");
+    }
+
+    @Test
+    @DisplayName("列表排序：指定 sortBy 时走白名单列，未知字段回落默认排序")
+    void pageSortByWhitelist() {
+        stubPage(futureActivity());
+
+        SeckillActivityQuery query = new SeckillActivityQuery();
+        query.setSortBy("startTime");
+        query.setOrder("asc");
+        service.page(query);
+
+        String sql = capturedPageWrapper().getSqlSegment();
+        assertThat(sql).contains("ORDER BY start_time ASC");
+        assertThat(sql).doesNotContain("CASE WHEN enabled = 0");
+    }
+
+    @Test
+    @DisplayName("列表关键字：同时搜活动标题与商品名")
+    void pageKeywordMatchesProductName() {
+        stubPage(futureActivity());
+
+        SeckillActivityQuery query = new SeckillActivityQuery();
+        query.setKeyword("牛油果");
+        service.page(query);
+
+        String sql = capturedPageWrapper().getSqlSegment();
+        assertThat(sql).contains("title LIKE");
+        assertThat(sql).contains("product_id IN (SELECT id FROM product WHERE name LIKE");
+    }
+
+    @Test
+    @DisplayName("列表日期筛选：开始时间 >= beginDate，结束时间 < endDate+1")
+    void pageFiltersByDateRange() {
+        stubPage(futureActivity());
+
+        SeckillActivityQuery query = new SeckillActivityQuery();
+        query.setBeginDate(LocalDate.of(2026, 10, 19));
+        query.setEndDate(LocalDate.of(2026, 10, 26));
+        service.page(query);
+
+        String sql = capturedPageWrapper().getSqlSegment();
+        assertThat(sql).contains("start_time >=");
+        assertThat(sql).contains("end_time <");
+    }
+
+    @Test
+    @DisplayName("列表成交：只统计已支付订单，一次 GROUP BY 拿全页")
+    void pageFillsPaidSales() {
+        stubPage(futureActivity());
+        when(orderMapper.selectMaps(any())).thenReturn(List.of(
+                Map.of("activity_id", ACTIVITY_ID, "cnt", 1L, "amt", new BigDecimal("20.00"))));
+
+        var result = service.page(new SeckillActivityQuery());
+
+        SeckillActivityVO vo = result.getRecords().get(0);
+        assertThat(vo.getPaidOrderCount()).isEqualTo(1);
+        assertThat(vo.getPaidAmount()).isEqualByComparingTo("20.00");
+
+        ArgumentCaptor<QueryWrapper<Order>> captor = queryCaptor();
+        verify(orderMapper).selectMaps(captor.capture());
+        String sql = captor.getValue().getSqlSegment();
+        assertThat(sql).contains("activity_id IN");
+        assertThat(sql).contains("status IN");
+        assertThat(sql).contains("GROUP BY activity_id");
+    }
+
+    @Test
+    @DisplayName("列表成交：没有订单时补 0，不是 null")
+    void pageFillsZeroSalesWhenNoOrders() {
+        stubPage(futureActivity());
+        when(orderMapper.selectMaps(any())).thenReturn(List.of());
+
+        var result = service.page(new SeckillActivityQuery());
+
+        assertThat(result.getRecords().get(0).getPaidOrderCount()).isZero();
+        assertThat(result.getRecords().get(0).getPaidAmount()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("列表预热标记：Redis 有库存 key 时 preloaded=true")
+    void pageMarksPreloaded() {
+        stubPage(futureActivity());
+        when(stockService.currentStock(ACTIVITY_ID)).thenReturn(5);
+
+        var result = service.page(new SeckillActivityQuery());
+
+        assertThat(result.getRecords().get(0).isPreloaded()).isTrue();
+    }
+
+    // ---------------- 概览 ----------------
+
+    @Test
+    @DisplayName("概览：按推导状态计数，已结束仍上线单独统计")
+    void overviewCountsByDerivedStatus() {
+        SeckillActivity ongoing = ongoingActivity();
+        SeckillActivity pending = futureActivity();
+        pending.setId(8L);
+        SeckillActivity ended = futureActivity();
+        ended.setId(9L);
+        ended.setStartTime(LocalDateTime.now().minusDays(2));
+        ended.setEndTime(LocalDateTime.now().minusDays(1));
+        SeckillActivity disabled = futureActivity();
+        disabled.setId(10L);
+        disabled.setEnabled(0);
+        when(activityMapper.selectList(any())).thenReturn(List.of(ongoing, pending, ended, disabled));
+        when(orderMapper.selectMaps(any())).thenReturn(List.of(
+                Map.of("cnt", 1L, "amt", new BigDecimal("20.00"))));
+
+        SeckillOverviewVO vo = service.overview();
+
+        assertThat(vo.getTotal()).isEqualTo(4);
+        assertThat(vo.getOngoing()).isEqualTo(1);
+        assertThat(vo.getPending()).isEqualTo(1);
+        assertThat(vo.getEnded()).isEqualTo(1);
+        assertThat(vo.getDisabled()).isEqualTo(1);
+        assertThat(vo.getEndedButEnabled()).isEqualTo(1);
+        assertThat(vo.getPaidOrderCount()).isEqualTo(1);
+        assertThat(vo.getPaidAmount()).isEqualByComparingTo("20.00");
+        assertThat(vo.getOngoingEndTime()).isEqualTo(ongoing.getEndTime());
+        assertThat(vo.getNextStartTime()).isEqualTo(pending.getStartTime());
+    }
+
+    @Test
+    @DisplayName("概览：已结束且已下线的活动不计入 endedButEnabled")
+    void overviewEndedButDisabledNotCounted() {
+        SeckillActivity endedOff = futureActivity();
+        endedOff.setStartTime(LocalDateTime.now().minusDays(2));
+        endedOff.setEndTime(LocalDateTime.now().minusDays(1));
+        endedOff.setEnabled(0);
+        when(activityMapper.selectList(any())).thenReturn(List.of(endedOff));
+        when(orderMapper.selectMaps(any())).thenReturn(List.of());
+
+        SeckillOverviewVO vo = service.overview();
+
+        assertThat(vo.getEnded()).isZero();
+        assertThat(vo.getDisabled()).isEqualTo(1);
+        assertThat(vo.getEndedButEnabled()).isZero();
+    }
+
+    @Test
+    @DisplayName("概览成交：只算已支付订单，口径与列表一致")
+    void overviewSalesOnlyPaidOrders() {
+        when(activityMapper.selectList(any())).thenReturn(List.of());
+        when(orderMapper.selectMaps(any())).thenReturn(List.of());
+
+        SeckillOverviewVO vo = service.overview();
+
+        assertThat(vo.getPaidOrderCount()).isZero();
+        assertThat(vo.getPaidAmount()).isEqualByComparingTo("0");
+        ArgumentCaptor<QueryWrapper<Order>> captor = queryCaptor();
+        verify(orderMapper).selectMaps(captor.capture());
+        String sql = captor.getValue().getSqlSegment();
+        assertThat(sql).contains("activity_id >");
+        assertThat(sql).contains("status IN");
+    }
+
     // ---------------- 辅助 ----------------
+
+    private void stubPage(SeckillActivity activity) {
+        when(activityMapper.selectPage(ArgumentMatchers.<IPage<SeckillActivity>>any(), any()))
+                .thenAnswer(inv -> {
+                    IPage<SeckillActivity> page = inv.getArgument(0);
+                    page.setRecords(List.of(activity));
+                    page.setTotal(1);
+                    return page;
+                });
+        when(productMapper.selectBatchIds(any())).thenReturn(List.of(product("99.00", 1)));
+        when(productSkuMapper.selectBatchIds(any())).thenReturn(List.of(sku("88.00")));
+    }
+
+    @SuppressWarnings("unchecked")
+    private LambdaQueryWrapper<SeckillActivity> capturedPageWrapper() {
+        ArgumentCaptor<LambdaQueryWrapper<SeckillActivity>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(activityMapper).selectPage(ArgumentMatchers.<IPage<SeckillActivity>>any(), captor.capture());
+        return captor.getValue();
+    }
+
+    @SuppressWarnings("unchecked")
+    private ArgumentCaptor<QueryWrapper<Order>> queryCaptor() {
+        return ArgumentCaptor.forClass(QueryWrapper.class);
+    }
 
     private SeckillActivitySaveRequest req(int stock, int limit, Long skuId, String seckillPrice) {
         SeckillActivitySaveRequest req = new SeckillActivitySaveRequest();

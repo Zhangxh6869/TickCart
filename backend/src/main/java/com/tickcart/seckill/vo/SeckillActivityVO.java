@@ -52,6 +52,21 @@ public class SeckillActivityVO {
     @Schema(description = "剩余库存（DB 口径；B2 之后前台展示以 Redis 为准）")
     private Integer remainingStock;
 
+    @Schema(description = "秒杀成交额（仅已支付订单）")
+    private BigDecimal paidAmount;
+
+    @Schema(description = "秒杀成交单数（仅已支付订单）")
+    private Integer paidOrderCount;
+
+    /**
+     * Redis 库存 key 是否存在（是否已预热）。
+     *
+     * <p>只对「即将开始 / 进行中」有意义：已结束的活动按设计不建库存 key，
+     * 前端不要把这种情况标成异常。</p>
+     */
+    @Schema(description = "是否已预热到 Redis")
+    private boolean preloaded;
+
     @Schema(description = "每人限购")
     private Integer limitPerUser;
 
@@ -197,6 +212,30 @@ public class SeckillActivityVO {
 
     public void setRemainingStock(Integer remainingStock) {
         this.remainingStock = remainingStock;
+    }
+
+    public BigDecimal getPaidAmount() {
+        return paidAmount;
+    }
+
+    public void setPaidAmount(BigDecimal paidAmount) {
+        this.paidAmount = paidAmount;
+    }
+
+    public Integer getPaidOrderCount() {
+        return paidOrderCount;
+    }
+
+    public void setPaidOrderCount(Integer paidOrderCount) {
+        this.paidOrderCount = paidOrderCount;
+    }
+
+    public boolean isPreloaded() {
+        return preloaded;
+    }
+
+    public void setPreloaded(boolean preloaded) {
+        this.preloaded = preloaded;
     }
 
     public Integer getLimitPerUser() {

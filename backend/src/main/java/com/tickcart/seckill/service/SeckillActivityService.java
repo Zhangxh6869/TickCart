@@ -1,6 +1,7 @@
 package com.tickcart.seckill.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tickcart.common.api.PageResult;
 import com.tickcart.common.exception.BizException;
@@ -14,6 +15,9 @@ import com.tickcart.seckill.entity.SeckillActivity;
 import com.tickcart.seckill.enums.SeckillActivityStatus;
 import com.tickcart.seckill.mapper.SeckillActivityMapper;
 import com.tickcart.seckill.vo.SeckillActivityVO;
+import com.tickcart.seckill.vo.SeckillOverviewVO;
+import com.tickcart.trade.entity.Order;
+import com.tickcart.trade.mapper.OrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -50,19 +54,36 @@ public class SeckillActivityService {
     private static final int ENABLED_ON = 1;
     private static final long NO_SKU = 0L;
 
+    /** 排序白名单：key 是前端传的字段名，value 是数据库列名。 */
+    private static final Map<String, String> SORT_COLUMNS = Map.of(
+            "startTime", "start_time",
+            "endTime", "end_time",
+            "id", "id");
+
+    /**
+     * 算「成交」的订单状态：待发货 / 待收货 / 已完成。
+     *
+     * <p>待付款（0）不算成交；已取消（4）与已超时（5）的钱不能算收入。
+     * 与订单页概览的口径一致。</p>
+     */
+    private static final List<Integer> PAID_ORDER_STATUSES = List.of(1, 2, 3);
+
     private final SeckillActivityMapper activityMapper;
     private final ProductMapper productMapper;
     private final ProductSkuMapper productSkuMapper;
     private final SeckillStockService stockService;
+    private final OrderMapper orderMapper;
 
     public SeckillActivityService(SeckillActivityMapper activityMapper,
                                   ProductMapper productMapper,
                                   ProductSkuMapper productSkuMapper,
-                                  SeckillStockService stockService) {
+                                  SeckillStockService stockService,
+                                  OrderMapper orderMapper) {
         this.activityMapper = activityMapper;
         this.productMapper = productMapper;
         this.productSkuMapper = productSkuMapper;
         this.stockService = stockService;
+        this.orderMapper = orderMapper;
     }
 
     // -------------------------------------------------------------------------
@@ -74,6 +95,10 @@ public class SeckillActivityService {
      *
      * <p>{@code status} 是推导值，这里把它翻译成 {@code enabled} + 时间区间的组合条件；
      * 一旦指定了 status，就以它为准、忽略 {@code enabled} 参数（否则两个条件会互相打架）。</p>
+     *
+     * <p><b>默认排序不是 id 倒序</b>：按「进行中 → 即将开始 → 已结束 → 已下线」沉底。
+     * 管理员打开页面要看的是「现在有什么场」，而不是「最后建的是哪一场」——
+     * 已结束的活动会一直堆在库里（不能删、也改不了价），按 id 排会挤满第一屏。</p>
      */
     public PageResult<SeckillActivityVO> page(SeckillActivityQuery query) {
         LocalDateTime now = LocalDateTime.now();
@@ -84,15 +109,64 @@ public class SeckillActivityService {
         } else if (query.getEnabled() != null) {
             wrapper.eq(SeckillActivity::getEnabled, query.getEnabled());
         }
-        if (StringUtils.hasText(query.getKeyword())) {
-            wrapper.like(SeckillActivity::getTitle, query.getKeyword().trim());
-        }
-        wrapper.orderByDesc(SeckillActivity::getId);
+        applyKeyword(wrapper, query.getKeyword());
+        applyDateRange(wrapper, query);
+        applySort(wrapper, query);
 
         Page<SeckillActivity> page = activityMapper.selectPage(
                 Page.of(query.getPage(), query.getSize()), wrapper);
-        return new PageResult<>(toVOs(page.getRecords(), now),
-                page.getTotal(), page.getCurrent(), page.getSize(), page.getPages());
+        List<SeckillActivityVO> records = toVOs(page.getRecords(), now);
+        fillSales(records);
+        return new PageResult<>(records, page.getTotal(), page.getCurrent(), page.getSize(), page.getPages());
+    }
+
+    /**
+     * 页头概览。
+     *
+     * <p>活动量在百级，全量查回内存分类比写 4 条聚合 SQL 更简单也更准 ——
+     * 状态是推导的，SQL 里拼时间条件容易和 {@link SeckillActivityStatus#of} 的口径漂移。</p>
+     */
+    public SeckillOverviewVO overview() {
+        LocalDateTime now = LocalDateTime.now();
+        SeckillOverviewVO vo = new SeckillOverviewVO();
+
+        List<SeckillActivity> all = activityMapper.selectList(null);
+        LocalDateTime nextStart = null;
+        LocalDateTime ongoingEnd = null;
+        long soldQuantity = 0;
+
+        for (SeckillActivity activity : all) {
+            SeckillActivityStatus status = SeckillActivityStatus.of(activity, now);
+            soldQuantity += nullToZero(activity.getSoldCount());
+            switch (status) {
+                case ONGOING -> {
+                    vo.setOngoing(vo.getOngoing() + 1);
+                    if (ongoingEnd == null || activity.getEndTime().isBefore(ongoingEnd)) {
+                        ongoingEnd = activity.getEndTime();
+                    }
+                }
+                case PENDING -> {
+                    vo.setPending(vo.getPending() + 1);
+                    if (nextStart == null || activity.getStartTime().isBefore(nextStart)) {
+                        nextStart = activity.getStartTime();
+                    }
+                }
+                case ENDED -> {
+                    vo.setEnded(vo.getEnded() + 1);
+                    if (Integer.valueOf(ENABLED_ON).equals(activity.getEnabled())) {
+                        vo.setEndedButEnabled(vo.getEndedButEnabled() + 1);
+                    }
+                }
+                case DISABLED -> vo.setDisabled(vo.getDisabled() + 1);
+            }
+        }
+
+        vo.setTotal(all.size());
+        vo.setSoldQuantity(soldQuantity);
+        vo.setNextStartTime(nextStart);
+        vo.setOngoingEndTime(ongoingEnd);
+        fillOverviewSales(vo);
+        return vo;
     }
 
     /** 前台列表：已上线且未结束（进行中 + 即将开始），按开始时间升序。 */
@@ -289,6 +363,61 @@ public class SeckillActivityService {
         }
     }
 
+    /**
+     * 关键字同时匹配活动标题与商品名。
+     *
+     * <p>运营记得住「牛油果那场」，记不住活动标题叫「测试」—— 只搜标题等于搜不到。</p>
+     *
+     * <p>商品名走子查询而不是 JOIN：本项目的 Mapper 全是 BaseMapper + QueryWrapper，
+     * 没有 XML，引 JOIN 得先造一份 XML 出来，代价大于收益。{@code {0}} 是参数绑定，
+     * 不要拼字符串。</p>
+     */
+    private void applyKeyword(LambdaQueryWrapper<SeckillActivity> wrapper, String keyword) {
+        if (!StringUtils.hasText(keyword)) {
+            return;
+        }
+        String like = "%" + keyword.trim() + "%";
+        wrapper.and(w -> w.like(SeckillActivity::getTitle, keyword.trim())
+                .or()
+                .apply("product_id IN (SELECT id FROM product WHERE name LIKE {0} AND deleted = 0)", like));
+    }
+
+    /**
+     * 按活动时间筛选（闭区间）。
+     *
+     * <p>用「开始时间 &gt;= beginDate 00:00」与「结束时间 &lt; endDate+1 00:00」，
+     * 这样「今天」能命中所有与今天有交集的活动，而不是只命中今天开始的。</p>
+     */
+    private void applyDateRange(LambdaQueryWrapper<SeckillActivity> wrapper, SeckillActivityQuery query) {
+        if (query.getBeginDate() != null) {
+            wrapper.ge(SeckillActivity::getStartTime, query.getBeginDate().atStartOfDay());
+        }
+        if (query.getEndDate() != null) {
+            wrapper.lt(SeckillActivity::getEndTime, query.getEndDate().plusDays(1).atStartOfDay());
+        }
+    }
+
+    /**
+     * 排序：白名单映射，未知字段回落「沉底排序」。
+     *
+     * <p>沉底排序用 SQL 表达式而不是 Java 排序 —— 分页在 DB 层，Java 里排只能排当前页，
+     * 会把「进行中」的活动排到第 2 页去。</p>
+     *
+     * <p>{@code NOW()} 用数据库时间而不是拼接 Java 时间：省掉格式化，也没有注入面。
+     * 数据库与本服务的时区都是 Asia/Shanghai，毫秒级差异不影响排序。</p>
+     */
+    private void applySort(LambdaQueryWrapper<SeckillActivity> wrapper, SeckillActivityQuery query) {
+        String column = query.getSortBy() == null ? null : SORT_COLUMNS.get(query.getSortBy());
+        if (column == null) {
+            wrapper.last("ORDER BY CASE WHEN enabled = 0 THEN 4 "
+                    + "WHEN start_time <= NOW() AND end_time > NOW() THEN 1 "
+                    + "WHEN start_time > NOW() THEN 2 ELSE 3 END ASC, start_time DESC, id DESC");
+            return;
+        }
+        boolean asc = "asc".equalsIgnoreCase(query.getOrder());
+        wrapper.last("ORDER BY " + column + (asc ? " ASC" : " DESC") + ", id DESC");
+    }
+
     private long normalizeSkuId(Long skuId) {
         return skuId == null ? NO_SKU : skuId;
     }
@@ -346,7 +475,7 @@ public class SeckillActivityService {
         for (SeckillActivity activity : activities) {
             SeckillActivityVO vo = SeckillActivityVO.from(activity, now);
             fillProductSnapshot(vo, products.get(activity.getProductId()), skus.get(activity.getSkuId()));
-            overrideRemainingFromRedis(vo);
+            vo.setPreloaded(overrideRemainingFromRedis(vo));
             vos.add(vo);
         }
         return vos;
@@ -356,19 +485,95 @@ public class SeckillActivityService {
         SeckillActivityVO vo = SeckillActivityVO.from(activity, now);
         fillProductSnapshot(vo, productMapper.selectById(activity.getProductId()),
                 activity.getSkuId() > NO_SKU ? productSkuMapper.selectById(activity.getSkuId()) : null);
-        overrideRemainingFromRedis(vo);
+        vo.setPreloaded(overrideRemainingFromRedis(vo));
         return vo;
     }
 
     /**
      * 剩余库存以 Redis 为准（B2 的 Lua 扣的是它），DB 的 {@code sold_count} 会滞后。
      * 未预热时保留 DB 口径（VO 里已算好）。
+     *
+     * @return Redis 里是否有库存 key（顺带当「是否已预热」用，省一次 Redis 调用）
      */
-    private void overrideRemainingFromRedis(SeckillActivityVO vo) {
+    private boolean overrideRemainingFromRedis(SeckillActivityVO vo) {
         Integer redisStock = stockService.currentStock(vo.getId());
-        if (redisStock != null) {
-            vo.setRemainingStock(redisStock);
+        if (redisStock == null) {
+            return false;
         }
+        vo.setRemainingStock(redisStock);
+        return true;
+    }
+
+    /**
+     * 批量填成交额与成交单数（列表页）。
+     *
+     * <p>一次 {@code GROUP BY activity_id} 拿全页，避免每行查一次订单表。</p>
+     */
+    private void fillSales(List<SeckillActivityVO> vos) {
+        if (vos.isEmpty()) {
+            return;
+        }
+        List<Long> ids = vos.stream().map(SeckillActivityVO::getId).toList();
+        Map<Long, Integer> counts = new LinkedHashMap<>();
+        Map<Long, BigDecimal> amounts = new LinkedHashMap<>();
+        for (Map<String, Object> row : selectSales(new QueryWrapper<Order>()
+                .select("activity_id", "COUNT(*) AS cnt", "SUM(pay_amount) AS amt")
+                .in("activity_id", ids)
+                .in("status", PAID_ORDER_STATUSES)
+                .groupBy("activity_id"))) {
+            Long activityId = longOf(row.get("activity_id"));
+            if (activityId == null) {
+                continue;
+            }
+            Long cnt = longOf(row.get("cnt"));
+            counts.put(activityId, cnt == null ? 0 : cnt.intValue());
+            amounts.put(activityId, decimalOf(row.get("amt")));
+        }
+        for (SeckillActivityVO vo : vos) {
+            vo.setPaidOrderCount(counts.getOrDefault(vo.getId(), 0));
+            vo.setPaidAmount(amounts.getOrDefault(vo.getId(), BigDecimal.ZERO));
+        }
+    }
+
+    /** 全局成交额与成交单数（概览用）。 */
+    private void fillOverviewSales(SeckillOverviewVO vo) {
+        for (Map<String, Object> row : selectSales(new QueryWrapper<Order>()
+                .select("COUNT(*) AS cnt", "SUM(pay_amount) AS amt")
+                .gt("activity_id", 0)
+                .in("status", PAID_ORDER_STATUSES))) {
+            Long cnt = longOf(row.get("cnt"));
+            vo.setPaidOrderCount(cnt == null ? 0 : cnt);
+            vo.setPaidAmount(decimalOf(row.get("amt")));
+        }
+    }
+
+    private List<Map<String, Object>> selectSales(QueryWrapper<Order> wrapper) {
+        return orderMapper.selectMaps(wrapper);
+    }
+
+    /** 聚合列取值：COUNT 在不同驱动下可能是 Long / BigInteger，统一收敛成 Long。 */
+    private static Long longOf(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        return Long.valueOf(value.toString());
+    }
+
+    /** SUM 可能是 BigDecimal / Double，统一收敛成 BigDecimal。 */
+    private static BigDecimal decimalOf(Object value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        if (value instanceof BigDecimal decimal) {
+            return decimal;
+        }
+        if (value instanceof Number number) {
+            return BigDecimal.valueOf(number.doubleValue());
+        }
+        return new BigDecimal(value.toString());
     }
 
     /**

@@ -1,6 +1,9 @@
 package com.tickcart.seckill.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import org.springframework.format.annotation.DateTimeFormat;
+
+import java.time.LocalDate;
 
 /**
  * 后台秒杀活动查询条件。
@@ -14,8 +17,8 @@ public class SeckillActivityQuery {
     @Schema(description = "页码，从 1 开始", example = "1")
     private long page = 1;
 
-    @Schema(description = "每页条数", example = "10")
-    private long size = 10;
+    @Schema(description = "每页条数", example = "20")
+    private long size = 20;
 
     @Schema(description = "是否上线：0下线 1上线；不传表示全部", example = "1")
     private Integer enabled;
@@ -23,8 +26,22 @@ public class SeckillActivityQuery {
     @Schema(description = "状态：0已下线 1即将开始 2进行中 3已结束；不传表示全部", example = "2")
     private Integer status;
 
-    @Schema(description = "标题模糊搜索")
+    @Schema(description = "标题或商品名模糊搜索")
     private String keyword;
+
+    @Schema(description = "排序字段：startTime / endTime / id；不传按「进行中→即将开始→已结束→已下线」沉底", example = "startTime")
+    private String sortBy;
+
+    @Schema(description = "排序方向：asc / desc", example = "desc")
+    private String order;
+
+    @Schema(description = "开始日期（含），按活动开始时间筛选", example = "2026-10-19")
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+    private LocalDate beginDate;
+
+    @Schema(description = "结束日期（含），按活动结束时间筛选", example = "2026-10-26")
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+    private LocalDate endDate;
 
     public long getPage() {
         return page;
@@ -64,5 +81,37 @@ public class SeckillActivityQuery {
 
     public void setKeyword(String keyword) {
         this.keyword = keyword;
+    }
+
+    public String getSortBy() {
+        return sortBy;
+    }
+
+    public void setSortBy(String sortBy) {
+        this.sortBy = sortBy;
+    }
+
+    public String getOrder() {
+        return order;
+    }
+
+    public void setOrder(String order) {
+        this.order = order;
+    }
+
+    public LocalDate getBeginDate() {
+        return beginDate;
+    }
+
+    public void setBeginDate(LocalDate beginDate) {
+        this.beginDate = beginDate;
+    }
+
+    public LocalDate getEndDate() {
+        return endDate;
+    }
+
+    public void setEndDate(LocalDate endDate) {
+        this.endDate = endDate;
     }
 }
