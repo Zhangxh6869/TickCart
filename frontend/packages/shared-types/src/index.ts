@@ -500,6 +500,8 @@ export interface SeckillActivityQuery {
   status?: SeckillStatus
   /** 活动标题或商品名 */
   keyword?: string
+  /** 只看进行中 + 即将开始（与 status 互斥，status 优先） */
+  activeOnly?: boolean
   /** 排序字段；不传按「进行中→即将开始→已结束→已下线」沉底 */
   sortBy?: 'startTime' | 'endTime' | 'id'
   order?: 'asc' | 'desc'
