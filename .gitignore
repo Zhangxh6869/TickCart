@@ -5,13 +5,26 @@ target/
 !.mvn/wrapper/*.jar
 .idea/
 *.iml
+# JVM 崩溃转储（单次可上 GB，绝不能入库）
+*.hprof
+hs_err_pid*.log
+replay_pid*.log
 
 # ---- 前端 ----
 node_modules/
 dist/
+dist-ssr/
 *.local
 .vite/
 .eslintcache
+# TS 增量构建缓存（单文件可达数十 MB）
+*.tsbuildinfo
+# 构建/包管理器缓存
+.turbo/
+.cache/
+coverage/
+.nyc_output/
+pnpm-debug.log*
 
 # ---- E2E（Playwright 的失败截图与报告不入库） ----
 test-results/
@@ -24,6 +37,12 @@ blob-report/
 !.env.example
 application-local.yml
 application-prod.yml
+# 证书 / 私钥，永远不入库
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
 
 # ---- AI 助手工作区（本地记忆、验证脚本与截图，不入库） ----
 .workbuddy-ai/
@@ -37,3 +56,18 @@ backend/uploads/
 .DS_Store
 Thumbs.db
 .pnpm-store/
+
+# ---- 编辑器 / IDE 本地配置 ----
+.vscode/
+.fleet/
+*.swp
+*~
+
+# ---- 临时与备份文件 ----
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*.part
+*.crdownload
