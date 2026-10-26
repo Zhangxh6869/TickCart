@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 集成测试方案；跑通后再逐个补 Redis / RabbitMQ 与真实业务场景。
  */
 @Testcontainers
-class TestcontainersSmokeTest {
+class ContainerSmokeIT {
 
     @Container
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0")
