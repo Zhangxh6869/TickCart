@@ -7,6 +7,8 @@ import org.springframework.jdbc.support.KeyHolder;
 import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.Objects;
 
 /**
@@ -80,8 +82,32 @@ public class TestDataFactory {
         return new BuyerFixture(userId, addressId, product);
     }
 
-    private long insertAndReturnId(String sql, Object... args) {
-        KeyHolder keyHolder = new GeneratedKeyHolder();
+    /** 按订单号取主键，用于给支付流水这类子表挂关联字段。 */
+    public long orderIdOf(String orderNo) {
+        Long id = jdbc.queryForObject(
+                "SELECT id FROM t_order WHERE order_no = ?", Long.class, orderNo);
+        return Objects.requireNonNull(id, "订单不存在：" + orderNo);
+    }
+
+    /** 插入一条支付流水，status 用 {@code PaymentRecord.STATUS_*} 常量。 */
+    public long insertPaymentRecord(long orderId, String orderNo, String payNo, int status) {
+        return insertAndReturnId(
+                "INSERT INTO payment_record (order_id, order_no, pay_no, channel, amount, status) "
+                        + "VALUES (?, ?, ?, 0, ?, ?)",
+                orderId, orderNo, payNo, new BigDecimal("99.00"), status);
+    }
+
+    /** 直接插入一场「已上线」的秒杀活动，用于构造重叠校验的前置数据。 */
+    public long insertOnlineSeckillActivity(long productId, long skuId,
+                                            LocalDateTime start, LocalDateTime end) {
+        return insertAndReturnId(
+                "INSERT INTO seckill_activity (title, product_id, sku_id, seckill_price, seckill_stock, "
+                        + "limit_per_user, start_time, end_time, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)",
+                "IT秒杀" + (++seq), productId, skuId, new BigDecimal("9.90"), 10, 1,
+                Timestamp.valueOf(start), Timestamp.valueOf(end));
+    }
+
+    private long insertAndReturnId(String sql, Object... args) {        KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbc.update(conn -> {
             PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
             for (int i = 0; i < args.length; i++) {

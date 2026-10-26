@@ -80,7 +80,8 @@ public abstract class AbstractIntegrationTest {
      */
     protected void cleanBusinessTables() {
         for (String table : List.of(
-                "order_item", "t_order", "cart_item",
+                "order_item", "t_order", "cart_item", "payment_record",
+                "seckill_activity",
                 "product_sku", "product", "product_category",
                 "user_address", "sys_user", "idempotent_record")) {
             jdbc.execute("TRUNCATE TABLE " + table);
