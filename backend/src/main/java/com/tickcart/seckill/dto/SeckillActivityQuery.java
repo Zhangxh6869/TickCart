@@ -26,6 +26,15 @@ public class SeckillActivityQuery {
     @Schema(description = "状态：0已下线 1即将开始 2进行中 3已结束；不传表示全部", example = "2")
     private Integer status;
 
+    /**
+     * 只看「在场」的活动（进行中 + 即将开始）。
+     *
+     * <p>页面的默认视图 —— 已结束的活动不能删也改不了价，会一直堆在库里；
+     * 按 id 或按时间排都会挤满第一屏，运营打开页面想看的只是「现在有什么场」。</p>
+     */
+    @Schema(description = "只看进行中+即将开始（与 status 互斥，优先 status）", example = "true")
+    private Boolean activeOnly;
+
     @Schema(description = "标题或商品名模糊搜索")
     private String keyword;
 
@@ -73,6 +82,14 @@ public class SeckillActivityQuery {
 
     public void setStatus(Integer status) {
         this.status = status;
+    }
+
+    public Boolean getActiveOnly() {
+        return activeOnly;
+    }
+
+    public void setActiveOnly(Boolean activeOnly) {
+        this.activeOnly = activeOnly;
     }
 
     public String getKeyword() {

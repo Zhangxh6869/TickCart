@@ -113,6 +113,10 @@ public class SeckillActivityService {
 
         if (query.getStatus() != null) {
             applyStatusFilter(wrapper, query.getStatus(), now);
+        } else if (Boolean.TRUE.equals(query.getActiveOnly())) {
+            // 在场 = 已上线且未结束（进行中 + 即将开始）
+            wrapper.eq(SeckillActivity::getEnabled, ENABLED_ON)
+                    .gt(SeckillActivity::getEndTime, now);
         } else if (query.getEnabled() != null) {
             wrapper.eq(SeckillActivity::getEnabled, query.getEnabled());
         }

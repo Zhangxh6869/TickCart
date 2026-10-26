@@ -610,6 +610,20 @@ class SeckillActivityServiceTest {
         assertThat(result.getRecords().get(0).isPreloaded()).isTrue();
     }
 
+    @Test
+    @DisplayName("列表 activeOnly：只看已上线且未结束（进行中 + 即将开始）")
+    void pageActiveOnly() {
+        stubPage(futureActivity());
+
+        SeckillActivityQuery query = new SeckillActivityQuery();
+        query.setActiveOnly(true);
+        service.page(query);
+
+        String sql = capturedPageWrapper().getSqlSegment();
+        assertThat(sql).contains("enabled =");
+        assertThat(sql).contains("end_time >");
+    }
+
     // ---------------- 概览 ----------------
 
     @Test
