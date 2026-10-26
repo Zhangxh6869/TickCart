@@ -41,6 +41,23 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- 集成测试：Testcontainers 起真实中间件（版本由 Boot BOM 统一管理） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mysql</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- 安全：Spring Security（无状态 JWT 会话） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -120,6 +137,24 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                      Docker Desktop 29+ 的服务端最低 API 版本为 1.40，
+                      而 Testcontainers 1.19.x 内置的 docker-java 默认请求 1.32，
+                      会被 daemon 拒绝并返回无 error-message 的 400。
+                      显式抬到 1.43（Docker 24+ 均支持），否则集成测试无法启动容器。
+                    -->
+                    <systemPropertyVariables>
+                        <api.version>1.43</api.version>
+                    </systemPropertyVariables>
+                    <environmentVariables>
+                        <DOCKER_API_VERSION>1.43</DOCKER_API_VERSION>
+                    </environmentVariables>
+                </configuration>
             </plugin>
         </plugins>
     </build>
