@@ -1,4 +1,8 @@
-import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios'
+import axios, {
+  type AxiosInstance,
+  type AxiosResponse,
+  type InternalAxiosRequestConfig,
+} from 'axios'
 import { ElMessage } from 'element-plus'
 import type { R } from '@tickcart/shared-types'
 
@@ -36,7 +40,10 @@ request.interceptors.response.use(
   (response) => {
     const body = response.data as R
     if (body.code === 0) {
-      return body.data
+      // 拦截器把 R<T> 解包成业务数据，调用方拿到的就是 body.data。
+      // 但 axios 的类型签名要求响应拦截器返回 AxiosResponse，与「解包」这一用法天然冲突，
+      // 故只在类型层桥接一次，运行时行为不变（api/*.ts 均已按解包后的类型声明返回值）。
+      return body.data as unknown as AxiosResponse
     }
     ElMessage.error(body.message || '请求失败')
     return Promise.reject(new Error(body.message))
