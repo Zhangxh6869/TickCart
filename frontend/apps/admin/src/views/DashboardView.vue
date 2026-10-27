@@ -282,12 +282,12 @@ function goRestock() {
             <span class="skrow__limit">限购 {{ a.limitPerUser }}</span>
           </template>
 
-          <!-- 已结束：状态文字 + 售出件数与单场成交额 -->
+          <!-- 已结束：状态文字 + 售出件数与单场成交额（同字号，售黑、成交红） -->
           <template v-else>
             <span class="skrow__hint">已结束</span>
             <div class="skrow__right">
               <div class="skrow__main">售 {{ a.soldCount }}</div>
-              <div class="skrow__sub">成交 ¥{{ formatPrice(a.paidAmount) }}</div>
+              <div class="skrow__main is-red">成交 ¥{{ formatPrice(a.paidAmount) }}</div>
             </div>
           </template>
         </div>
@@ -617,6 +617,10 @@ function goRestock() {
   font-variant-numeric: tabular-nums;
 }
 .skrow__main.is-danger {
+  color: #f56c6c;
+}
+/* 已结束行的成交额：与「售 N」同字号，用红色区分 */
+.skrow__main.is-red {
   color: #f56c6c;
 }
 .skrow__sub {
