@@ -11,10 +11,16 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     component: () => import('@/layout/AdminLayout.vue'),
-    // 默认落地页 = 搜索分析（与侧边栏首项保持一致）
-    redirect: '/search-analytics',
+    // 默认落地页 = 数据看板（与侧边栏首项保持一致）
+    redirect: '/dashboard',
     meta: { requiresAuth: true },
     children: [
+      {
+        path: 'dashboard',
+        name: 'dashboard',
+        component: () => import('@/views/DashboardView.vue'),
+        meta: { title: '数据看板', requiresAuth: true },
+      },
       {
         path: 'products',
         name: 'products',

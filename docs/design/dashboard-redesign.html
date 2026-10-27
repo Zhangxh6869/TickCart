@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>TickCart 后台 · 运营数据看板（Demo）</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#f0f2f5; --surface:#fff; --border:#ebeef5; --border-2:#e4e7ed; --border-3:#dcdfe6;
+    --t1:#303133; --t2:#606266; --t3:#909399; --t4:#c0c4cc;
+    --primary:#409eff; --success:#67c23a; --warn:#e6a23c; --danger:#f56c6c;
+    --brand:#6ba3c8;
+    --radius:6px;
+    --shadow:0 1px 2px rgba(0,0,0,.04),0 2px 8px rgba(0,0,0,.03);
+    --shadow-2:0 4px 16px rgba(0,0,0,.08);
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"JetBrains Mono",Consolas,monospace;
+  }
+  html,body{height:100%}
+  body{font-family:var(--font);background:var(--bg);color:var(--t1);font-size:14px;-webkit-font-smoothing:antialiased}
+  .app{display:flex;min-height:100vh;min-width:1180px}
+
+  .aside{width:210px;flex:0 0 210px;background:#001529;color:#fff;display:flex;flex-direction:column}
+  .aside__logo{height:60px;line-height:60px;text-align:center;font-size:15px;font-weight:600;border-bottom:1px solid #1f2d3d;letter-spacing:.5px}
+  .aside__logo em{font-style:normal;color:#409eff}
+  .menu{padding:8px 0}
+  .menu__item{display:flex;align-items:center;gap:10px;height:48px;padding:0 20px;color:#b7c0cd;font-size:14px;cursor:pointer;border-left:3px solid transparent;transition:.15s}
+  .menu__item:hover{color:#fff;background:#0c2135}
+  .menu__item.is-active{color:#fff;background:#1890ff;border-left-color:#69c0ff}
+  .menu__item svg{width:16px;height:16px;flex:0 0 16px;opacity:.85}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{height:60px;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px;flex:0 0 60px}
+  .topbar__title{font-size:16px;font-weight:600}
+  .topbar__user{display:flex;align-items:center;gap:14px;color:var(--t2);font-size:14px}
+  .topbar__user b{color:var(--t1);font-weight:500}
+  .link{color:var(--primary);cursor:pointer;font-size:13px}
+
+  .content{padding:20px 24px 48px}
+
+  .ann{display:block;background:#f4f9ff;border:1px dashed #b3d8ff;border-radius:6px;padding:10px 13px;font-size:12.5px;color:#3d7bb8;line-height:1.7;margin-bottom:14px}
+  .ann code{font-family:var(--mono);font-size:11.5px;background:rgba(64,158,255,.1);padding:0 4px;border-radius:3px}
+  .ann b{color:#1f6feb;font-weight:600}
+  .ann--green{background:#f0f9eb;border-color:#e1f3d8;color:#529b2e}
+  .ann--green b{color:#3d7a1e}
+
+  .head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+  .head__t{display:flex;align-items:baseline;gap:10px}
+  .head__t h1{font-size:15px;font-weight:600}
+  .head__t span{font-size:12px;color:var(--t3)}
+  .seg{display:flex;background:#fff;border:1px solid var(--border-2);border-radius:6px;overflow:hidden}
+  .seg__b{padding:6px 18px;font-size:13px;color:var(--t2);cursor:pointer;border-right:1px solid var(--border-2);transition:.15s}
+  .seg__b:last-child{border-right:0}
+  .seg__b.is-on{background:var(--primary);color:#fff;font-weight:500}
+
+  /* ---------- KPI ---------- */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+  .kpi{background:#fff;border:1px solid var(--border);border-radius:8px;padding:15px 18px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--border-2)}
+  .kpi--primary::before{background:var(--brand)}
+  .kpi--danger::before{background:var(--danger)}
+  .kpi--warn::before{background:var(--warn)}
+  .kpi--success::before{background:var(--success)}
+  .kpi__k{font-size:12.5px;color:var(--t3)}
+  .kpi__v{font-size:26px;font-weight:600;line-height:1.25;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+  .kpi__v .sym{font-size:15px;font-weight:500;color:var(--t2);margin-right:1px}
+  .kpi__v.danger{color:var(--danger)}
+  .kpi__x{font-size:12px;color:var(--t3);margin-top:4px;line-height:1.5}
+  .kpi__x b{color:var(--danger);font-weight:600}
+  .kpi__x .ok{color:var(--success)}
+
+  /* ---------- 趋势 ---------- */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .trend{padding:16px 18px}
+  .trend__head{display:flex;align-items:baseline;gap:10px;margin-bottom:4px;flex-wrap:wrap}
+  .trend__head h2{font-size:13.5px;font-weight:600}
+  .trend__head .sum{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+  .trend__head .sum em{font-style:normal;font-size:12px;color:var(--t3);font-weight:400;margin-left:2px}
+  .trend__head .delta{font-size:12px;padding:1px 7px;border-radius:9px;background:#fef0f0;color:var(--danger)}
+  .trend__head .delta.up{background:#f0f9eb;color:#529b2e}
+  .trend__sub{font-size:11.5px;color:var(--t4);margin-bottom:12px}
+  .trend__chart{width:100%;height:180px;display:block}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--t2);margin-top:10px}
+  .legend span{display:flex;align-items:center;gap:5px}
+  .legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+  .legend .dot-b{background:var(--brand)}
+  .legend .dot-r{background:var(--danger)}
+
+  /* ---------- 双列：秒杀战报 + 库存告急 ---------- */
+  .grid2b{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+  .sec{padding:16px 18px}
+  .sec__head{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .sec__head h2{font-size:13.5px;font-weight:600;flex:1}
+  .sec__head .badge{font-size:11px;font-weight:500;color:var(--t3);background:#f0f2f5;padding:0 7px;border-radius:8px;line-height:17px}
+  .sec__head .badge--warn{background:#fdf6ec;color:#b88230;border:1px solid #faecd8}
+
+  .skrow{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px dashed #f0f2f5;font-size:13px}
+  .skrow:last-child{border-bottom:0}
+  .skrow__t{flex:1;min-width:0}
+  .skrow__t b{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .skrow__t span{font-size:11.5px;color:var(--t3)}
+  .skrow__time{text-align:right;font-size:12px;color:var(--t3);line-height:1.6;font-variant-numeric:tabular-nums}
+  .skrow__time b{color:var(--danger)}
+  .skrow__n{text-align:right;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .skrow__n span{display:block;font-size:11px;color:var(--t3);font-weight:400;margin-top:2px}
+  .tag--sk{background:#fff7e6;color:#d46b08;border:1px solid #ffd8a8;font-weight:600;letter-spacing:.02em;font-size:11px;padding:0 5px;border-radius:3px}
+
+  .strow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed #f0f2f5;font-size:13px}
+  .strow:last-child{border-bottom:0}
+  .strow__cat{flex:1;min-width:0}
+  .strow__cat b{display:block;font-weight:500}
+  .strow__bar{flex:0 0 40%;height:6px;background:#f0f2f5;border-radius:3px;overflow:hidden;position:relative}
+  .strow__bar i{position:absolute;left:0;top:0;bottom:0;background:var(--danger);border-radius:3px}
+  .strow__n{flex:0 0 86px;text-align:right;font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
+  .strow__n b{color:var(--danger);font-weight:600}
+  .strow__go{font-size:12px;color:var(--primary);cursor:pointer;white-space:nowrap}
+  .strow__go:hover{text-decoration:underline}
+
+  .foot{margin-top:4px;font-size:12px;color:var(--t4);line-height:1.6}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="aside">
+    <div class="aside__logo">TickCart <em>管理后台</em></div>
+    <nav class="menu">
+      <div class="menu__item is-active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        数据看板
+      </div>
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        搜索分析
+      </div>
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg>
+        商品管理
+      </div>
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        分类管理
+      </div>
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/></svg>
+        订单管理
+      </div>
+      <div class="menu__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg>
+        秒杀管理
+      </div>
+    </nav>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar__title">数据看板</div>
+      <div class="topbar__user"><b>admin</b><span class="link">退出</span></div>
+    </div>
+
+    <div class="content">
+      <div class="head">
+        <div class="head__t">
+          <h1>运营总览</h1>
+          <span>一次拉齐订单 / 秒杀 / 库存 / 搜索汇总 · 右上角切时间范围</span>
+        </div>
+        <div class="seg" id="seg">
+          <span class="seg__b is-on" data-d="7">近 7 天</span>
+          <span class="seg__b" data-d="30">近 30 天</span>
+        </div>
+      </div>
+
+      <p class="ann">
+        <b>Demo 说明</b>：本页纯静态原型（不改任何项目代码）。四个 KPI 与秒杀战报、库存告急全部<b>直接复用现有接口</b>
+        —— <code>OrderOverviewVO</code> / <code>SeckillOverviewVO</code> / <code>CategoryOverview</code>；真正新增的只有两条趋势线
+        （近 N 天订单量 / 成交额，按 <code>t_order</code> 的 <code>created_at</code> / <code>pay_time</code> 按日 <code>GROUP BY</code>）。
+        点「近 7 天 / 近 30 天」切换可看趋势联动效果。下方数据为贴近演示库的示意值。
+      </p>
+
+      <div class="kpis">
+        <div class="kpi kpi--primary">
+          <div class="kpi__k">累计成交额</div>
+          <div class="kpi__v"><span class="sym">¥</span>126,420</div>
+          <div class="kpi__x">已付款订单合计（待发货+待收货+已完成）</div>
+        </div>
+        <div class="kpi kpi--success">
+          <div class="kpi__k">累计成交单数</div>
+          <div class="kpi__v">46</div>
+          <div class="kpi__x">客单价 <b>¥2,748</b> · 近7天 <b>12</b> 单</div>
+        </div>
+        <div class="kpi kpi--danger">
+          <div class="kpi__k">进行中秒杀</div>
+          <div class="kpi__v danger">1</div>
+          <div class="kpi__x">「全场5折日」<b>02:14:36</b> 后结束</div>
+        </div>
+        <div class="kpi kpi--warn">
+          <div class="kpi__k">库存告急 SKU</div>
+          <div class="kpi__v">6</div>
+          <div class="kpi__x">低于分类预警线 · <span class="ok">3</span> 个分类需补货</div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="card trend">
+          <div class="trend__head">
+            <h2>近 <span id="od-lab">7</span> 天订单量</h2>
+            <div class="sum" id="od-sum">42<em>单</em></div>
+            <div class="delta" id="od-delta">较上周期 ↓18%</div>
+          </div>
+          <div class="trend__sub">按 <code>created_at</code> 按日统计（含全部状态）</div>
+          <svg class="trend__chart" id="chart-order" viewBox="0 0 320 180" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="card trend">
+          <div class="trend__head">
+            <h2>近 <span id="am-lab">7</span> 天成交额</h2>
+            <div class="sum"><span class="sym" style="font-size:13px;color:#909399">¥</span><span id="am-sum">28,460</span><em>元</em></div>
+            <div class="delta up" id="am-delta">较上周期 ↑6%</div>
+          </div>
+          <div class="trend__sub">按 <code>pay_time</code> 按日统计（已付款订单）</div>
+          <svg class="trend__chart" id="chart-amount" viewBox="0 0 320 180" preserveAspectRatio="none"></svg>
+        </div>
+      </div>
+
+      <div class="grid2b">
+        <div class="card sec">
+          <div class="sec__head">
+            <h2>秒杀战报</h2>
+            <span class="badge badge--warn">1 场进行中</span>
+          </div>
+          <div class="skrow">
+            <div class="skrow__t"><b>全场5折日 · 无线耳机</b><span>SKU #490 · 秒杀价 ¥9.90</span></div>
+            <span class="tag--sk">进行中</span>
+            <div class="skrow__time">剩 <b>02:14</b><br>已售 <b>86</b> 件</div>
+          </div>
+          <div class="skrow">
+            <div class="skrow__t"><b>双11预热 · 保温杯</b><span>SKU #491 · 秒杀价 ¥39.90</span></div>
+            <div class="skrow__time">待开始 · 距开抢 <b>3天4时</b></div>
+            <div class="skrow__n">限购 3</div>
+          </div>
+          <div class="skrow">
+            <div class="skrow__t"><b>上一场 · 智能台灯</b><span>SKU #488</span></div>
+            <div class="skrow__time">已结束</div>
+            <div class="skrow__n">售 <b>120</b><span>成交 ¥1,188</span></div>
+          </div>
+        </div>
+
+        <div class="card sec">
+          <div class="sec__head">
+            <h2>库存告急</h2>
+            <span class="badge">按分类预警线</span>
+          </div>
+          <div class="strow">
+            <div class="strow__cat"><b>家电</b></div>
+            <div class="strow__bar"><i style="width:88%"></i></div>
+            <div class="strow__n">剩 <b>3</b> / 预警 3</div>
+            <span class="strow__go">去补货 →</span>
+          </div>
+          <div class="strow">
+            <div class="strow__cat"><b>鞋类</b></div>
+            <div class="strow__bar"><i style="width:62%"></i></div>
+            <div class="strow__n">剩 <b>8</b> / 预警 8</div>
+            <span class="strow__go">去补货 →</span>
+          </div>
+          <div class="strow">
+            <div class="strow__cat"><b>生鲜</b></div>
+            <div class="strow__bar"><i style="width:100%"></i></div>
+            <div class="strow__n">剩 <b>0</b> / 预警 30</div>
+            <span class="strow__go">去补货 →</span>
+          </div>
+          <div class="strow">
+            <div class="strow__cat"><b>数码配件</b></div>
+            <div class="strow__bar"><i style="width:35%"></i></div>
+            <div class="strow__n">剩 <b>15</b> / 预警 20</div>
+            <span class="strow__go">去补货 →</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="foot">
+        数据口径：累计成交 = 待发货 + 待收货 + 已完成（与订单管理页头一致）；秒杀战报 / 库存告急复用秒杀管理、商品管理页头的 overview 数据。
+        本 Demo 中数字为示意值，落地时全部来自 <code>/api/admin/dashboard</code> 聚合接口。
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var DAYS = {
+  7: {
+    order: [2,3,5,4,7,6,5],
+    orderSum: 32, orderDelta: -18,
+    amount: [1800,2600,3800,4200,5600,4800,5200],
+    amountSum: 28000, amountDelta: 6
+  },
+  30: {
+    order: [2,3,5,4,7,6,5,3,4,6,5,7,4,5,6,4,7,8,6,5,6,4,5,7,6,8,7,6,5,6],
+    orderSum: 164, orderDelta: -9,
+    amount: [1800,2600,3800,4200,5600,4800,5200,2600,3800,4600,5200,5800,4200,4800,5200,4600,5800,6200,5400,5000,5200,4600,5200,5600,6000,6400,5800,5600,5200,5400],
+    amountSum: 147300, amountDelta: 11
+  }
+};
+var fmt = function(n){ return n.toLocaleString('en-US') };
+function poly(chartId, data, color, isAmount){
+  var svg = document.getElementById(chartId);
+  var w = 320, h = 180, pad = 24;
+  var max = Math.max.apply(null, data) * 1.15;
+  var min = 0;
+  var iw = w - pad*2, ih = h - pad*2;
+  var pts = data.map(function(v,i){
+    var x = pad + iw * i/(data.length-1);
+    var y = pad + ih * (1 - (v-min)/(max-min||1));
+    return [x,y];
+  });
+  var line = pts.map(function(p){ return p[0].toFixed(1)+','+p[1].toFixed(1) }).join(' ');
+  var area = 'M'+pts[0][0]+','+ (pad+ih) +' L'+line.split(' ').join(' L')+' L'+pts[pts.length-1][0]+','+(pad+ih)+' Z';
+  var g = '';
+  pts.forEach(function(p,i){
+    g += '<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.6" fill="'+color+'"/>';
+  });
+  svg.innerHTML =
+    '<path d="'+area+'" fill="'+color+'" opacity="0.12"/>'+
+    '<polyline points="'+line+'" fill="none" stroke="'+color+'" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>'+
+    g;
+}
+function render(d){
+  var o = DAYS[d];
+  document.getElementById('od-lab').textContent = d;
+  document.getElementById('am-lab').textContent = d;
+  document.getElementById('od-sum').textContent = o.orderSum;
+  document.getElementById('am-sum').textContent = fmt(o.amountSum);
+  var od = document.getElementById('od-delta'), am = document.getElementById('am-delta');
+  od.textContent = '较上周期 ↓'+o.orderDelta+'%';
+  am.textContent = '较上周期 ↑'+o.amountDelta+'%';
+  od.className = 'delta';
+  am.className = 'delta up';
+  poly('chart-order', o.order, '#6ba3c8', false);
+  poly('chart-amount', o.amount, '#f56c6c', true);
+}
+document.getElementById('seg').addEventListener('click', function(e){
+  var b = e.target.closest('.seg__b');
+  if(!b) return;
+  document.querySelectorAll('.seg__b').forEach(function(x){ x.classList.remove('is-on') });
+  b.classList.add('is-on');
+  render(parseInt(b.getAttribute('data-d')));
+});
+render(7);
+</script>
+</body>
+</html>

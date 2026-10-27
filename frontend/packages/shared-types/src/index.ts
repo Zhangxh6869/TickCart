@@ -589,3 +589,26 @@ export interface CategoryOverview {
   productCount: number
   lowStockCount: number
 }
+
+// ---------------------------------------------------------------------------
+// 后台运营看板
+// ---------------------------------------------------------------------------
+
+/** 按日趋势数据点（近 N 天订单量 / 成交额）。后端已补齐无数据的天为 0。 */
+export interface DailyPoint {
+  /** yyyy-MM-dd */
+  day: string
+  /** 当日订单量 / 当日成交单数 */
+  count: number
+  /** 当日成交额（仅成交额趋势使用） */
+  amount: number
+}
+
+/** 后台运营看板聚合响应：一次拉齐订单 / 秒杀 / 库存 / 趋势。 */
+export interface DashboardVO {
+  order: OrderOverview
+  seckill: SeckillOverview
+  category: CategoryOverview[]
+  orderTrend: DailyPoint[]
+  amountTrend: DailyPoint[]
+}

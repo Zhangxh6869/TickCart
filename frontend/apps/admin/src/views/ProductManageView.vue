@@ -82,6 +82,10 @@ onMounted(async () => {
   if (typeof keywordFromQuery === 'string' && keywordFromQuery.trim()) {
     query.keyword = keywordFromQuery.trim()
   }
+  // 从「数据看板 · 库存告急」跳过来时，直接只看库存告急（商品级口径，与看板数字一致）
+  if (route.query.lowStock === '1') {
+    query.stockLow = true
+  }
   categories.value = await fetchCategories()
   await Promise.all([load(), loadLowStock()])
 })
