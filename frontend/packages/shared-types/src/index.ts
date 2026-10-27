@@ -608,7 +608,11 @@ export interface DailyPoint {
 export interface DashboardVO {
   order: OrderOverview
   seckill: SeckillOverview
+  /** 战报明细：按「进行中→即将开始→已结束→已下线」取前几场 */
+  seckillActivities: SeckillActivity[]
   category: CategoryOverview[]
+  /** 库存告急明细（SKU 级，带库存与预警线） */
+  lowStock: LowStockReport
   orderTrend: DailyPoint[]
   amountTrend: DailyPoint[]
 }
