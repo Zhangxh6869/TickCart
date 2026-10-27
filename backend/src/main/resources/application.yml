@@ -65,7 +65,12 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       database: ${REDIS_DATABASE:0}
-      timeout: 3s
+      # ★ 两个超时都要小：Redis 挂掉时每个「碰 Redis 的环节」都要付一次超时，
+      #   而一个请求可能碰多次（限流器 + 缓存各一次）。实测 3s 时商品详情要 6.06 秒，
+      #   并发一高就会占满 Tomcat 线程池 —— 比直接 500 更糟。
+      #   connect-timeout 不写时 Lettuce 默认 10s，网络分区场景会挂更久。
+      timeout: 500ms
+      connect-timeout: 500ms
 
   # ---------------------------------------------------------------------------
   # RabbitMQ（阶段2 启用：订单超时延迟队列 + 死信关单）
@@ -152,6 +157,15 @@ tickcart:
   order:
     # 待付款订单自动关闭时限（毫秒），即 trade.order.timeout 队列的 TTL
     timeout-ttl-ms: ${ORDER_TIMEOUT_TTL_MS:900000}
+    # 兜底补偿（见 OrderTimeoutCompensateTask）：MQ 不可用时投递只记日志不抛异常，
+    # 消息丢失后订单会永远停在「待付款」、库存永远被占，因此按「时间」再兜一层。
+    compensate-enabled: ${ORDER_COMPENSATE_ENABLED:true}
+    # 扫描间隔（毫秒）
+    compensate-interval-ms: ${ORDER_COMPENSATE_INTERVAL_MS:60000}
+    # 单次扫描上限，避免一次捞出过多订单长时间占用连接
+    compensate-batch-size: ${ORDER_COMPENSATE_BATCH_SIZE:100}
+    # 宽限期（毫秒）：TTL 到期后再等这么久才认定「消息真的没到」，避开与消费者同一时刻双跑
+    compensate-grace-ms: ${ORDER_COMPENSATE_GRACE_MS:60000}
   # 秒杀（3B）
   seckill:
     # 预热前瞻窗口（秒）：扫描「已开始或 N 秒内即将开始」的活动
