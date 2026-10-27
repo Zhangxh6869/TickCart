@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import type { DailyPoint, DashboardVO, LowStockItem, SeckillActivity } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import { fetchDashboard } from '@/api/dashboard'
-import SparkLine from '@/components/SparkLine.vue'
+import TrendChart from '@/components/TrendChart.vue'
 
 /** 品牌浅蓝：订单量趋势 */
 const BRAND = '#6ba3c8'
@@ -119,9 +119,13 @@ const amountDelta = computed(() =>
   ),
 )
 
-/** SparkLine 至少要一个点，空数据时给 [0] 免得画不出东西 */
-const orderSpark = computed(() => (orderCur.value.length ? orderCur.value.map((p) => p.count) : [0]))
-const amountSpark = computed(() => (amountCur.value.length ? amountCur.value.map((p) => p.amount) : [0]))
+/** 折线图数据：把 DailyPoint 映射成图表需要的 day/value */
+const orderSeries = computed(() => orderCur.value.map((p) => ({ day: p.day, value: p.count })))
+const amountSeries = computed(() => amountCur.value.map((p) => ({ day: p.day, value: p.amount })))
+
+/** 悬浮提示的数值格式（模板里不能写 TS 类型注解，所以放 script） */
+const fmtCount = (v: number) => `${v} 单`
+const fmtAmount = (v: number) => `¥${formatPrice(v)}`
 
 /* ---------------- 秒杀战报 ---------------- */
 
@@ -224,9 +228,7 @@ function goRestock() {
           <div class="dash__delta" :class="`is-${orderDelta.dir}`">{{ orderDelta.text }}</div>
         </div>
         <div class="dash__sub">按下单时间统计，含全部状态</div>
-        <div class="dash__chart">
-          <SparkLine :data="orderSpark" :width="520" :height="180" :color="BRAND" area />
-        </div>
+        <TrendChart :data="orderSeries" :height="200" :color="BRAND" :format="fmtCount" />
         <div class="dash__legend">
           <span><i :style="{ background: BRAND }"></i>每日订单量</span>
         </div>
@@ -239,9 +241,7 @@ function goRestock() {
           <div class="dash__delta" :class="`is-${amountDelta.dir}`">{{ amountDelta.text }}</div>
         </div>
         <div class="dash__sub">按支付时间统计，仅已付款订单</div>
-        <div class="dash__chart">
-          <SparkLine :data="amountSpark" :width="520" :height="180" :color="DANGER" area />
-        </div>
+        <TrendChart :data="amountSeries" :height="200" :color="DANGER" :format="fmtAmount" />
         <div class="dash__legend">
           <span><i :style="{ background: DANGER }"></i>每日成交额</span>
         </div>
@@ -483,19 +483,7 @@ function goRestock() {
 .dash__sub {
   font-size: 11.5px;
   color: #c0c4cc;
-  margin: 4px 0 12px;
-}
-.dash__chart {
-  width: 100%;
-  height: 180px;
-  display: flex;
-  align-items: flex-end;
-}
-/* SparkLine 的 svg 带固定 width 属性，用 CSS 覆盖成自适应（viewBox 保证等比缩放） */
-.dash__chart :deep(svg) {
-  width: 100%;
-  height: auto;
-  display: block;
+  margin: 4px 0 8px;
 }
 .dash__legend {
   display: flex;
