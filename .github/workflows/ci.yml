@@ -101,6 +101,33 @@ jobs:
       - name: 构建（admin）
         run: pnpm --filter admin exec vite build --emptyOutDir false
 
+  frontend-unit:
+    name: 前端单元测试
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 准备 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.9.1
+
+      - name: 准备 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 跑单元测试
+        run: pnpm --filter mall test
+
   e2e:
     name: E2E（Playwright）
     runs-on: ubuntu-latest

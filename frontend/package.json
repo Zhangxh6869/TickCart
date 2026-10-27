@@ -8,10 +8,12 @@
     "dev:admin": "pnpm --filter admin dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
+    "test": "pnpm -r --if-present test",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui"
   },
   "devDependencies": {
-    "@playwright/test": "^1.64.1"
+    "@playwright/test": "^1.64.1",
+    "vitest": "^5.0.5"
   }
 }
