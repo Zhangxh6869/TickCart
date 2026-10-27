@@ -17,11 +17,8 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
   try {
     const token = await ensureAccount(ctx)
     const removed = await clearCart(ctx, token)
-    const stock = await checkStock(ctx)
-    console.log(
-      `\n[e2e] 账号就绪：已清空购物车 ${removed} 项；目标商品库存 ${stock ?? '未知'} 件`,
-    )
-  } finally {
+    await checkStock(ctx)
+    console.log(`[e2e] 账号就绪：已清空购物车 ${removed} 项`)  } finally {
     await ctx.dispose()
   }
 }

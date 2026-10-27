@@ -92,23 +92,39 @@ export async function clearCart(ctx: APIRequestContext, token: string): Promise<
 /**
  * 库存守卫。
  *
- * <p>E2E 每跑一次就真买一件，库存只减不增（订单已支付，不能取消回补）。
- * 本地库跑够多次就会把这个商品买空，届时失败原因会是「结算按钮不可点」，
- * 与真正的回归混在一起。这里提前把库存打出来，低于阈值时告警 ——
- * <b>只告警不失败</b>：库存低不代表代码有问题，不该因此拦住流水线。</p>
+ * <p>E2E 每跑一次就真买一件，库存只减不增（订单已支付，状态机不允许再取消，
+ * 详见下方说明）。本地库跑够多次就会把这个规格买空，届时失败原因会是
+ * 「结算按钮不可点」，与真正的回归混在一起。</p>
+ *
+ * <p><b>为什么看 SKU 而不是商品汇总</b>：加购扣的是具体规格的库存
+ * （`product_sku.stock`），商品上的 `stock` 只是派生汇总。实测两者差得很远
+ * （商品 187 / SKU 107 / SKU 80），按汇总判断会把可跑次数高估近一倍。
+ * 取所有规格的最小值 —— 测试点哪个规格不确定，按最紧的算才安全。</p>
+ *
+ * <p><b>只告警不失败</b>：库存低不代表代码有问题，不该因此拦住流水线。</p>
  */
 export async function checkStock(ctx: APIRequestContext): Promise<number | null> {
   const resp = await ctx.get(`/api/products/${TARGET_PRODUCT_ID}`)
   if (!resp.ok()) {
     return null
   }
-  const stock: number | undefined = (await resp.json()).data?.stock
-  if (typeof stock === 'number' && stock < 5) {
+  const detail = (await resp.json()).data
+  const skus: Array<{ id: number; stock: number }> = detail?.skus ?? []
+  const effective: number | undefined =
+    skus.length > 0 ? Math.min(...skus.map((sku) => sku.stock)) : detail?.stock
+  const breakdown =
+    skus.length > 0
+      ? `最紧规格 ${effective} 件（${skus.map((s) => `#${s.id}=${s.stock}`).join(' / ')}；商品汇总 ${detail?.stock}）`
+      : `商品汇总 ${effective} 件`
+  console.log(`[e2e] 目标商品库存：${breakdown}`)
+
+  if (typeof effective === 'number' && effective < 5) {
     console.warn(
-      `\n⚠️  E2E 目标商品（id=${TARGET_PRODUCT_ID}）库存只剩 ${stock} 件。\n` +
-        `   E2E 每跑一次会真实卖出 1 件且不会回补，库存耗尽后下单链路会失败。\n` +
-        `   处理：重置开发库（重新跑 Flyway 种子）或手动补货。\n`,
+      `\n⚠️  E2E 目标商品（id=${TARGET_PRODUCT_ID}）库存告急：${breakdown}\n` +
+        `   E2E 每跑一次会真实卖出 1 件且不会回补（已支付订单状态机不允许取消），\n` +
+        `   库存耗尽后下单链路会失败，而那不是代码问题。\n` +
+        `   处理：重置开发库（重跑 Flyway 种子）或手动补货。\n`,
     )
   }
-  return stock ?? null
+  return effective ?? null
 }
