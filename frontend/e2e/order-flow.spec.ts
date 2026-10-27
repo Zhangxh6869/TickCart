@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { E2E_PASSWORD, E2E_USER, clearCart, ensureAccount } from './support/e2e-account'
 
 /**
  * G5 系统测试 · E1：下单主链路。
@@ -7,57 +8,30 @@ import { test, expect } from '@playwright/test'
  * 后端业务逻辑已经由 16 个集成测试验证过，这里要抓的是**浏览器里真实跑起来才会暴露的问题**：
  * 路由跳转、登录态传递、SKU 面板交互、支付后的页面流转。</p>
  *
- * <p><b>注意</b>：这条用例会往开发库写真实数据（扣库存、生成订单）。</p>
+ * <p><b>数据隔离</b>：用专用账号 `e2e_runner`（不是 demo），前置条件由
+ * `e2e/global-setup.ts` 统一准备 —— 注册/登录、补收货地址、清空购物车。
+ * 这条用例仍会真实下单扣库存，订单会留在专用账号名下；已支付订单无法删除，
+ * 但污染范围收敛在这一个账号，不影响 demo 用户手动体验。</p>
  */
 test.describe('下单主链路', () => {
   /**
-   * 确保 demo 用户有收货地址。
+   * 每次开跑前清空购物车。
    *
-   * <p>CI 用的是全新数据库，而**种子数据里没有收货地址**（`user_address` 只出现在建表语句
-   * `V3__init_trade.sql` 里，不是种子 INSERT）。本地库通常已有地址所以能过，
-   * CI 上会卡在「等 `.card__name` 出现」直到超时——第一次跑 CI 就是这么挂的。</p>
-   *
-   * <p>走 `/api` 而不是直接连 8080：vite dev server 会把 `/api` 反代到后端，
-   * 这样本地和 CI 用同一套地址。</p>
+   * <p>globalSetup 已经清过一次，这里再清是因为 <b>CI 上 retries=1</b>：
+   * 第一次尝试若在「加购之后、下单之前」失败，重试时购物车里还留着那件商品，
+   * 再点一次「加入购物车」数量会变成 2 —— 起点就不一致了。
+   * 代价只是一次 API 调用，换来重试时行为与首次完全一样。</p>
    */
-  test.beforeAll(async ({ request }) => {
-    const login = await request.post('/api/auth/login', {
-      data: { username: 'demo', password: '123456' },
-    })
-    if (!login.ok()) {
-      throw new Error(`登录失败：${login.status()} ${await login.text()}`)
-    }
-    const token = (await login.json()).data.accessToken
-    const headers = { Authorization: `Bearer ${token}` }
-
-    const listResp = await request.get('/api/addresses', { headers })
-    const addresses = (await listResp.json()).data ?? []
-    if (addresses.length > 0) {
-      return
-    }
-
-    const createResp = await request.post('/api/addresses', {
-      headers,
-      data: {
-        receiver: 'E2E 测试',
-        phone: '13800000000',
-        province: '广东省',
-        city: '深圳市',
-        district: '南山区',
-        detail: '科技园路 1 号',
-        isDefault: 1,
-      },
-    })
-    if (!createResp.ok()) {
-      throw new Error(`创建收货地址失败：${createResp.status()} ${await createResp.text()}`)
-    }
+  test.beforeEach(async ({ request }) => {
+    const token = await ensureAccount(request)
+    await clearCart(request, token)
   })
 
   test('登录 → 搜索 → 加购 → 结算 → 支付 → 订单可见', async ({ page }) => {
     // ---- 1. 登录 ----
     await page.goto('/login')
-    await page.getByPlaceholder('请输入用户名').fill('demo')
-    await page.getByPlaceholder('请输入密码').fill('123456')
+    await page.getByPlaceholder('请输入用户名').fill(E2E_USER)
+    await page.getByPlaceholder('请输入密码').fill(E2E_PASSWORD)
     await page.locator('button[type="submit"]').click()
 
     // 登录成功会离开登录页

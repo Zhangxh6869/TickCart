@@ -12,6 +12,11 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 10_000 },
 
+  // 全局前后置：准备专用账号与干净数据、跑完清购物车。
+  // 放在这里而不是各 spec 的 beforeAll —— 它们是整个 suite 的前置条件，不是某条用例的步骤。
+  globalSetup: './e2e/global-setup.ts',
+  globalTeardown: './e2e/global-teardown.ts',
+
   // 串行执行：E2E 会写真实数据（下单），并行会互相干扰
   fullyParallel: false,
   workers: 1,
