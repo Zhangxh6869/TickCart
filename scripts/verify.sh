@@ -18,7 +18,7 @@ cd "$ROOT"
 step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 fail() { printf '\n\033[31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
 
-step "1/4 后端单元测试（447 个，约 15 秒）"
+step "1/4 后端单元测试（452 个，约 20 秒）"
 (cd backend && mvn -B test) || fail "后端单元测试未通过"
 
 step "2/4 后端集成测试（16 个，约 50 秒；需要 Docker）"
@@ -37,4 +37,4 @@ step "4/4 前端类型检查与构建"
 (cd frontend && pnpm --filter mall exec vite build --emptyOutDir false) || fail "mall 构建失败"
 (cd frontend && pnpm --filter admin exec vite build --emptyOutDir false) || fail "admin 构建失败"
 
-printf '\n\033[32m全部通过：447 后端单测 + 16 集成测试 + 58 前端单测 + 前端双端类型检查与构建\033[0m\n'
+printf '\n\033[32m全部通过：452 后端单测 + 16 集成测试 + 58 前端单测 + 前端双端类型检查与构建\033[0m\n'
