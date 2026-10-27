@@ -11,14 +11,6 @@ const BRAND = '#6ba3c8'
 /** 红：成交额趋势 / 库存告急 */
 const DANGER = '#f56c6c'
 
-/** 秒杀状态标签配色（与秒杀管理页一致：进行中用 danger 表达紧迫感） */
-const STATUS_TAG: Record<number, 'primary' | 'success' | 'info' | 'warning' | 'danger'> = {
-  0: 'info',
-  1: 'warning',
-  2: 'danger',
-  3: 'info',
-}
-
 const loading = ref(false)
 const days = ref(7)
 const dash = ref<DashboardVO | null>(null)
@@ -55,8 +47,6 @@ const avgOrder = computed(() => (paidCount.value > 0 ? paidAmount.value / paidCo
 const seckill = computed(() => dash.value?.seckill)
 const ongoing = computed(() => seckill.value?.ongoing ?? 0)
 const pending = computed(() => seckill.value?.pending ?? 0)
-const soldQuantity = computed(() => seckill.value?.soldQuantity ?? 0)
-const seckillPaid = computed(() => seckill.value?.paidAmount ?? 0)
 
 /** 库存告急是 SKU 级（ProductService.lowStock），total 才是真实 SKU 数 */
 const lowStockTotal = computed(() => dash.value?.lowStock?.total ?? 0)
@@ -138,27 +128,36 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
 
-/** 时长文案：天/时/分，用于倒计时与距开抢 */
+/** 时长文案（紧凑）：3天4时 / 5时20分 / 12分 */
 function spanText(ms: number): string {
-  if (ms <= 0) return '0 分'
+  if (ms <= 0) return '0分'
   const d = Math.floor(ms / 86400000)
   const h = Math.floor((ms % 86400000) / 3600000)
   const m = Math.floor((ms % 3600000) / 60000)
-  if (d > 0) return `${d} 天 ${h} 时`
-  if (h > 0) return `${pad2(h)}:${pad2(m)}`
-  return `${m} 分`
+  if (d > 0) return `${d}天${h}时`
+  if (h > 0) return `${h}时${m}分`
+  return `${m}分`
 }
 
-/** 战报行右侧的时间文案：进行中显示剩余，待开始显示距开抢，终态显示状态 */
-function activityTime(a: SeckillActivity): { label: string; strong: boolean } {
-  const now = Date.now()
-  if (a.status === 2) {
-    return { label: `剩 ${spanText(new Date(a.endTime).getTime() - now)}`, strong: true }
-  }
-  if (a.status === 1) {
-    return { label: `距开抢 ${spanText(new Date(a.startTime).getTime() - now)}`, strong: false }
-  }
-  return { label: a.status === 3 ? '已结束' : '已下线', strong: false }
+/** 进行中的倒计时：不足 1 小时用 mm:ss，超过则 h:mm:ss（与秒杀管理页一致） */
+function countdownText(endTime: string): string {
+  const diff = new Date(endTime).getTime() - Date.now()
+  if (diff <= 0) return '00:00'
+  const h = Math.floor(diff / 3600000)
+  const m = Math.floor((diff % 3600000) / 60000)
+  const s = Math.floor((diff % 60000) / 1000)
+  return h > 0 ? `${h}:${pad2(m)}:${pad2(s)}` : `${pad2(m)}:${pad2(s)}`
+}
+
+/** 战报标题：活动名 · 商品名；活动名里已经含商品名时不再重复拼接 */
+function activityTitle(a: SeckillActivity): string {
+  if (!a.productName) return a.title
+  return a.title.includes(a.productName) ? a.title : `${a.title} · ${a.productName}`
+}
+
+/** 距开抢还有多久（毫秒） */
+function untilStart(a: SeckillActivity): number {
+  return new Date(a.startTime).getTime() - Date.now()
 }
 
 /** 库存剩余比例（后端已算好 stock/threshold，0 表示断货） */
@@ -253,7 +252,7 @@ function goRestock() {
       <div class="dash__card dash__sec">
         <div class="dash__sec-head">
           <h2>秒杀战报</h2>
-          <span class="dash__badge" :class="{ 'is-warn': ongoing > 0 }">
+          <span class="dash__badge" :class="{ 'is-warn': ongoing + pending > 0 }">
             <template v-if="ongoing > 0">{{ ongoing }} 场进行中</template>
             <template v-else-if="pending > 0">{{ pending }} 场待开始</template>
             <template v-else>暂无在场活动</template>
@@ -261,23 +260,36 @@ function goRestock() {
         </div>
 
         <div v-if="activities.length === 0" class="dash__empty">还没有创建过秒杀活动</div>
+
         <div v-for="a in activities" :key="a.id" class="skrow">
           <div class="skrow__t">
-            <b>{{ a.title }}</b>
-            <span>
-              <template v-if="a.specValue">{{ a.specValue }} · </template>
-              秒杀价 ¥{{ formatPrice(a.seckillPrice) }} · 限购 {{ a.limitPerUser }}
-            </span>
+            <b>{{ activityTitle(a) }}</b>
+            <span>SKU #{{ a.skuId }} · 秒杀价 ¥{{ formatPrice(a.seckillPrice) }}</span>
           </div>
-          <el-tag :type="STATUS_TAG[a.status] ?? 'info'" size="small">{{ a.statusLabel }}</el-tag>
-          <div class="skrow__time" :class="{ 'is-strong': activityTime(a).strong }">
-            {{ activityTime(a).label }}
-            <em>已售 {{ a.soldCount }}/{{ a.seckillStock }}</em>
-          </div>
-        </div>
 
-        <div v-if="activities.length > 0" class="dash__sec-foot">
-          在场 {{ ongoing + pending }} 场 · 累计已售 {{ soldQuantity }} 件 · 秒杀成交 ¥{{ formatPrice(seckillPaid) }}
+          <!-- 进行中：橙描边标签 + mm:ss 倒计时 + 已售件数 -->
+          <template v-if="a.status === 2">
+            <span class="skrow__tag">进行中</span>
+            <div class="skrow__right">
+              <div class="skrow__main is-danger">剩 {{ countdownText(a.endTime) }}</div>
+              <div class="skrow__sub">已售 {{ a.soldCount }} 件</div>
+            </div>
+          </template>
+
+          <!-- 待开始：状态文字 + 限购 -->
+          <template v-else-if="a.status === 1">
+            <span class="skrow__hint">待开始 · 距开抢 <b>{{ spanText(untilStart(a)) }}</b></span>
+            <span class="skrow__limit">限购 {{ a.limitPerUser }}</span>
+          </template>
+
+          <!-- 已结束：状态文字 + 售出件数与单场成交额 -->
+          <template v-else>
+            <span class="skrow__hint">已结束</span>
+            <div class="skrow__right">
+              <div class="skrow__main">售 {{ a.soldCount }}</div>
+              <div class="skrow__sub">成交 ¥{{ formatPrice(a.paidAmount) }}</div>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -568,24 +580,56 @@ function goRestock() {
   font-size: 11.5px;
   color: #909399;
 }
-.skrow__time {
-  text-align: right;
+/* 进行中的橙描边小标签：只有这一种状态用标签，其余用文字，避免视觉噪音 */
+.skrow__tag {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: #d46b08;
+  background: #fff7e6;
+  border: 1px solid #ffd8a8;
+  border-radius: 3px;
+  padding: 0 5px;
+  line-height: 17px;
+}
+/* 状态文字（待开始 / 已结束） */
+.skrow__hint {
+  flex: 0 0 auto;
   font-size: 12px;
   color: #909399;
-  line-height: 1.6;
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.skrow__time.is-strong {
+.skrow__hint b {
   color: #f56c6c;
   font-weight: 600;
 }
-.skrow__time em {
-  display: block;
-  font-style: normal;
+/* 右侧数字块：主数字加粗，副信息小字 */
+.skrow__right {
+  flex: 0 0 auto;
+  text-align: right;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.skrow__main {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+  font-variant-numeric: tabular-nums;
+}
+.skrow__main.is-danger {
+  color: #f56c6c;
+}
+.skrow__sub {
   font-size: 11px;
-  color: #c0c4cc;
-  font-weight: 400;
+  color: #909399;
+  font-variant-numeric: tabular-nums;
+}
+.skrow__limit {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
+  white-space: nowrap;
 }
 
 /* 库存行 */
