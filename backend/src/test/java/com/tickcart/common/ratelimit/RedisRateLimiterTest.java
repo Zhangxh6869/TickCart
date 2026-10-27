@@ -1,5 +1,6 @@
 package com.tickcart.common.ratelimit;
 
+import com.tickcart.common.redis.RedisHealthGuard;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,8 @@ import org.springframework.data.redis.core.script.RedisScript;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -29,10 +32,13 @@ class RedisRateLimiterTest {
     private StringRedisTemplate redis;
 
     private RedisRateLimiter limiter;
+    private RedisHealthGuard healthGuard;
 
     @BeforeEach
     void setUp() {
-        limiter = new RedisRateLimiter(redis);
+        // 熔断器保持关闭态，让用例聚焦限流换算；熔断行为单独有用例
+        healthGuard = new RedisHealthGuard(true, 5, 30_000L, 5_000L);
+        limiter = new RedisRateLimiter(redis, healthGuard);
     }
 
     @Test
@@ -74,5 +80,18 @@ class RedisRateLimiterTest {
 
         // 不抛异常即达标：容量/窗口被夹到 1，速率不会除零
         assertThat(limiter.tryAcquire("k", 0, 0)).isZero();
+    }
+
+    @Test
+    @DisplayName("熔断期间：直接放行，且完全不调用 Redis（省掉整段超时等待）")
+    @SuppressWarnings("unchecked")
+    void circuitOpenSkipsRedis() {
+        for (int i = 0; i < 5; i++) {
+            healthGuard.onFailure();
+        }
+
+        assertThat(limiter.tryAcquire("search:ip:1.2.3.4", 10, 1)).isZero();
+
+        verify(redis, never()).execute(any(RedisScript.class), anyList(), any(), any(), any(), any());
     }
 }

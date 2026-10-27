@@ -1,6 +1,7 @@
 package com.tickcart.common.cache;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tickcart.common.redis.RedisHealthGuard;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -47,11 +48,14 @@ class CacheServiceTest {
 
     private CacheProperties properties;
     private CacheService cacheService;
+    private RedisHealthGuard healthGuard;
 
     @BeforeEach
     void setUp() {
         properties = new CacheProperties();
-        cacheService = new CacheService(redis, properties, new ObjectMapper());
+        // 熔断器保持关闭态，让用例聚焦缓存本身；熔断行为见 RedisHealthGuardTest 与「熔断期间」用例
+        healthGuard = new RedisHealthGuard(true, 5, 30_000L, 5_000L);
+        cacheService = new CacheService(redis, properties, new ObjectMapper(), healthGuard);
         lenient().when(redis.opsForValue()).thenReturn(valueOps);
         // 默认抢锁成功，让用例走「回源并回填」主路径（否则每个用例都要多等 150ms）
         lenient().when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class)))
@@ -182,14 +186,25 @@ class CacheServiceTest {
         assertThat(hot).containsExactly("牛仔裤", "手机");
     }
 
+    @Test
+    @DisplayName("熔断期间：直接回源，完全不碰 Redis（省掉整段超时等待）")
+    void circuitOpenSkipsRedis() {
+        for (int i = 0; i < 5; i++) {
+            healthGuard.onFailure();
+        }
+
+        Sample loaded = cacheService.get(KEY, 60, Sample.class, this::sample);
+
+        assertThat(loaded.getName()).isEqualTo("牛油果");
+        verify(redis, never()).opsForValue();
+    }
+
     private Sample sample() {
         Sample s = new Sample();
         s.name = "牛油果";
         s.id = 302L;
         return s;
-    }
-
-    /** 与 ProductDetail 同构：字段私有、只有 getter、没有 setter。 */
+    }    /** 与 ProductDetail 同构：字段私有、只有 getter、没有 setter。 */
     static class Sample {
         private String name;
         private Long id;

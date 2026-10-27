@@ -1,6 +1,7 @@
 package com.tickcart.seckill.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tickcart.common.redis.RedisHealthGuard;
 import com.tickcart.seckill.cache.SeckillActivitySnapshot;
 import com.tickcart.seckill.cache.SeckillKeys;
 import com.tickcart.seckill.entity.SeckillActivity;
@@ -78,10 +79,13 @@ public class SeckillStockService {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final DefaultRedisScript<Long> deductScript;
+    private final RedisHealthGuard healthGuard;
 
-    public SeckillStockService(StringRedisTemplate redis, ObjectMapper objectMapper) {
+    public SeckillStockService(StringRedisTemplate redis, ObjectMapper objectMapper,
+                               RedisHealthGuard healthGuard) {
         this.redis = redis;
         this.objectMapper = objectMapper;
+        this.healthGuard = healthGuard;
         DefaultRedisScript<Long> script = new DefaultRedisScript<>();
         script.setScriptText(DEDUCT_SCRIPT);
         script.setResultType(Long.class);
@@ -207,13 +211,26 @@ public class SeckillStockService {
      *
      * <p>Redis 异常直接向上抛（fail-close）：不知道库存就不该卖，不能像读缓存那样降级回源。</p>
      *
+     * <p><b>熔断期间同样直接抛</b>，但<b>不</b>跳过 Redis 去卖 —— 跳过等于不校验库存，
+     * 那是超卖。这里用熔断器只是为了「快速失败」：把 500ms 的超时等待换成立刻返回，
+     * 故障时慢失败比快失败更糟，它会一直占着线程。</p>
+     *
      * @return {@code >= 0} 成功且值为剩余库存；负数见 {@code RESULT_*} 常量
      */
     public long tryDeduct(Long activityId, Long userId, int quantity, int limitPerUser) {
-        Long result = redis.execute(deductScript,
-                List.of(SeckillKeys.stock(activityId), SeckillKeys.bought(activityId, userId)),
-                String.valueOf(quantity), String.valueOf(limitPerUser));
-        return result == null ? RESULT_NOT_PRELOADED : result;
+        if (!healthGuard.allow()) {
+            throw new IllegalStateException("秒杀库存服务暂不可用（Redis 熔断中）");
+        }
+        try {
+            Long result = redis.execute(deductScript,
+                    List.of(SeckillKeys.stock(activityId), SeckillKeys.bought(activityId, userId)),
+                    String.valueOf(quantity), String.valueOf(limitPerUser));
+            healthGuard.onSuccess();
+            return result == null ? RESULT_NOT_PRELOADED : result;
+        } catch (RuntimeException e) {
+            healthGuard.onFailure();
+            throw e;
+        }
     }
 
     /**

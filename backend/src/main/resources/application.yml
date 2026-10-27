@@ -240,6 +240,19 @@ tickcart:
     null-ttl-seconds: ${CACHE_NULL_TTL:60}
     # TTL 随机抖动百分比，避免同一时刻批量过期造成雪崩
     ttl-jitter-percent: ${CACHE_TTL_JITTER:10}
+  # Redis 熔断（见 RedisHealthGuard）
+  # 背景：Redis 挂掉时每个「碰 Redis 的环节」都要付一次超时，一个商品详情会碰两次
+  #（限流器 + 缓存），即便超时 500ms 也要 1.05 秒；Tomcat 只有 100 线程，
+  # 容量会从万级掉到 ~95 RPS。熔断后直接走降级路径，不再尝试连接。
+  redis:
+    circuit:
+      enabled: ${REDIS_CIRCUIT_ENABLED:true}
+      # 连续失败多少次后打开。别设太小：一次 GC 停顿不该被判定为 Redis 挂了
+      failure-threshold: ${REDIS_CIRCUIT_FAILURE_THRESHOLD:5}
+      # 打开后维持多久才允许半开试探
+      open-duration-ms: ${REDIS_CIRCUIT_OPEN_MS:30000}
+      # 半开探针租约：超时未回报结果就换下一个探针，避免卡在「半开」永远恢复不了
+      probe-lease-ms: ${REDIS_CIRCUIT_PROBE_LEASE_MS:5000}
   # 接口限流（A3）：令牌桶，阈值可配，未列出的接口不限流
   # 设计见 docs/接口限流设计.md；压测/并发验证时置 RATE_LIMIT_ENABLED=false
   rate-limit:

@@ -1,5 +1,6 @@
 package com.tickcart.common.security;
 
+import com.tickcart.common.redis.RedisHealthGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -30,9 +31,11 @@ public class RedisTokenBlacklist implements TokenBlacklist {
     private static final String USER_PREFIX = NS + "invalid-before:";
 
     private final StringRedisTemplate redis;
+    private final RedisHealthGuard healthGuard;
 
-    public RedisTokenBlacklist(StringRedisTemplate redis) {
+    public RedisTokenBlacklist(StringRedisTemplate redis, RedisHealthGuard healthGuard) {
         this.redis = redis;
+        this.healthGuard = healthGuard;
     }
 
     @Override
@@ -53,9 +56,16 @@ public class RedisTokenBlacklist implements TokenBlacklist {
             // 没有 jti 的是本功能上线前签发的旧令牌，无从判断，按未吊销处理
             return false;
         }
+        // 熔断中：直接按未吊销处理（fail-open），不再为注定超时的连接占住线程
+        if (!healthGuard.allow()) {
+            return false;
+        }
         try {
-            return Boolean.TRUE.equals(redis.hasKey(JTI_PREFIX + jti));
+            boolean revoked = Boolean.TRUE.equals(redis.hasKey(JTI_PREFIX + jti));
+            healthGuard.onSuccess();
+            return revoked;
         } catch (DataAccessException ex) {
+            healthGuard.onFailure();
             failOpen("查询令牌吊销", ex);
             return false;
         }
@@ -84,14 +94,20 @@ public class RedisTokenBlacklist implements TokenBlacklist {
         if (userId == null) {
             return false;
         }
+        // 熔断中：按未失效处理（fail-open），理由同上
+        if (!healthGuard.allow()) {
+            return false;
+        }
         try {
             String value = redis.opsForValue().get(USER_PREFIX + userId);
+            healthGuard.onSuccess();
             if (value == null) {
                 return false;
             }
             // 严格小于：改密后同一秒内重新登录拿到的新令牌不该被误杀
             return issuedAtEpochSecond < Long.parseLong(value);
         } catch (DataAccessException ex) {
+            healthGuard.onFailure();
             failOpen("查询用户吊销", ex);
             return false;
         }

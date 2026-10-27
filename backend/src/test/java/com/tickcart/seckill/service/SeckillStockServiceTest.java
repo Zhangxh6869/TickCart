@@ -2,6 +2,7 @@ package com.tickcart.seckill.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.tickcart.common.redis.RedisHealthGuard;
 import com.tickcart.seckill.cache.SeckillActivitySnapshot;
 import com.tickcart.seckill.cache.SeckillKeys;
 import com.tickcart.seckill.entity.SeckillActivity;
@@ -21,6 +22,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -50,12 +52,14 @@ class SeckillStockServiceTest {
     private ValueOperations<String, String> valueOps;
 
     private SeckillStockService service;
+    private RedisHealthGuard healthGuard;
     /** 与 Spring 注入的 mapper 对齐：必须注册 JSR310，否则 LocalDateTime 无法序列化 */
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     @BeforeEach
     void setUp() {
-        service = new SeckillStockService(redis, objectMapper);
+        healthGuard = new RedisHealthGuard(true, 5, 30_000L, 5_000L);
+        service = new SeckillStockService(redis, objectMapper, healthGuard);
         lenient().when(redis.opsForValue()).thenReturn(valueOps);
     }
 
@@ -183,6 +187,20 @@ class SeckillStockServiceTest {
         service.evict(ACTIVITY_ID);
 
         verify(redis).delete(List.of(SeckillKeys.activity(ACTIVITY_ID), SeckillKeys.stock(ACTIVITY_ID)));
+    }
+
+    @Test
+    @DisplayName("熔断期间：直接抛异常快速失败，且不碰 Redis（不跳过校验，只是不再白等超时）")
+    @SuppressWarnings("unchecked")
+    void circuitOpenFailsFast() {
+        for (int i = 0; i < 5; i++) {
+            healthGuard.onFailure();
+        }
+
+        assertThatThrownBy(() -> service.tryDeduct(ACTIVITY_ID, USER_ID, 1, 2))
+                .isInstanceOf(IllegalStateException.class);
+
+        verify(redis, never()).execute(any(RedisScript.class), anyList(), any(), any(), any());
     }
 
     private SeckillActivity activity(int stock, int sold) {

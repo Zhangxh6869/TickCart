@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tickcart.common.redis.RedisHealthGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -55,10 +56,13 @@ public class CacheService {
     private final StringRedisTemplate redis;
     private final CacheProperties properties;
     private final ObjectMapper cacheMapper;
+    private final RedisHealthGuard healthGuard;
 
-    public CacheService(StringRedisTemplate redis, CacheProperties properties, ObjectMapper springObjectMapper) {
+    public CacheService(StringRedisTemplate redis, CacheProperties properties,
+                        ObjectMapper springObjectMapper, RedisHealthGuard healthGuard) {
         this.redis = redis;
         this.properties = properties;
+        this.healthGuard = healthGuard;
         // 专用序列化器：VO 往往只有 getter、字段私有，默认 ObjectMapper 能写不能读。
         // 这里让字段成为唯一来源，只影响缓存读写，不改变 HTTP 响应的 JSON 结构。
         this.cacheMapper = springObjectMapper.copy()
@@ -91,17 +95,25 @@ public class CacheService {
         if (!properties.isEnabled()) {
             return loader.get();
         }
+        // 熔断中：直接回源，不再为一次注定超时的连接占住线程
+        if (!healthGuard.allow()) {
+            return loader.get();
+        }
         String fullKey = KEY_PREFIX + key;
         try {
             String cached = redis.opsForValue().get(fullKey);
             if (cached != null) {
+                healthGuard.onSuccess();
                 return cacheMapper.readValue(cached, type);
             }
             if (Boolean.TRUE.equals(redis.hasKey(fullKey + NULL_SUFFIX))) {
+                healthGuard.onSuccess();
                 return null;
             }
+            healthGuard.onSuccess();
         } catch (Exception e) {
             // Redis 或反序列化出问题：直接回源，不能让详情页 500
+            healthGuard.onFailure();
             log.warn("读取缓存失败，直接回源：key={}", fullKey, e);
             return loader.get();
         }

@@ -1,5 +1,6 @@
 package com.tickcart.common.ratelimit;
 
+import com.tickcart.common.redis.RedisHealthGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -65,9 +66,11 @@ public class RedisRateLimiter {
 
     private final StringRedisTemplate redis;
     private final DefaultRedisScript<Long> script;
+    private final RedisHealthGuard healthGuard;
 
-    public RedisRateLimiter(StringRedisTemplate redis) {
+    public RedisRateLimiter(StringRedisTemplate redis, RedisHealthGuard healthGuard) {
         this.redis = redis;
+        this.healthGuard = healthGuard;
         DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>();
         redisScript.setScriptText(TOKEN_BUCKET_SCRIPT);
         redisScript.setResultType(Long.class);
@@ -83,6 +86,11 @@ public class RedisRateLimiter {
      * @return 0 表示放行；正数表示还需等待的毫秒数
      */
     public long tryAcquire(String key, int permits, int windowSeconds) {
+        // 熔断中：连都不连，直接按 fail-open 放行。否则每个请求都要为一次注定超时的
+        // 连接占住线程（500ms × 并发），把「Redis 挂了」放大成「服务不可用」。
+        if (!healthGuard.allow()) {
+            return 0L;
+        }
         try {
             int capacity = Math.max(1, permits);
             int window = Math.max(1, windowSeconds);
@@ -94,8 +102,10 @@ public class RedisRateLimiter {
 
             Long waitMs = redis.execute(script, List.of(NS + key),
                     String.valueOf(capacity), rate, String.valueOf(now), String.valueOf(ttl));
+            healthGuard.onSuccess();
             return waitMs == null ? 0L : Math.max(0L, waitMs);
         } catch (Exception e) {
+            healthGuard.onFailure();
             log.warn("限流器不可用，放行本次请求：key={}", key, e);
             return 0L;
         }
