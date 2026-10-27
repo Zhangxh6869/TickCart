@@ -10,6 +10,49 @@ import { test, expect } from '@playwright/test'
  * <p><b>注意</b>：这条用例会往开发库写真实数据（扣库存、生成订单）。</p>
  */
 test.describe('下单主链路', () => {
+  /**
+   * 确保 demo 用户有收货地址。
+   *
+   * <p>CI 用的是全新数据库，而**种子数据里没有收货地址**（`user_address` 只出现在建表语句
+   * `V3__init_trade.sql` 里，不是种子 INSERT）。本地库通常已有地址所以能过，
+   * CI 上会卡在「等 `.card__name` 出现」直到超时——第一次跑 CI 就是这么挂的。</p>
+   *
+   * <p>走 `/api` 而不是直接连 8080：vite dev server 会把 `/api` 反代到后端，
+   * 这样本地和 CI 用同一套地址。</p>
+   */
+  test.beforeAll(async ({ request }) => {
+    const login = await request.post('/api/auth/login', {
+      data: { username: 'demo', password: '123456' },
+    })
+    if (!login.ok()) {
+      throw new Error(`登录失败：${login.status()} ${await login.text()}`)
+    }
+    const token = (await login.json()).data.accessToken
+    const headers = { Authorization: `Bearer ${token}` }
+
+    const listResp = await request.get('/api/addresses', { headers })
+    const addresses = (await listResp.json()).data ?? []
+    if (addresses.length > 0) {
+      return
+    }
+
+    const createResp = await request.post('/api/addresses', {
+      headers,
+      data: {
+        receiver: 'E2E 测试',
+        phone: '13800000000',
+        province: '广东省',
+        city: '深圳市',
+        district: '南山区',
+        detail: '科技园路 1 号',
+        isDefault: 1,
+      },
+    })
+    if (!createResp.ok()) {
+      throw new Error(`创建收货地址失败：${createResp.status()} ${await createResp.text()}`)
+    }
+  })
+
   test('登录 → 搜索 → 加购 → 结算 → 支付 → 订单可见', async ({ page }) => {
     // ---- 1. 登录 ----
     await page.goto('/login')
