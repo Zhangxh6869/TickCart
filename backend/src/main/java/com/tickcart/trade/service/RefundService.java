@@ -88,13 +88,15 @@ public class RefundService {
     public RefundVO apply(Long userId, String orderNo, RefundApplyRequest req) {
         Order order = orderService.getOwned(userId, orderNo);
 
+        // 先查进行中的申请：撞唯一键报错是数据库语言，用户看不懂；
+        // 且「订单已是退款中」时，说「已有进行中的申请」比说「状态不对」有用得多
+        if (findActive(orderNo) != null) {
+            throw BizException.conflict("该订单已有进行中的退款申请，请勿重复提交");
+        }
+
         OrderStatus status = OrderStatus.of(order.getStatus());
         if (status != OrderStatus.PENDING_SHIPMENT) {
             throw BizException.conflict("订单当前为「" + status.getLabel() + "」，暂不支持申请退款");
-        }
-        // 先查一次：撞唯一键报错是数据库语言，用户看不懂；这里给一句人话
-        if (findActive(orderNo) != null) {
-            throw BizException.conflict("该订单已有进行中的退款申请，请勿重复提交");
         }
 
         BigDecimal amount = resolveRefundAmount(order);
