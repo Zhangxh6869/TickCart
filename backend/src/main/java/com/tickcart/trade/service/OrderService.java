@@ -336,10 +336,11 @@ public class OrderService {
     /** 当前用户的订单分页列表，可按状态筛选。 */
     public PageResult<OrderListItemVO> page(Long userId, OrderQuery query) {
         Page<Order> page = new Page<>(query.getPage(), query.getSize());
-        orderMapper.selectPage(page, new LambdaQueryWrapper<Order>()
-                .eq(Order::getUserId, userId)
-                .eq(query.getStatus() != null, Order::getStatus, query.getStatus())
-                .orderByDesc(Order::getId));
+        LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<Order>()
+                .eq(Order::getUserId, userId);
+        applyStatusFilter(wrapper, query);
+        wrapper.orderByDesc(Order::getId);
+        orderMapper.selectPage(page, wrapper);
 
         // 一次 IN 查回本页所有明细再分组，避免「每单一条 SQL」的 N+1
         Map<String, List<OrderItemVO>> itemsByOrder = loadItemsGrouped(page.getRecords());
@@ -456,8 +457,8 @@ public class OrderService {
         String keyword = query.getKeyword() == null ? null : query.getKeyword().trim();
         boolean hasKeyword = StringUtils.hasText(keyword);
 
-        LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<Order>()
-                .eq(query.getStatus() != null, Order::getStatus, query.getStatus());
+        LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<>();
+        applyStatusFilter(wrapper, query);
         // 日期范围按「下单时间」闭区间：起日 00:00 起，止日次日 00:00 前
         if (query.getBeginDate() != null) {
             wrapper.ge(Order::getCreatedAt, query.getBeginDate().atStartOfDay());
@@ -486,6 +487,20 @@ public class OrderService {
                     itemsByOrder.get(order.getOrderNo())));
         }
         return new PageResult<>(records, page.getTotal(), page.getCurrent(), page.getSize(), page.getPages());
+    }
+
+    /**
+     * 状态筛选：多值优先于单值。
+     *
+     * <p>「退款/售后」页签要同时覆盖「退款中(6)」与「已退款(7)」，单值 {@code status}
+     * 表达不了，所以 {@link OrderQuery#getStatuses()} 一旦非空就以它为准。</p>
+     */
+    private static void applyStatusFilter(LambdaQueryWrapper<Order> wrapper, OrderQuery query) {
+        if (query.getStatuses() != null && !query.getStatuses().isEmpty()) {
+            wrapper.in(Order::getStatus, query.getStatuses());
+            return;
+        }
+        wrapper.eq(query.getStatus() != null, Order::getStatus, query.getStatus());
     }
 
     /**
@@ -540,8 +555,14 @@ public class OrderService {
                 vo.setCancelled(count);
             } else if (status == OrderStatus.TIMEOUT_CLOSED.getCode()) {
                 vo.setTimeoutClosed(count);
+            } else if (status == OrderStatus.REFUNDING.getCode()) {
+                vo.setRefunding(count);
+            } else if (status == OrderStatus.REFUNDED.getCode()) {
+                vo.setRefunded(count);
             }
-            // 成交口径 = 收到钱的单（待发货 / 待收货 / 已完成），已取消与超时不进
+            // 成交口径 = 收到钱且没在退的单（待发货 / 待收货 / 已完成），
+            // 已取消、超时、退款中、已退款都不进 —— 退款中的钱虽然还在账上，
+            // 但大概率要退回去，计进成交额会让 KPI 虚高。
             if (status == OrderStatus.PENDING_SHIPMENT.getCode()
                     || status == OrderStatus.PENDING_RECEIPT.getCode()
                     || status == OrderStatus.COMPLETED.getCode()) {
@@ -823,6 +844,34 @@ public class OrderService {
      * 支付回调重复到达不会重复累加；超时关单（订单从未支付）也不会误加。</p>
      */
     private void accumulateSales(String orderNo) {
+        quantitiesByProduct(orderNo).forEach((productId, quantity) -> productMapper.update(null,
+                new LambdaUpdateWrapper<Product>()
+                        .eq(Product::getId, productId)
+                        .setSql("sales = sales + {0}", quantity)));
+    }
+
+    /**
+     * 回退商品销量（退款完成时调用）。
+     *
+     * <p>与 {@link #accumulateSales} 共用同一套按商品聚合的口径，方向相反。
+     * 用 {@code GREATEST(sales - n, 0)} 而不是直接减：历史脏数据（销量被人工改小过）
+     * 会让减法把计数打成负数，而负数会直接显示在前台商品详情页上。
+     * 这与秒杀 {@code decreaseSoldCount} 的写法一致。</p>
+     */
+    void reverseSales(String orderNo) {
+        quantitiesByProduct(orderNo).forEach((productId, quantity) -> productMapper.update(null,
+                new LambdaUpdateWrapper<Product>()
+                        .eq(Product::getId, productId)
+                        .setSql("sales = GREATEST(sales - {0}, 0)", quantity)));
+    }
+
+    /**
+     * 按商品聚合购买数量：同一商品的多行合并成一次 UPDATE。
+     *
+     * <p>抽出来是因为销量累加（支付）与回退（退款）必须用同一套口径 ——
+     * 两处各写一遍，迟早出现「加的按件、减的按行」这种对不上的账。</p>
+     */
+    private Map<Long, Integer> quantitiesByProduct(String orderNo) {
         Map<Long, Integer> quantityByProduct = new LinkedHashMap<>();
         for (OrderItem item : loadRawItems(orderNo)) {
             if (item.getProductId() == null || item.getQuantity() == null) {
@@ -830,10 +879,7 @@ public class OrderService {
             }
             quantityByProduct.merge(item.getProductId(), item.getQuantity(), Integer::sum);
         }
-        quantityByProduct.forEach((productId, quantity) -> productMapper.update(null,
-                new LambdaUpdateWrapper<Product>()
-                        .eq(Product::getId, productId)
-                        .setSql("sales = sales + {0}", quantity)));
+        return quantityByProduct;
     }
 
     /**
@@ -869,6 +915,76 @@ public class OrderService {
         log.info("超时关单成功：{}", orderNo);
     }
 
+    // =========================================================================
+    // 退款引起的订单状态流转（由 RefundService 调用）
+    //
+    // ★ t_order.status 的写入点全部集中在本类：doCancel / ship / markPaid /
+    //   closeTimeout / confirm，加上下面三个退款动作。RefundService 只写 refund_record，
+    //   订单状态一律回来找这里 —— 否则「谁改了订单状态」会散落在多个 Service 里，
+    //   状态机校验也就没法保证只在一个地方做。
+    // =========================================================================
+
+    /**
+     * 申请退款：把订单推进到「退款中」，并返回申请前的状态。
+     *
+     * <p>返回 {@code originStatus} 是给 {@code refund_record.origin_status} 用的 ——
+     * 由这里返回而不是让调用方先读一次，是因为「读到的状态」与「实际被流转的状态」
+     * 必须是同一个，否则并发下会把回退目标记错。</p>
+     *
+     * @return 申请前的订单状态码（拒绝/撤销时的回退目标）
+     * @throws BizException 订单不存在、当前状态不允许申请退款、并发下状态已被他人变更
+     */
+    @Transactional
+    public int startRefund(String orderNo) {
+        Order order = loadByOrderNo(orderNo);
+        OrderStatus origin = OrderStatus.of(order.getStatus());
+        origin.assertTransitionTo(OrderStatus.REFUNDING, "申请退款");
+
+        int affected = orderMapper.update(null, new LambdaUpdateWrapper<Order>()
+                .eq(Order::getOrderNo, orderNo)
+                .eq(Order::getStatus, origin.getCode())
+                .set(Order::getStatus, OrderStatus.REFUNDING.getCode()));
+        if (affected == 0) {
+            throw BizException.conflict("订单状态已变更，请刷新后重试");
+        }
+        return origin.getCode();
+    }
+
+    /**
+     * 退款完成：退款中 → 已退款（终态）。
+     *
+     * <p><b>★ 这个返回值是「库存只回补一次」的开关</b>：管理员连点、网络重试都会
+     * 重复调到这里，只有抢到状态流转的那一次返回 true，调用方才回补库存、退销量。</p>
+     *
+     * @return true 表示本次抢到了流转；false 表示已被他人处理过
+     */
+    @Transactional
+    public boolean finishRefund(String orderNo) {
+        return orderMapper.update(null, new LambdaUpdateWrapper<Order>()
+                .eq(Order::getOrderNo, orderNo)
+                .eq(Order::getStatus, OrderStatus.REFUNDING.getCode())
+                .set(Order::getStatus, OrderStatus.REFUNDED.getCode())) > 0;
+    }
+
+    /**
+     * 退款被拒 / 用户撤销：退款中 → 回退到申请前的状态。
+     *
+     * @param targetStatus 申请前的状态码（来自 {@code refund_record.origin_status}）
+     * @return true 表示本次抢到了流转；false 表示已被他人处理过
+     * @throws BizException 目标状态不是「退款中」的合法出边
+     */
+    @Transactional
+    public boolean rollbackRefund(String orderNo, int targetStatus) {
+        OrderStatus target = OrderStatus.of(targetStatus);
+        if (!OrderStatus.REFUNDING.canTransitionTo(target)) {
+            throw BizException.badRequest("退款单记录的原始状态非法：" + target.getLabel());
+        }
+        return orderMapper.update(null, new LambdaUpdateWrapper<Order>()
+                .eq(Order::getOrderNo, orderNo)
+                .eq(Order::getStatus, OrderStatus.REFUNDING.getCode())
+                .set(Order::getStatus, target.getCode())) > 0;
+    }
+
     /** 按订单号取订单并校验归属；他人的订单按不存在处理。 */
     public Order getOwned(Long userId, String orderNo) {
         Order order = loadByOrderNo(orderNo);
@@ -878,8 +994,14 @@ public class OrderService {
         return order;
     }
 
-    /** 按订单号取订单；不存在则抛 404。 */
-    private Order loadByOrderNo(String orderNo) {
+    /**
+     * 按订单号取订单；不存在则抛 404。
+     *
+     * <p>包级可见是给同包的 {@code RefundService} 用的（它需要订单实体来调
+     * {@link #restoreStock}）。对外仍以 {@link #getOwned} / {@link #detail} 为准，
+     * 那两个带归属校验。</p>
+     */
+    Order loadByOrderNo(String orderNo) {
         Order order = orderMapper.selectOne(
                 new LambdaQueryWrapper<Order>().eq(Order::getOrderNo, orderNo));
         if (order == null) {
@@ -894,8 +1016,12 @@ public class OrderService {
      * <p><b>秒杀订单与普通订单的回补目标不同</b>：普通订单回补 {@code product_sku.stock}；
      * 秒杀订单的库存在 Redis 计数与活动已售数里（B2 的 Lua 扣的），回补到 SKU 上等于
      * 凭空多出普通库存。所以必须按渠道分流。</p>
+     *
+     * <p>★ <b>包级可见是给 {@code RefundService} 用的</b>：退款完成也要回补库存，
+     * 口径必须与取消/超时关单完全一致，所以不允许它自己另写一份。
+     * 调用方必须保证「只在抢到状态流转后调一次」（见 {@link #finishRefund}）。</p>
      */
-    private void restoreStock(Order order) {
+    void restoreStock(Order order) {
         if (order == null) {
             return;
         }

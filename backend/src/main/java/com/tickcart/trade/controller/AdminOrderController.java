@@ -4,6 +4,7 @@ import com.tickcart.common.api.PageResult;
 import com.tickcart.common.api.R;
 import com.tickcart.trade.dto.AdminOrderQuery;
 import com.tickcart.trade.service.OrderService;
+import com.tickcart.trade.service.RefundService;
 import com.tickcart.trade.vo.AdminOrderDetailVO;
 import com.tickcart.trade.vo.AdminOrderListItemVO;
 import com.tickcart.trade.vo.BatchShipResultVO;
@@ -31,9 +32,11 @@ import java.util.List;
 public class AdminOrderController {
 
     private final OrderService orderService;
+    private final RefundService refundService;
 
-    public AdminOrderController(OrderService orderService) {
+    public AdminOrderController(OrderService orderService, RefundService refundService) {
         this.orderService = orderService;
+        this.refundService = refundService;
     }
 
     @Operation(summary = "订单概览",
@@ -51,10 +54,13 @@ public class AdminOrderController {
         return R.ok(orderService.adminPage(query));
     }
 
-    @Operation(summary = "订单详情", description = "含收货快照、商品明细与支付语义（状态/渠道/流水号）")
+    @Operation(summary = "订单详情", description = "含收货快照、商品明细、支付语义（状态/渠道/流水号）与最新一条退款单")
     @GetMapping("/{orderNo}")
     public R<AdminOrderDetailVO> detail(@PathVariable String orderNo) {
-        return R.ok(orderService.adminDetail(orderNo));
+        AdminOrderDetailVO vo = orderService.adminDetail(orderNo);
+        // 审核抽屉直接读这个字段，不必再发一次退款查询
+        vo.setRefund(refundService.findLatest(orderNo));
+        return R.ok(vo);
     }
 
     @Operation(summary = "发货", description = "仅待发货订单可发货，发货后订单进入待收货")

@@ -38,6 +38,12 @@ public class OrderOverviewVO {
     @Schema(description = "已超时关闭")
     private long timeoutClosed;
 
+    @Schema(description = "退款中（待审核）")
+    private long refunding;
+
+    @Schema(description = "已退款")
+    private long refunded;
+
     @Schema(description = "待发货订单中最早一笔支付时间；无待发货订单时为 null。用于算「积压最久多久」")
     private LocalDateTime oldestPendingShipmentTime;
 
@@ -101,6 +107,22 @@ public class OrderOverviewVO {
 
     public void setTimeoutClosed(long timeoutClosed) {
         this.timeoutClosed = timeoutClosed;
+    }
+
+    public long getRefunding() {
+        return refunding;
+    }
+
+    public void setRefunding(long refunding) {
+        this.refunding = refunding;
+    }
+
+    public long getRefunded() {
+        return refunded;
+    }
+
+    public void setRefunded(long refunded) {
+        this.refunded = refunded;
     }
 
     public LocalDateTime getOldestPendingShipmentTime() {

@@ -57,6 +57,16 @@ public class OrderDetailVO {
     @Schema(description = "商品明细")
     private List<OrderItemVO> items;
 
+    /**
+     * 退款单（最新一条）。
+     *
+     * <p>没有申请过退款时为 null —— 前端据此决定「显示退款进度卡片」还是「显示申请入口」。
+     * 后台详情同样带这个字段（{@code AdminOrderDetailVO} 继承本类），
+     * 审核抽屉不用再发一次请求。</p>
+     */
+    @Schema(description = "退款单（最新一条，无退款时为 null）")
+    private RefundVO refund;
+
     public String getOrderNo() {
         return orderNo;
     }
@@ -175,5 +185,13 @@ public class OrderDetailVO {
 
     public void setItems(List<OrderItemVO> items) {
         this.items = items;
+    }
+
+    public RefundVO getRefund() {
+        return refund;
+    }
+
+    public void setRefund(RefundVO refund) {
+        this.refund = refund;
     }
 }

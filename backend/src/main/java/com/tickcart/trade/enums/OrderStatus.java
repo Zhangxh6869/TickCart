@@ -17,10 +17,23 @@ import java.util.Set;
  *
  * <pre>
  *   0 待付款 ──支付──▶ 1 待发货 ──发货──▶ 2 待收货 ──确认收货──▶ 3 已完成
+ *      │                 │
+ *      │                 └──申请退款──▶ 6 退款中 ──同意退款──▶ 7 已退款
+ *      │                                   │
+ *      │                                   └──拒绝/撤销──▶ 回到 1 待发货
  *      │
  *      ├──用户取消──▶ 4 已取消
  *      └──超时未付──▶ 5 已超时关闭
  * </pre>
+ *
+ * <p><b>关于 6 / 7 与「回退边」</b>：退款中是个中转态，审核结果有三种 ——
+ * 同意则进 7（终态），拒绝或用户撤销则**回到申请前的状态**。因此
+ * {@code REFUNDING} 的出边里保留了 1，它是「回退边」而非正常流转。
+ * 回退目标不写死，由 {@code refund_record.origin_status} 决定。</p>
+ *
+ * <p>★ <b>退款入口目前只开「待发货」</b>（P0 只做未发货退款）。
+ * P1（待收货仅退款）需要加 {@code PENDING_RECEIPT → REFUNDING} 与
+ * {@code REFUNDING → PENDING_RECEIPT}；P2（已完成退货退款）同理加 COMPLETED 那两条。</p>
  */
 public enum OrderStatus {
 
@@ -40,7 +53,13 @@ public enum OrderStatus {
     CANCELLED(4, "已取消"),
 
     /** 已超时关闭：待付款超时自动关闭，终态 */
-    TIMEOUT_CLOSED(5, "已超时关闭");
+    TIMEOUT_CLOSED(5, "已超时关闭"),
+
+    /** 退款中：已提交退款申请，等待商家审核（中转态，不是终态） */
+    REFUNDING(6, "退款中"),
+
+    /** 已退款：商家同意并完成退款，终态 */
+    REFUNDED(7, "已退款");
 
     private final int code;
     private final String label;
@@ -59,11 +78,19 @@ public enum OrderStatus {
 
     static {
         TRANSITIONS.put(PENDING_PAYMENT, EnumSet.of(PENDING_SHIPMENT, CANCELLED, TIMEOUT_CLOSED));
-        TRANSITIONS.put(PENDING_SHIPMENT, EnumSet.of(PENDING_RECEIPT));
+        // 退款入口只开「待发货」：P0 只做未发货退款。待收货（P1 仅退款）与
+        // 已完成（P2 退货退款）的入口边留到对应阶段再加 —— 提前声明会有两个问题：
+        // ① 边存在但没人走，读代码的人会以为功能已经支持；
+        // ② COMPLETED 一旦有出边就不再是 isFinal()，语义被悄悄改掉。
+        TRANSITIONS.put(PENDING_SHIPMENT, EnumSet.of(PENDING_RECEIPT, REFUNDING));
         TRANSITIONS.put(PENDING_RECEIPT, EnumSet.of(COMPLETED));
         TRANSITIONS.put(COMPLETED, Collections.emptySet());
         TRANSITIONS.put(CANCELLED, Collections.emptySet());
         TRANSITIONS.put(TIMEOUT_CLOSED, Collections.emptySet());
+        // REFUNDING → PENDING_SHIPMENT 是「回退边」：拒绝退款或用户撤销时回到申请前的状态。
+        // 回退目标由 refund_record.origin_status 决定，P1/P2 加入口边时在这里补对应回退边即可。
+        TRANSITIONS.put(REFUNDING, EnumSet.of(REFUNDED, PENDING_SHIPMENT));
+        TRANSITIONS.put(REFUNDED, Collections.emptySet());
     }
 
     OrderStatus(int code, String label) {
