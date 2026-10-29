@@ -4,20 +4,28 @@ import { useRoute, useRouter } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
 import type { OrderSummary } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
-import { cancelOrder, confirmOrder, fetchOrders } from '@/api/order'
+import { cancelOrder, cancelRefund, confirmOrder, fetchOrders } from '@/api/order'
 import PageNavBar from '@/components/PageNavBar.vue'
 import { formatCountdown, remainMsOf, useNow } from '@/composables/usePayCountdown'
 
 const route = useRoute()
 const router = useRouter()
 
-/** 状态 tab：status 为 null 表示不筛选 */
-const tabs: { label: string; status: number | null }[] = [
+/**
+ * 状态 tab。
+ *
+ * <p>{@code status} 用于单状态筛选；{@code statuses} 用于跨状态页签 ——
+ * 「退款」要同时覆盖退款中(6) 与已退款(7)，单值表达不了。</p>
+ *
+ * ★ 标题只用两个字：7 个 tab 平摊屏宽后每个约 53px，四个字会被裁。
+ */
+const tabs: { label: string; status: number | null; statuses?: number[] }[] = [
   { label: '全部', status: null },
   { label: '待付款', status: 0 },
   { label: '待发货', status: 1 },
   { label: '待收货', status: 2 },
   { label: '已完成', status: 3 },
+  { label: '退款', status: null, statuses: [6, 7] },
   { label: '已取消', status: 4 },
 ]
 
@@ -25,12 +33,15 @@ const tabs: { label: string; status: number | null }[] = [
  * 首屏定位到哪个 tab。
  *
  * 「我的」页的订单宫格会带 `?status=0/1/2/3` 进来，直接落到对应状态；
+ * 退款相关入口带 `?status=6` 或 `7`，落到「退款」页签。
  * 其它入口（以及 status 缺失、非法、为数组时）一律回到「全部」。
  * 本页不在 App.vue 的 KeepAlive 名单里，每次进入都是新实例，读一次 query 就够。
  */
 function initialTab(): number {
   const status = Number(route.query.status)
-  const index = tabs.findIndex((tab) => tab.status === status)
+  const index = tabs.findIndex((tab) =>
+    tab.statuses ? tab.statuses.includes(status) : tab.status === status,
+  )
   return index < 0 ? 0 : index
 }
 
@@ -41,7 +52,12 @@ const loading = ref(false)
 async function load() {
   loading.value = true
   try {
-    const result = await fetchOrders({ status: tabs[activeTab.value].status, page: 1, size: 20 })
+    const tab = tabs[activeTab.value]
+    const result = await fetchOrders({
+      ...(tab.statuses ? { statuses: tab.statuses } : { status: tab.status }),
+      page: 1,
+      size: 20,
+    })
     orders.value = result.records
   } catch {
     // 错误提示由请求拦截器统一处理
@@ -104,6 +120,25 @@ async function onConfirm(order: OrderSummary) {
   }
 }
 
+/** 撤销退款申请：仅「待审核」可撤销，撤销后订单回到待发货。 */
+async function onCancelRefund(order: OrderSummary) {
+  try {
+    await showConfirmDialog({
+      title: '撤销退款',
+      message: '撤销后订单将回到「待发货」，确认撤销这笔退款申请？',
+    })
+  } catch {
+    return // 用户取消
+  }
+  try {
+    await cancelRefund(order.orderNo)
+    showToast('已撤销退款申请')
+    await load()
+  } catch {
+    // 错误提示由请求拦截器统一处理
+  }
+}
+
 // 进入页面即加载「全部」tab，否则首屏会一直显示空列表
 onMounted(load)
 </script>
@@ -150,7 +185,11 @@ onMounted(load)
           </span>
         </div>
 
-        <div v-if="order.status === 0 || order.status === 2" class="order__actions" @click.stop>
+        <div
+          v-if="order.status === 0 || order.status === 2 || order.status === 6"
+          class="order__actions"
+          @click.stop
+        >
           <van-button
             v-if="order.status === 0"
             size="small"
@@ -178,6 +217,15 @@ onMounted(load)
             @click="onConfirm(order)"
           >
             确认收货
+          </van-button>
+          <van-button
+            v-if="order.status === 6"
+            size="small"
+            round
+            plain
+            @click="onCancelRefund(order)"
+          >
+            撤销退款
           </van-button>
         </div>
       </div>

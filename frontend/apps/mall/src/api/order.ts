@@ -8,6 +8,7 @@ import type {
   OrderStatusCount,
   OrderSummary,
   PageResult,
+  RefundSummary,
 } from '@tickcart/shared-types'
 
 /**
@@ -41,7 +42,10 @@ export function createBuyNowOrder(
 
 /** 订单列表，可按状态筛选。 */
 export function fetchOrders(query: OrderQuery = {}): Promise<PageResult<OrderSummary>> {
-  return request.get('/orders', { params: query })
+  const { statuses, ...rest } = query
+  // ★ 数组要自己拼成逗号分隔：axios 默认发 `statuses[]=6&statuses[]=7`，Spring 绑不上
+  const params = statuses && statuses.length > 0 ? { ...rest, statuses: statuses.join(',') } : rest
+  return request.get('/orders', { params })
 }
 
 /**
@@ -67,4 +71,21 @@ export function cancelOrder(orderNo: string): Promise<void> {
 /** 确认收货（仅待收货）。 */
 export function confirmOrder(orderNo: string): Promise<void> {
   return request.put(`/orders/${orderNo}/confirm`)
+}
+
+/**
+ * 申请退款（仅待发货，P0 只支持未发货退款）。
+ *
+ * ★ 不提交金额：退多少由后端按「支付成功那条流水」算，前端传金额等于把退款口子敞开。
+ */
+export function applyRefund(
+  orderNo: string,
+  payload: { reasonCode: number; reason?: string },
+): Promise<RefundSummary> {
+  return request.post(`/orders/${orderNo}/refund`, payload)
+}
+
+/** 撤销退款申请（仅「待审核」可撤销）。 */
+export function cancelRefund(orderNo: string): Promise<void> {
+  return request.put(`/orders/${orderNo}/refund/cancel`)
 }

@@ -209,8 +209,32 @@ export interface CartAddRequest {
   quantity: number
 }
 
-/** 订单状态码：0待付款 1待发货 2待收货 3已完成 4已取消 5已超时关闭 */
-export type OrderStatusValue = 0 | 1 | 2 | 3 | 4 | 5
+/** 订单状态码：0待付款 1待发货 2待收货 3已完成 4已取消 5已超时关闭 6退款中 7已退款 */
+export type OrderStatusValue = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7
+
+/** 退款单状态：0待审核 1已退款 2已拒绝 3已撤销 */
+export type RefundStatusValue = 0 | 1 | 2 | 3
+
+/** 退款单（订单详情里挂的最新一条）。 */
+export interface RefundSummary {
+  refundNo: string
+  orderNo: string
+  /** 1未发货退款 2仅退款 3退货退款 */
+  type: number
+  typeLabel: string
+  /** 退款金额（快照，后端按支付成功流水算，前端只展示） */
+  amount: number
+  reasonCode: number
+  reasonLabel: string
+  reason?: string | null
+  status: RefundStatusValue
+  statusLabel: string
+  /** 审核意见，拒绝时必有 */
+  auditRemark?: string | null
+  createdAt: string
+  auditTime?: string | null
+  refundTime?: string | null
+}
 
 /** 订单明细项（下单时的快照）。 */
 export interface OrderItem {
@@ -274,6 +298,8 @@ export interface OrderDetail {
   finishTime?: string | null
   cancelTime?: string | null
   items: OrderItem[]
+  /** 最新一条退款单；从未申请过退款时为 null（前端据此决定显示申请入口还是退款进度） */
+  refund?: RefundSummary | null
 }
 
 /**
@@ -301,6 +327,10 @@ export interface OrderOverview {
   completed: number
   cancelled: number
   timeoutClosed: number
+  /** 退款中（待审核） */
+  refunding: number
+  /** 已退款 */
+  refunded: number
   /** 待发货中最早一笔支付时间；无待发货订单时为 null */
   oldestPendingShipmentTime?: string | null
   /** 已付款订单数（待发货 + 待收货 + 已完成） */
@@ -362,6 +392,14 @@ export interface OrderCreateResult {
 /** 订单列表查询条件。 */
 export interface OrderQuery {
   status?: number | null
+  /**
+   * 多状态筛选，优先级高于 status。
+   *
+   * 「退款/售后」页签要同时覆盖退款中(6) 与已退款(7)，单值 status 表达不了。
+   * ★ 传数组，由 api 层拼成逗号分隔字符串（`statuses=6,7`）再发 ——
+   * axios 默认会把数组序列化成 `statuses[]=6&statuses[]=7`，Spring 绑不上。
+   */
+  statuses?: number[]
   page?: number
   size?: number
 }

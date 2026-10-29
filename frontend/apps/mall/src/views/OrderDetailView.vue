@@ -4,8 +4,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
 import type { OrderDetail } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
-import { cancelOrder, confirmOrder, fetchOrderDetail } from '@/api/order'
+import {
+  applyRefund,
+  cancelOrder,
+  cancelRefund,
+  confirmOrder,
+  fetchOrderDetail,
+} from '@/api/order'
 import PageNavBar from '@/components/PageNavBar.vue'
+import RefundApplySheet from '@/components/RefundApplySheet.vue'
 import { usePayCountdown } from '@/composables/usePayCountdown'
 import { ORDER_ORIGIN_BUY_NOW, ORDER_ORIGIN_CART, parseOrderOrigin } from '@/utils/checkout-route'
 
@@ -16,6 +23,9 @@ const orderNo = String(route.params.orderNo)
 const order = ref<OrderDetail | null>(null)
 const loading = ref(true)
 const acting = ref(false)
+
+/** 退款申请弹层开关 */
+const refundSheetVisible = ref(false)
 
 /** 取消成功后「回首页」的延时句柄：组件卸载时要清掉，避免页面已销毁还在跳转 */
 let redirectTimer: ReturnType<typeof setTimeout> | null = null
@@ -30,6 +40,8 @@ const statusTips: Record<number, string> = {
   3: '交易已完成，感谢你的购买',
   4: '订单已取消，库存已回补',
   5: '超时未支付，订单已自动关闭',
+  6: '退款申请已提交，等待商家审核',
+  7: '退款已完成，款项将原路退回',
 }
 
 // 支付倒计时与收银台、订单列表共用同一个实现（见 composables/usePayCountdown）
@@ -47,6 +59,19 @@ const tip = computed(() => {
 })
 const canCancel = computed(() => order.value?.status === 0)
 const canConfirm = computed(() => order.value?.status === 2)
+/** P0 只支持「未发货退款」：只有待发货能申请 */
+const canRefund = computed(() => order.value?.status === 1)
+/** 只有「待审核」的退款单能撤销；已审核的只能等结果 */
+const canCancelRefund = computed(() => order.value?.status === 6 && order.value?.refund?.status === 0)
+
+/** 退款单状态标签配色：待审核黄、已退款绿、已拒绝红、已撤销灰 */
+const refundTagType = computed<'warning' | 'success' | 'danger' | 'default'>(() => {
+  const status = order.value?.refund?.status
+  if (status === 0) return 'warning'
+  if (status === 1) return 'success'
+  if (status === 2) return 'danger'
+  return 'default'
+})
 
 /** 下单来源（结算页提交时写在 URL 上）；从订单列表等入口进来时为 null */
 const orderOrigin = computed(() => parseOrderOrigin(route.query))
@@ -100,6 +125,50 @@ async function onConfirm() {
   try {
     await confirmOrder(orderNo)
     showToast('已确认收货')
+    await load()
+  } catch {
+    // 错误提示由请求拦截器统一处理
+  } finally {
+    acting.value = false
+  }
+}
+
+/** 弹层里展示的退款金额：订单实付。真正的退款金额由后端按支付成功流水算 */
+const refundableAmount = computed(() => order.value?.payAmount ?? 0)
+
+function onApplyRefund() {
+  refundSheetVisible.value = true
+}
+
+/** 提交退款申请。金额不提交 —— 后端自己算，前端传金额等于把退款口子敞开 */
+async function onSubmitRefund(payload: { reasonCode: number; reason?: string }) {
+  acting.value = true
+  try {
+    await applyRefund(orderNo, payload)
+    refundSheetVisible.value = false
+    showToast('退款申请已提交')
+    await load()
+  } catch {
+    // 错误提示由请求拦截器统一处理
+  } finally {
+    acting.value = false
+  }
+}
+
+/** 撤销退款申请：仅「待审核」可撤销，撤销后订单回到待发货 */
+async function onCancelRefund() {
+  try {
+    await showConfirmDialog({
+      title: '撤销退款',
+      message: '撤销后订单将回到「待发货」，确认撤销这笔退款申请？',
+    })
+  } catch {
+    return // 用户取消
+  }
+  acting.value = true
+  try {
+    await cancelRefund(orderNo)
+    showToast('已撤销退款申请')
     await load()
   } catch {
     // 错误提示由请求拦截器统一处理
@@ -185,6 +254,38 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <!-- 退款进度：只要申请过就展示，被拒绝/撤销的记录也留着，方便用户回看 -->
+      <div v-if="order.refund" class="card card--refund">
+        <div class="card__row card__row--between">
+          <span class="refund__title">退款进度</span>
+          <van-tag :type="refundTagType" plain>{{ order.refund.statusLabel }}</van-tag>
+        </div>
+        <div class="row">
+          <span>退款金额</span>
+          <span class="row__amount">¥{{ formatPrice(order.refund.amount) }}</span>
+        </div>
+        <div class="row">
+          <span>退款原因</span>
+          <span class="row__muted">{{ order.refund.reasonLabel }}</span>
+        </div>
+        <div v-if="order.refund.reason" class="row">
+          <span>补充说明</span>
+          <span class="row__muted">{{ order.refund.reason }}</span>
+        </div>
+        <div class="row">
+          <span>申请时间</span>
+          <span class="row__muted">{{ formatTime(order.refund.createdAt) }}</span>
+        </div>
+        <div v-if="order.refund.auditRemark" class="row">
+          <span>审核意见</span>
+          <span class="row__muted">{{ order.refund.auditRemark }}</span>
+        </div>
+        <div v-if="order.refund.refundTime" class="row">
+          <span>退款时间</span>
+          <span class="row__muted">{{ formatTime(order.refund.refundTime) }}</span>
+        </div>
+      </div>
+
       <div class="card">
         <div class="row"><span>订单编号</span><span class="row__muted">{{ order.orderNo }}</span></div>
         <div class="row"><span>下单时间</span><span class="row__muted">{{ formatTime(order.createdAt) }}</span></div>
@@ -195,14 +296,26 @@ onBeforeUnmount(() => {
         <div v-if="order.remark" class="row"><span>买家备注</span><span class="row__muted">{{ order.remark }}</span></div>
       </div>
 
-      <div v-if="canCancel || canConfirm" class="detail__actions">
+      <div
+        v-if="canCancel || canConfirm || canRefund || canCancelRefund"
+        class="detail__actions"
+      >
         <van-button v-if="canCancel" round plain block :loading="acting" @click="onCancel">取消订单</van-button>
         <van-button v-if="canCancel" round block type="primary" color="rgb(107,163,200)" @click="onPay">去支付</van-button>
         <van-button v-if="canConfirm" round block type="primary" :loading="acting" @click="onConfirm">确认收货</van-button>
+        <van-button v-if="canRefund" round plain block :loading="acting" @click="onApplyRefund">申请退款</van-button>
+        <van-button v-if="canCancelRefund" round plain block :loading="acting" @click="onCancelRefund">撤销退款</van-button>
       </div>
     </template>
 
     <van-empty v-else-if="!loading" description="订单不存在" />
+
+    <RefundApplySheet
+      v-model:show="refundSheetVisible"
+      :amount="refundableAmount"
+      :submitting="acting"
+      @submit="onSubmitRefund"
+    />
   </div>
 </template>
 
@@ -239,6 +352,15 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.card__row--between {
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.refund__title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #323233;
 }
 .card__name {
   font-size: 15px;
