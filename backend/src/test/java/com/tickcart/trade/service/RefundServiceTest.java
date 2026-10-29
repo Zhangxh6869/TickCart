@@ -193,17 +193,36 @@ class RefundServiceTest {
     }
 
     @Test
-    @DisplayName("申请退款：待收货等非待发货状态直接拒绝")
-    void applyRejectsNonShippedStatus() {
+    @DisplayName("申请退款：已完成订单暂不支持（P2 退货退款未做）")
+    void applyRejectsCompletedStatus() {
         when(orderService.getOwned(UID, ORDER_NO))
-                .thenReturn(order(OrderStatus.PENDING_RECEIPT.getCode(), new BigDecimal("198.00")));
+                .thenReturn(order(OrderStatus.COMPLETED.getCode(), new BigDecimal("198.00")));
 
         assertThatThrownBy(() -> refundService.apply(UID, ORDER_NO, applyRequest()))
                 .isInstanceOf(BizException.class)
-                .hasMessageContaining("待收货")
+                .hasMessageContaining("已完成")
                 .hasMessageContaining("暂不支持申请退款");
 
         verify(refundRecordMapper, never()).insert(ArgumentMatchers.<RefundRecord>any());
+    }
+
+    @Test
+    @DisplayName("申请退款：待收货订单落「仅退款」类型（决定不回补库存）")
+    void applyFromShippedOrderUsesRefundOnlyType() {
+        when(orderService.getOwned(UID, ORDER_NO))
+                .thenReturn(order(OrderStatus.PENDING_RECEIPT.getCode(), new BigDecimal("198.00")));
+        when(refundRecordMapper.selectOne(any())).thenReturn(null);
+        when(paymentRecordMapper.selectOne(any())).thenReturn(paidPayment(new BigDecimal("188.00")));
+        when(orderService.startRefund(ORDER_NO)).thenReturn(OrderStatus.PENDING_RECEIPT.getCode());
+
+        RefundVO vo = refundService.apply(UID, ORDER_NO, applyRequest());
+
+        ArgumentCaptor<RefundRecord> captor = ArgumentCaptor.forClass(RefundRecord.class);
+        verify(refundRecordMapper).insert(captor.capture());
+        // ★ 类型由后端按订单状态判定，不能让前端传：它决定库存要不要回补
+        assertThat(captor.getValue().getType()).isEqualTo(RefundRecord.TYPE_REFUND_ONLY);
+        assertThat(captor.getValue().getOriginStatus()).isEqualTo(OrderStatus.PENDING_RECEIPT.getCode());
+        assertThat(vo.getTypeLabel()).isEqualTo("仅退款");
     }
 
     @Test
@@ -319,6 +338,41 @@ class RefundServiceTest {
         verify(orderService).finishRefund(ORDER_NO);
         verify(orderService).restoreStock(order);
         verify(orderService).reverseSales(ORDER_NO);
+    }
+
+    @Test
+    @DisplayName("同意仅退款：不回补库存（货已发出），但仍回退销量")
+    void approveRefundOnlyDoesNotRestoreStock() {
+        RefundRecord record = refund(RefundStatus.PENDING_AUDIT.getCode(),
+                OrderStatus.PENDING_RECEIPT.getCode());
+        record.setType(RefundRecord.TYPE_REFUND_ONLY);
+        when(refundRecordMapper.selectOne(any())).thenReturn(record);
+        when(refundRecordMapper.update(ArgumentMatchers.<RefundRecord>isNull(), any())).thenReturn(1);
+        when(orderService.finishRefund(ORDER_NO)).thenReturn(true);
+
+        refundService.approve(REFUND_NO);
+
+        verify(orderService).finishRefund(ORDER_NO);
+        // ★ 关键断言：货已发出，不能凭空加回库存 —— 这是超卖的源头
+        verify(orderService, never()).restoreStock(any());
+        verify(orderService, never()).loadByOrderNo(any());
+        // 销量仍然要退：用户没拿到货
+        verify(orderService).reverseSales(ORDER_NO);
+    }
+
+    @Test
+    @DisplayName("拒绝仅退款：订单回退到待收货，不是待发货")
+    void rejectRefundOnlyRollsBackToPendingReceipt() {
+        RefundRecord record = refund(RefundStatus.PENDING_AUDIT.getCode(),
+                OrderStatus.PENDING_RECEIPT.getCode());
+        record.setType(RefundRecord.TYPE_REFUND_ONLY);
+        when(refundRecordMapper.selectOne(any())).thenReturn(record);
+        when(refundRecordMapper.update(ArgumentMatchers.<RefundRecord>isNull(), any())).thenReturn(1);
+
+        refundService.reject(REFUND_NO, "已签收，不支持仅退款");
+
+        // ★ 回退目标取自 origin_status，不能写死「待发货」
+        verify(orderService).rollbackRefund(ORDER_NO, OrderStatus.PENDING_RECEIPT.getCode());
     }
 
     @Test

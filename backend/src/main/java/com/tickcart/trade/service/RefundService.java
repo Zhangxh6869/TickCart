@@ -25,11 +25,14 @@ import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * 退款服务（P0：未发货退款）。
+ * 退款服务。
  *
- * <p><b>只做一件事：让「付了钱反悔」有出口。</b>P0 限定在「待发货」——
- * 此时货还没出库，退款后立即回补库存，语义最干净。已发货（仅退款）与
- * 已完成（退货退款）在状态机上留了边，但不在本轮实现范围。</p>
+ * <p><b>只做一件事：让「付了钱反悔」有出口。</b>目前支持两档：</p>
+ * <ul>
+ *   <li><b>P0 未发货退款</b>（待发货）：货没出库，退款后立即回补库存</li>
+ *   <li><b>P1 仅退款</b>（待收货）：货已发出，<b>不回补库存</b>（可能拒收退回、也可能用户留下了）</li>
+ * </ul>
+ * <p>已完成订单的「退货退款」（P2）需要退货物流与入库，不在本类范围内。</p>
  *
  * <h3>与订单状态的分工</h3>
  * <p>本类只写 {@code refund_record}；{@code t_order.status} 一律委托
@@ -73,7 +76,7 @@ public class RefundService {
     // =========================================================================
 
     /**
-     * 申请退款（仅待发货订单）。
+     * 申请退款（待发货 / 待收货）。
      *
      * <p>顺序是「先流转订单、后插退款单」：插单撞唯一键时异常会带着整个事务回滚，
      * 订单状态一并回退，不会留下「订单退款中但没有退款单」的孤儿状态。</p>
@@ -95,7 +98,8 @@ public class RefundService {
         }
 
         OrderStatus status = OrderStatus.of(order.getStatus());
-        if (status != OrderStatus.PENDING_SHIPMENT) {
+        int type = refundTypeOf(status);
+        if (type == 0) {
             throw BizException.conflict("订单当前为「" + status.getLabel() + "」，暂不支持申请退款");
         }
 
@@ -107,7 +111,7 @@ public class RefundService {
         record.setOrderId(order.getId());
         record.setOrderNo(orderNo);
         record.setUserId(userId);
-        record.setType(RefundRecord.TYPE_UNSHIPPED);
+        record.setType(type);
         record.setAmount(amount);
         record.setReasonCode(req.getReasonCode());
         record.setReason(req.getReason());
@@ -120,8 +124,23 @@ public class RefundService {
             // 并发下的第二次申请：唯一键挡住。抛出去让事务回滚掉上面的订单状态流转
             throw BizException.conflict("该订单已有进行中的退款申请，请勿重复提交");
         }
-        log.info("退款申请已提交：orderNo={}, refundNo={}, amount={}", orderNo, record.getRefundNo(), amount);
+        log.info("退款申请已提交：orderNo={}, refundNo={}, type={}, amount={}",
+                orderNo, record.getRefundNo(), type, amount);
         return toVO(record);
+    }
+
+    /**
+     * 订单状态 → 退款类型；返回 0 表示该状态不支持申请退款。
+     *
+     * <p><b>类型必须由后端按订单状态判定，不能让前端传</b>：它决定「同意退款时
+     * 库存怎么处理」—— 未发货要回补、仅退款不能回补。让客户端决定等于把库存账交出去。</p>
+     */
+    private static int refundTypeOf(OrderStatus status) {
+        return switch (status) {
+            case PENDING_SHIPMENT -> RefundRecord.TYPE_UNSHIPPED;
+            case PENDING_RECEIPT -> RefundRecord.TYPE_REFUND_ONLY;
+            default -> 0;
+        };
     }
 
     /**
@@ -192,10 +211,10 @@ public class RefundService {
         }
 
         if (orderService.finishRefund(record.getOrderNo())) {
-            orderService.restoreStock(orderService.loadByOrderNo(record.getOrderNo()));
+            applyStockAction(record);
             orderService.reverseSales(record.getOrderNo());
-            log.info("退款完成：refundNo={}, orderNo={}, amount={}",
-                    refundNo, record.getOrderNo(), record.getAmount());
+            log.info("退款完成：refundNo={}, orderNo={}, type={}, amount={}",
+                    refundNo, record.getOrderNo(), record.getType(), record.getAmount());
         } else {
             // 理论上不该发生：退款单是待审核，订单必然在退款中。真出现说明数据被人改过
             log.warn("退款单已置已退款，但订单不在退款中：refundNo={}, orderNo={}",
@@ -233,6 +252,28 @@ public class RefundService {
         }
         orderService.rollbackRefund(record.getOrderNo(), record.getOriginStatus());
         log.info("退款申请已拒绝：refundNo={}, orderNo={}", refundNo, record.getOrderNo());
+    }
+
+    /**
+     * 同意退款后的库存动作，按退款类型分流。
+     *
+     * <ul>
+     *   <li><b>未发货退款（type=1）</b>：货没出库，立即回补</li>
+     *   <li><b>仅退款（type=2）</b>：货已发出，<b>刻意不回补</b> —— 可能拒收退回、
+     *       也可能用户留下了，凭空加回库存就是超卖的源头</li>
+     * </ul>
+     *
+     * <p>★ 仅退款的代价是这批货的库存永久少 1 件（除非将来 P2 的退货入库补上）。
+     * 这是业务正确的：货确实不在仓里，加回去才会出错。这里打一条 INFO 留痕，
+     * 方便日后对账时能解释「为什么这个 SKU 的库存比预期少」。</p>
+     */
+    private void applyStockAction(RefundRecord record) {
+        if (Integer.valueOf(RefundRecord.TYPE_REFUND_ONLY).equals(record.getType())) {
+            log.info("仅退款不回补库存（货已发出）：orderNo={}, refundNo={}",
+                    record.getOrderNo(), record.getRefundNo());
+            return;
+        }
+        orderService.restoreStock(orderService.loadByOrderNo(record.getOrderNo()));
     }
 
     // =========================================================================

@@ -76,12 +76,13 @@ class OrderStatusTest {
     }
 
     @Test
-    @DisplayName("P0 只开放「待发货」作为退款入口")
-    void refundEntryOnlyFromPendingShipment() {
+    @DisplayName("待发货（P0）与待收货（P1）都能申请退款，已完成（P2）还不能")
+    void refundEntryStates() {
         assertThat(OrderStatus.PENDING_SHIPMENT.canTransitionTo(OrderStatus.REFUNDING)).isTrue();
-        // 待收货（P1 仅退款）与已完成（P2 退货退款）的入口边留到对应阶段再加
-        assertThat(OrderStatus.PENDING_RECEIPT.canTransitionTo(OrderStatus.REFUNDING)).isFalse();
+        assertThat(OrderStatus.PENDING_RECEIPT.canTransitionTo(OrderStatus.REFUNDING)).isTrue();
+        // P2 退货退款的入口边留到 P2 再加：COMPLETED 一旦有出边就不再是 isFinal()
         assertThat(OrderStatus.COMPLETED.canTransitionTo(OrderStatus.REFUNDING)).isFalse();
+        assertThat(OrderStatus.COMPLETED.isFinal()).isTrue();
     }
 
     @Test
@@ -92,18 +93,20 @@ class OrderStatusTest {
     }
 
     @Test
-    @DisplayName("退款中：可同意进入已退款，也可回退到申请前的状态")
+    @DisplayName("退款中：可同意进入已退款，也可回退到申请前的状态（待发货 / 待收货）")
     void refundingTransitions() {
         assertThat(OrderStatus.REFUNDING.canTransitionTo(OrderStatus.REFUNDED)).isTrue();
         assertThat(OrderStatus.REFUNDING.canTransitionTo(OrderStatus.PENDING_SHIPMENT)).isTrue();
+        assertThat(OrderStatus.REFUNDING.canTransitionTo(OrderStatus.PENDING_RECEIPT)).isTrue();
         // 退款中不是终态：还要等审核结果
         assertThat(OrderStatus.REFUNDING.isFinal()).isFalse();
     }
 
     @Test
-    @DisplayName("退款中不能发货、不能取消、不能再次申请退款")
-    void refundingBlocksShipping() {
-        assertThat(OrderStatus.REFUNDING.canTransitionTo(OrderStatus.PENDING_RECEIPT)).isFalse();
+    @DisplayName("退款中不能取消、不能再次申请退款")
+    void refundingBlocksOtherActions() {
+        // ★「退款中不能发货」不是靠转移表保证的：REFUNDING → PENDING_RECEIPT 是回退边，
+        //   发货由 ship() 的 WHERE status=1 条件 UPDATE 挡住（实测 409）
         assertThat(OrderStatus.REFUNDING.canTransitionTo(OrderStatus.CANCELLED)).isFalse();
         assertThat(OrderStatus.REFUNDING.canTransitionTo(OrderStatus.REFUNDING)).isFalse();
     }

@@ -59,8 +59,8 @@ const tip = computed(() => {
 })
 const canCancel = computed(() => order.value?.status === 0)
 const canConfirm = computed(() => order.value?.status === 2)
-/** P0 只支持「未发货退款」：只有待发货能申请 */
-const canRefund = computed(() => order.value?.status === 1)
+/** 待发货走「未发货退款」，待收货走「仅退款」；两者都不需要等收货 */
+const canRefund = computed(() => order.value?.status === 1 || order.value?.status === 2)
 /** 只有「待审核」的退款单能撤销；已审核的只能等结果 */
 const canCancelRefund = computed(() => order.value?.status === 6 && order.value?.refund?.status === 0)
 
@@ -265,6 +265,10 @@ onBeforeUnmount(() => {
           <span class="row__amount">¥{{ formatPrice(order.refund.amount) }}</span>
         </div>
         <div class="row">
+          <span>退款类型</span>
+          <span class="row__muted">{{ order.refund.typeLabel }}</span>
+        </div>
+        <div class="row">
           <span>退款原因</span>
           <span class="row__muted">{{ order.refund.reasonLabel }}</span>
         </div>
@@ -314,6 +318,7 @@ onBeforeUnmount(() => {
       v-model:show="refundSheetVisible"
       :amount="refundableAmount"
       :submitting="acting"
+      :shipped="order?.status === 2"
       @submit="onSubmitRefund"
     />
   </div>

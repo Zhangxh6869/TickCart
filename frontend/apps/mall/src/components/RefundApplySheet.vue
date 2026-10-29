@@ -17,6 +17,8 @@ const props = defineProps<{
   amount: number
   /** 提交中：由父组件控制，避免连点提交两次申请 */
   submitting?: boolean
+  /** 订单是否已发货：已发货走「仅退款」，文案要提醒拒收 */
+  shipped?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -68,7 +70,13 @@ function onSubmit() {
         退款金额
         <b>¥{{ formatPrice(amount) }}</b>
       </div>
-      <div class="refund-sheet__hint">提交后订单将进入「退款中」，由商家审核</div>
+      <div class="refund-sheet__hint">
+        {{
+          shipped
+            ? '商品已发出，退款成功后如收到货请拒收'
+            : '提交后订单将进入「退款中」，由商家审核'
+        }}
+      </div>
 
       <div class="refund-sheet__label">退款原因</div>
       <van-radio-group v-model="reasonCode">

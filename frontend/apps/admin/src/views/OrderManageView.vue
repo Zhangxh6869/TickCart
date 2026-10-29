@@ -450,9 +450,13 @@ function refundStatusTag(status: number): TagType {
 async function onApproveRefund() {
   const refund = detail.value?.refund
   if (!refund) return
+  // ★ 仅退款（type=2）货已发出，不回补库存；未发货退款才回补。
+  //   把这句话写进确认框，是因为它决定库存账，管理员点之前必须知道
+  const stockHint =
+    refund.type === 2 ? '货已发出，本次退款不回补库存。' : '库存将自动回补。'
   try {
     await ElMessageBox.confirm(
-      `同意退款 ¥${formatPrice(refund.amount)}？确认后订单变为「已退款」，库存自动回补，且不可撤销。`,
+      `同意退款 ¥${formatPrice(refund.amount)}？${stockHint}确认后订单变为「已退款」，不可撤销。`,
       '同意退款',
       { type: 'warning', confirmButtonText: '确认退款' },
     )
@@ -531,13 +535,15 @@ function timelineNodes(d: AdminOrderDetail): TimelineNode[] {
     ]
   }
 
-  // 退款分支：P0 只支持未发货退款，货没出库，所以时间线到「退款」就结束，
-  // 不能继续画「未发货 / 待买家确认」——那会让管理员以为还要发货
+  // 退款分支：货可能已经发出（P1 仅退款），所以要保留发货节点 ——
+  // 只画「下单→支付→退款」会让管理员看不出「货在哪」
   if (d.status === 6 || d.status === 7) {
     const refund = d.refund
-    return [
-      created,
-      paid,
+    const nodes: TimelineNode[] = [created, paid]
+    if (d.shipTime) {
+      nodes.push({ label: '发货', time: formatTime(d.shipTime), state: 'done' })
+    }
+    nodes.push(
       d.status === 6
         ? {
             label: '退款中',
@@ -549,7 +555,8 @@ function timelineNodes(d: AdminOrderDetail): TimelineNode[] {
             time: refund?.refundTime ? formatTime(refund.refundTime) : '退款完成',
             state: 'stop',
           },
-    ]
+    )
+    return nodes
   }
 
   let ship: TimelineNode
@@ -953,6 +960,13 @@ async function copy(text: string, label: string) {
               <div class="kv">
                 <span class="kv__k">退款金额</span>
                 <span class="kv__v">¥{{ formatPrice(detail.refund.amount) }}</span>
+              </div>
+              <div class="kv">
+                <span class="kv__k">退款类型</span>
+                <span class="kv__v">
+                  {{ detail.refund.typeLabel }}
+                  <span v-if="detail.refund.type === 2" class="kv__note">货已发出，不回补库存</span>
+                </span>
               </div>
               <div class="kv">
                 <span class="kv__k">退款原因</span>
@@ -1460,6 +1474,14 @@ async function copy(text: string, label: string) {
   flex: 1;
   min-width: 0;
   color: #303133;
+}
+.kv__note {
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 12px;
+  color: #b88230;
+  background: #fdf6ec;
+  border-radius: 4px;
 }
 
 .grow {

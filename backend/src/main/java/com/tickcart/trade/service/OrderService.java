@@ -603,6 +603,12 @@ public class OrderService {
                 continue;
             }
             OrderStatus status = OrderStatus.of(order.getStatus());
+            if (status == OrderStatus.REFUNDING) {
+                // 与单笔发货同款拦截，见 assertShippable
+                result.getFailed().add(new BatchShipResultVO.Failure(
+                        orderNo, "订单当前为「退款中」，无法发货"));
+                continue;
+            }
             if (!status.canTransitionTo(OrderStatus.PENDING_RECEIPT)) {
                 result.getFailed().add(new BatchShipResultVO.Failure(
                         orderNo, "订单当前为「" + status.getLabel() + "」，无法发货"));
@@ -791,6 +797,7 @@ public class OrderService {
     public void ship(String orderNo) {
         Order order = loadByOrderNo(orderNo);
         OrderStatus status = OrderStatus.of(order.getStatus());
+        assertShippable(status);
         status.assertTransitionTo(OrderStatus.PENDING_RECEIPT, "发货");
 
         int affected = orderMapper.update(null, new LambdaUpdateWrapper<Order>()
@@ -1008,6 +1015,21 @@ public class OrderService {
             throw BizException.notFound("订单不存在");
         }
         return order;
+    }
+
+    /**
+     * 拦截「退款中」订单的发货请求。
+     *
+     * <p>★ <b>为什么需要单独拦一下</b>：{@code REFUNDING → PENDING_RECEIPT} 是
+     * 「拒绝退款 / 用户撤销」用的**回退边**，不是发货通道。光靠
+     * {@code assertTransitionTo} 判断，退款中的订单会被放行，一直走到条件 UPDATE
+     * 才因 {@code WHERE status=1} 影响 0 行而失败，报一句「订单状态已变更，请刷新后重试」——
+     * 管理员会以为是自己手慢，实际上这单根本不该发。</p>
+     */
+    private static void assertShippable(OrderStatus status) {
+        if (status == OrderStatus.REFUNDING) {
+            throw BizException.conflict("订单当前为「退款中」，无法发货");
+        }
     }
 
     /**

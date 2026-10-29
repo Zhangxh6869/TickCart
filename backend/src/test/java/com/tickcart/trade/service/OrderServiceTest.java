@@ -915,6 +915,19 @@ class OrderServiceTest {
     }
 
     @Test
+    @DisplayName("退款中订单不能发货，且提示说清原因而不是「状态已变更」")
+    void shipRejectedForRefundingOrder() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO24", UID, OrderStatus.REFUNDING));
+
+        // ★ REFUNDING → PENDING_RECEIPT 是「拒绝退款」的回退边，不是发货通道。
+        //   不单独拦的话会被放行到条件 UPDATE 才失败，报「订单状态已变更」误导管理员
+        assertThatThrownBy(() -> orderService.ship("NO24"))
+                .isInstanceOf(BizException.class)
+                .hasMessage("订单当前为「退款中」，无法发货");
+        verify(orderMapper, never()).update(any(), any());
+    }
+
+    @Test
     @DisplayName("并发下状态被抢先变更时发货失败")
     void shipRejectedWhenConcurrentUpdateLoses() {
         when(orderMapper.selectOne(any())).thenReturn(order("NO23", UID, OrderStatus.PENDING_SHIPMENT));
@@ -1369,6 +1382,21 @@ class OrderServiceTest {
                 .containsExactly("NO51", "NO52");
         assertThat(result.getFailed()).extracting(BatchShipResultVO.Failure::getReason)
                 .containsExactly("订单当前为「已取消」，无法发货", "订单不存在");
+    }
+
+    @Test
+    @DisplayName("批量发货：退款中的单直接判失败，不能靠「状态已变更」兜底")
+    void batchShipRejectsRefundingOrder() {
+        when(orderMapper.selectList(any()))
+                .thenReturn(List.of(order("NO54", UID, OrderStatus.REFUNDING)));
+
+        BatchShipResultVO result = orderService.batchShip(List.of("NO54"));
+
+        assertThat(result.getSuccess()).isEmpty();
+        assertThat(result.getFailed()).extracting(BatchShipResultVO.Failure::getReason)
+                .containsExactly("订单当前为「退款中」，无法发货");
+        // 被拦在发车前，不该走到 UPDATE
+        verify(orderMapper, never()).update(any(), any());
     }
 
     @Test
