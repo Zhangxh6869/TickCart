@@ -5,11 +5,13 @@ import { Search } from '@element-plus/icons-vue'
 import type { AdminOrderDetail, AdminOrderSummary, OrderOverview } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
 import {
+  approveRefund,
   batchShipOrders,
   closeOrder,
   fetchOrderDetail,
   fetchOrderOverview,
   fetchOrders,
+  rejectRefund,
   shipOrder,
 } from '@/api/order'
 
@@ -23,6 +25,8 @@ const STATUS_META: Record<number, { label: string; tag: TagType }> = {
   3: { label: '已完成', tag: 'success' },
   4: { label: '已取消', tag: 'info' },
   5: { label: '已超时关闭', tag: 'info' },
+  6: { label: '退款中', tag: 'warning' },
+  7: { label: '已退款', tag: 'info' },
 }
 
 /**
@@ -39,12 +43,14 @@ type CountKey =
   | 'completed'
   | 'cancelled'
   | 'timeoutClosed'
+  | 'refunding'
+  | 'refunded'
 
 interface StatusChip {
   label: string
   value: number | null
   countKey: CountKey
-  /** 待发货：计数用红底，提示需要处理 */
+  /** 待发货 / 退款中：计数用红底，提示需要处理 */
   warn?: boolean
   /** 终态：整体弱化，避免和待办抢注意力 */
   mute?: boolean
@@ -56,6 +62,8 @@ const STATUS_CHIPS: StatusChip[] = [
   { label: '待发货', value: 1, countKey: 'pendingShipment', warn: true },
   { label: '待收货', value: 2, countKey: 'pendingReceipt' },
   { label: '已完成', value: 3, countKey: 'completed' },
+  { label: '退款中', value: 6, countKey: 'refunding', warn: true },
+  { label: '已退款', value: 7, countKey: 'refunded', mute: true },
   { label: '已取消', value: 4, countKey: 'cancelled', mute: true },
   { label: '已超时', value: 5, countKey: 'timeoutClosed', mute: true },
 ]
@@ -425,12 +433,73 @@ async function onCloseOrder() {
   }
 }
 
+/** 退款单状态配色：待审核黄、已退款绿、已拒绝红、已撤销灰 */
+function refundStatusTag(status: number): TagType {
+  if (status === 0) return 'warning'
+  if (status === 1) return 'success'
+  if (status === 2) return 'danger'
+  return 'info'
+}
+
+/**
+ * 同意退款：置已退款 + 回补库存 + 回退销量。
+ *
+ * 这一步不可撤销（订单进终态、库存已经加回去），所以必须二次确认；
+ * 确认框里把金额写出来，避免看错单退错款。
+ */
+async function onApproveRefund() {
+  const refund = detail.value?.refund
+  if (!refund) return
+  try {
+    await ElMessageBox.confirm(
+      `同意退款 ¥${formatPrice(refund.amount)}？确认后订单变为「已退款」，库存自动回补，且不可撤销。`,
+      '同意退款',
+      { type: 'warning', confirmButtonText: '确认退款' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await approveRefund(refund.refundNo)
+    ElMessage.success('已退款')
+    drawerVisible.value = false
+    await reload()
+  } catch {
+    // 错误提示由请求拦截器统一处理
+  }
+}
+
+/** 拒绝退款：原因必填 —— 只回「已拒绝」不说理由，用户只能再提一次，工单会来回滚 */
+async function onRejectRefund() {
+  const refund = detail.value?.refund
+  if (!refund) return
+  let remark = ''
+  try {
+    const result = await ElMessageBox.prompt('请填写拒绝原因（会展示给用户）', '拒绝退款', {
+      type: 'warning',
+      confirmButtonText: '确认拒绝',
+      inputPlaceholder: '例如：商品已发出，请收到后申请退货退款',
+      inputValidator: (value: string) => (value && value.trim() ? true : '请填写拒绝原因'),
+    })
+    remark = result.value.trim()
+  } catch {
+    return
+  }
+  try {
+    await rejectRefund(refund.refundNo, remark)
+    ElMessage.success('已拒绝退款，订单回到待发货')
+    drawerVisible.value = false
+    await reload()
+  } catch {
+    // 错误提示由请求拦截器统一处理
+  }
+}
+
 interface TimelineNode {
   label: string
   time: string
   state: 'done' | 'current' | 'off' | 'stop'
 }
-
 /**
  * 状态时间线：四个节点 + 取消/超时的终止分支。
  *
@@ -459,6 +528,27 @@ function timelineNodes(d: AdminOrderDetail): TimelineNode[] {
         time: formatTime(d.cancelTime),
         state: 'stop',
       },
+    ]
+  }
+
+  // 退款分支：P0 只支持未发货退款，货没出库，所以时间线到「退款」就结束，
+  // 不能继续画「未发货 / 待买家确认」——那会让管理员以为还要发货
+  if (d.status === 6 || d.status === 7) {
+    const refund = d.refund
+    return [
+      created,
+      paid,
+      d.status === 6
+        ? {
+            label: '退款中',
+            time: refund ? `申请于 ${formatTime(refund.createdAt)}` : '等待商家审核',
+            state: 'current',
+          }
+        : {
+            label: '已退款',
+            time: refund?.refundTime ? formatTime(refund.refundTime) : '退款完成',
+            state: 'stop',
+          },
     ]
   }
 
@@ -846,6 +936,46 @@ async function copy(text: string, label: string) {
               </p>
             </div>
           </section>
+
+          <!-- 退款信息：只要申请过就展示，被拒绝/撤销的记录也留着备查 -->
+          <section v-if="detail.refund" class="sect">
+            <header class="sect__head">
+              退款信息
+              <el-tag :type="refundStatusTag(detail.refund.status)" size="small" effect="plain">
+                {{ detail.refund.statusLabel }}
+              </el-tag>
+            </header>
+            <div class="sect__body">
+              <div class="kv">
+                <span class="kv__k">退款单号</span>
+                <span class="kv__v mono">{{ detail.refund.refundNo }}</span>
+              </div>
+              <div class="kv">
+                <span class="kv__k">退款金额</span>
+                <span class="kv__v">¥{{ formatPrice(detail.refund.amount) }}</span>
+              </div>
+              <div class="kv">
+                <span class="kv__k">退款原因</span>
+                <span class="kv__v">{{ detail.refund.reasonLabel }}</span>
+              </div>
+              <div v-if="detail.refund.reason" class="kv">
+                <span class="kv__k">补充说明</span>
+                <span class="kv__v">{{ detail.refund.reason }}</span>
+              </div>
+              <div class="kv">
+                <span class="kv__k">申请时间</span>
+                <span class="kv__v">{{ formatTime(detail.refund.createdAt) }}</span>
+              </div>
+              <div v-if="detail.refund.auditRemark" class="kv">
+                <span class="kv__k">审核意见</span>
+                <span class="kv__v">{{ detail.refund.auditRemark }}</span>
+              </div>
+              <div v-if="detail.refund.refundTime" class="kv">
+                <span class="kv__k">退款时间</span>
+                <span class="kv__v">{{ formatTime(detail.refund.refundTime) }}</span>
+              </div>
+            </div>
+          </section>
         </template>
       </div>
 
@@ -859,6 +989,10 @@ async function copy(text: string, label: string) {
           <el-button v-if="detail && detail.status === 1" type="primary" @click="onShipFromDrawer">
             发货
           </el-button>
+          <template v-if="detail && detail.status === 6 && detail.refund && detail.refund.status === 0">
+            <el-button type="danger" plain @click="onRejectRefund">拒绝退款</el-button>
+            <el-button type="success" @click="onApproveRefund">同意退款</el-button>
+          </template>
         </div>
       </template>
     </el-drawer>

@@ -58,3 +58,17 @@ export function batchShipOrders(orderNos: string[]): Promise<BatchShipResult> {
 export function closeOrder(orderNo: string): Promise<void> {
   return request.put(`/admin/orders/${orderNo}/close`)
 }
+
+/**
+ * 同意退款：置「已退款」→ 回补库存 → 回退销量。
+ *
+ * 重复提交按幂等处理（后端只在抢到状态流转时回补一次），不会把库存补成两倍。
+ */
+export function approveRefund(refundNo: string): Promise<void> {
+  return request.post(`/admin/refunds/${refundNo}/approve`)
+}
+
+/** 拒绝退款：原因必填，会展示给用户；订单回退到申请前的状态。 */
+export function rejectRefund(refundNo: string, auditRemark: string): Promise<void> {
+  return request.post(`/admin/refunds/${refundNo}/reject`, { auditRemark })
+}
