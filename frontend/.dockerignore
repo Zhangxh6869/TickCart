@@ -1,8 +1,7 @@
-# 构建上下文瘦身：本地依赖与产物不进镜像
+# 构建上下文瘦身：本地依赖不进镜像
+# 刻意不排除 dist/：Dockerfile.prebuilt 兜底方案需要用它（完整构建时会被 vite 覆盖）
 node_modules/
 **/node_modules/
-dist/
-**/dist/
 .git/
 .gitignore
 test-results/

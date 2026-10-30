@@ -1,0 +1,22 @@
+# 兜底构建：跳过 pnpm install / build，直接用宿主机已构建好的 dist。
+#
+# 用在：拉不动 node:20-alpine、或 pnpm 平台二进制下载超时的时候。
+# 前置条件：先在宿主机执行过 `cd frontend && pnpm -r build`（会生成 apps/*/dist）。
+#
+# 用法：把 docker-compose.yml 里 web 服务的
+#         dockerfile: Dockerfile
+#       改成
+#         dockerfile: Dockerfile.prebuilt
+#       然后 docker compose up -d --build
+#
+# 代价：镜像里是「当时那份代码」的产物，改完前端必须重新 pnpm build，
+# 失去了容器内构建的可复现性。只当临时通道用。
+
+ARG REGISTRY=
+FROM ${REGISTRY}nginx:1.27-alpine
+
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY apps/mall/dist /usr/share/nginx/html/mall
+COPY apps/admin/dist /usr/share/nginx/html/admin
+
+EXPOSE 80 8081

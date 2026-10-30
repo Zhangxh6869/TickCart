@@ -14,6 +14,18 @@ ARG REGISTRY=
 FROM ${REGISTRY}maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /build
 
+# Maven 中央仓库直连在国内经常超时，dependency:go-offline 要拉几百 MB。
+# 默认走阿里云公共仓库；可用 --build-arg MAVEN_MIRROR=... 覆盖。
+ARG MAVEN_MIRROR=https://maven.aliyun.com/repository/public
+RUN mkdir -p /root/.m2 && \
+    printf '%s' \
+      '<?xml version="1.0" encoding="UTF-8"?>' \
+      '<settings><mirrors><mirror>' \
+      '<id>aliyun</id><mirrorOf>central</mirrorOf>' \
+      "<url>${MAVEN_MIRROR}</url>" \
+      '</mirror></mirrors></settings>' \
+      > /root/.m2/settings.xml
+
 # 先只拷 pom 拉依赖，源码变动时可复用这一层缓存
 COPY pom.xml .
 RUN mvn -B -q dependency:go-offline

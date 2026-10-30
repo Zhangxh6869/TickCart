@@ -14,10 +14,15 @@
 ARG REGISTRY=
 FROM ${REGISTRY}node:20-alpine AS build
 
-# package.json 的 packageManager 钉的是 pnpm@12.9.1，corepack 按它下载。
-# 若该版本不可用，改下面的 ARG 即可，不要动 package.json（会影响本地开发）。
+# 包源镜像：pnpm 的平台二进制与依赖包都从这里拉。
+# 直连 registry.npmjs.org 实测 900s 后 abort，必须换国内源。
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+ENV npm_config_registry=${NPM_REGISTRY}
+
+# 刻意不用 corepack：`corepack prepare` 只装 shim，真正执行 pnpm 时才去下载
+# linux-x64 平台二进制，那一步会超时。npm 全局安装一次装齐，不走 corepack 的下载链路。
 ARG PNPM_VERSION=12.9.1
-RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+RUN npm install -g pnpm@${PNPM_VERSION} && pnpm --version
 
 WORKDIR /app
 
