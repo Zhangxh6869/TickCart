@@ -627,6 +627,55 @@ class RefundServiceTest {
         verify(orderService, never()).restoreStock(any());
     }
 
+    // ---------------- 退货超时自动关闭 ----------------
+
+    @Test
+    @DisplayName("退货超时：置已拒绝、释放 active_key、订单回退到申请前状态")
+    void closeReturnTimeoutReleasesActiveKeyAndRollsBack() {
+        when(refundRecordMapper.selectOne(any()))
+                .thenReturn(returnRefund(RefundStatus.WAIT_RETURN.getCode(),
+                        OrderStatus.COMPLETED.getCode()));
+        when(refundRecordMapper.update(ArgumentMatchers.<RefundRecord>isNull(), any())).thenReturn(1);
+
+        assertThat(refundService.closeReturnTimeout(REFUND_NO)).isTrue();
+
+        String sqlSet = captureRefundUpdate().getSqlSet();
+        assertThat(sqlSet).contains("active_key = NULL");
+        assertThat(sqlSet).contains("audit_remark");
+        // ★ 不写 audit_time：那是「商家审核时间」，被系统改写会让售后时效失去依据
+        assertThat(sqlSet).doesNotContain("audit_time");
+        verify(orderService).rollbackRefund(ORDER_NO, OrderStatus.COMPLETED.getCode());
+        // 货从没寄出，库存与销量都不该动
+        verify(orderService, never()).restoreStock(any());
+        verify(orderService, never()).reverseSales(any());
+    }
+
+    @Test
+    @DisplayName("退货超时：用户刚提交物流单号（已转待收货）时安全跳过，不回退订单")
+    void closeReturnTimeoutSkipsWhenTrackingSubmitted() {
+        when(refundRecordMapper.selectOne(any()))
+                .thenReturn(returnRefund(RefundStatus.WAIT_RECEIVE.getCode(),
+                        OrderStatus.COMPLETED.getCode()));
+
+        assertThat(refundService.closeReturnTimeout(REFUND_NO)).isFalse();
+
+        verify(refundRecordMapper, never()).update(any(), any());
+        verify(orderService, never()).rollbackRefund(any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("退货超时：并发抢不到条件更新时返回 false 而不抛异常（定时任务不该被竞态打断）")
+    void closeReturnTimeoutReturnsFalseOnLostRace() {
+        when(refundRecordMapper.selectOne(any()))
+                .thenReturn(returnRefund(RefundStatus.WAIT_RETURN.getCode(),
+                        OrderStatus.COMPLETED.getCode()));
+        when(refundRecordMapper.update(ArgumentMatchers.<RefundRecord>isNull(), any())).thenReturn(0);
+
+        assertThat(refundService.closeReturnTimeout(REFUND_NO)).isFalse();
+
+        verify(orderService, never()).rollbackRefund(any(), anyInt());
+    }
+
     // ---------------- 查询 ----------------
 
     @Test

@@ -196,6 +196,18 @@ tickcart:
     # 退货收货地址：商家同意「退货退款」后随退款单展示给用户，用户按此寄回。
     # 只有一个地址，做成配置比新建一张表省 —— 真要多仓再抽表。
     return-address: ${REFUND_RETURN_ADDRESS:浙江省杭州市余杭区文一西路 969 号 TickCart 售后仓（收） 0571-88888888}
+    # 退货超时自动关闭：商家同意退货后用户一直不寄货，订单会永久卡在「退款中」
+    # （既不能发货也不能退款，商家不手动处理就没有出口）。超过下面这个时长
+    # 由 RefundReturnTimeoutTask 自动关闭退货：退款单置「已拒绝」+ 订单回退到申请前状态。
+    # 从「同意退货」的时刻起算（audit_time），不是从用户提交申请起算。
+    # 只覆盖「待寄回」；「待收货」需要物流轨迹才能判断，本项目不做物流对接，仍由商家处理。
+    return-timeout-hours: ${REFUND_RETURN_TIMEOUT_HOURS:168}
+    # 扫描间隔（毫秒），默认 10 分钟：超时是「天」级别的量，扫太勤没有意义
+    return-timeout-scan-interval-ms: ${REFUND_RETURN_TIMEOUT_SCAN_INTERVAL_MS:600000}
+    # 单次扫描上限
+    return-timeout-batch-size: ${REFUND_RETURN_TIMEOUT_BATCH_SIZE:100}
+    # 开关：排障或演示时可临时关掉
+    return-timeout-enabled: ${REFUND_RETURN_TIMEOUT_ENABLED:true}
   # 下单幂等（A1）：同一 (scene, user_id, 幂等键) 只成一次单
   idempotent:
     # 幂等记录保留时长（小时）：保留期内重复提交回放首次结果，过期后由定时任务清理

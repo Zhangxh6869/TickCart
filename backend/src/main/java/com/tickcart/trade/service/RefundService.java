@@ -60,6 +60,15 @@ public class RefundService {
 
     private static final DateTimeFormatter REFUND_NO_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
+    /**
+     * 退货超时自动关闭时写入的审核意见。
+     *
+     * <p>固定文案同时充当「这条是系统关的」的标记 —— 有了它就不必为区分人工/自动
+     * 再新增一列（也就没有迁移）。前端售后详情直接展示 {@code auditRemark}，
+     * 用户能看到关闭原因。</p>
+     */
+    public static final String AUTO_CLOSE_REMARK = "超时未寄回退货，系统已自动关闭本次售后";
+
     private final RefundRecordMapper refundRecordMapper;
     private final PaymentRecordMapper paymentRecordMapper;
     private final OrderService orderService;
@@ -392,18 +401,79 @@ public class RefundService {
             throw BizException.conflict("退款单当前为「" + status.getLabel() + "」，无法拒绝");
         }
 
-        int affected = refundRecordMapper.update(null, new LambdaUpdateWrapper<RefundRecord>()
-                .eq(RefundRecord::getId, record.getId())
-                .eq(RefundRecord::getStatus, status.getCode())
-                .set(RefundRecord::getStatus, RefundStatus.REJECTED.getCode())
-                .set(RefundRecord::getAuditRemark, auditRemark)
-                .set(RefundRecord::getAuditTime, LocalDateTime.now())
-                .setSql("active_key = NULL"));
-        if (affected == 0) {
+        if (!closeAsRejected(record, status, auditRemark, true)) {
             throw BizException.conflict("退款申请已被处理，请刷新后重试");
         }
+    }
+
+    /**
+     * 退货超时自动关闭：用户同意退货后一直不寄货，到期由定时任务调用。
+     *
+     * <p><b>为什么必须有它</b>：「待寄回」不是终态，{@code active_key} 一直占着订单号。
+     * 没有自动关闭，用户既不来寄货也不来撤销，订单会<b>永久卡在「退款中」</b> ——
+     * 既发不了货也退不了款，只能等商家手动点「关闭退货」。人工兜底不该是唯一出口。</p>
+     *
+     * <p><b>关闭后订单回到哪</b>：{@code origin_status}（申请退款前的状态，通常是「已完成」
+     * 或「待收货」）。货从没寄出，所以<b>不动库存、不动销量</b> —— 与「拒绝退款」完全一致，
+     * 因此直接复用同一条落库路径。</p>
+     *
+     * <p><b>为什么返回 boolean 而不是抛异常</b>：调用方是定时任务，这里所有「没关成」的情况
+     * 都是正常竞态 —— 用户刚好寄出（→待收货）、刚好撤销、商家刚好手动关闭。对任务而言
+     * 这些都不是错误，记一条日志跳过即可；真出错（数据库挂了）由 Mapper 抛异常，任务侧兜。</p>
+     *
+     * <p>★ 不写 {@code audit_time}：那是「商家审核时间」，被系统改写会让售后时效失去依据。
+     * 自动关闭只体现在 {@code audit_remark} 的固定文案上（{@link #AUTO_CLOSE_REMARK}），
+     * 所以<b>不需要新增列或迁移</b>。</p>
+     *
+     * @param refundNo 退款单号
+     * @return 是否真的关闭了（false = 状态已变，本次跳过）
+     */
+    @Transactional
+    public boolean closeReturnTimeout(String refundNo) {
+        RefundRecord record = loadByRefundNo(refundNo);
+        RefundStatus status = RefundStatus.of(record.getStatus());
+        if (status != RefundStatus.WAIT_RETURN) {
+            log.info("退货单已不在「待寄回」，跳过超时关闭：refundNo={}, status={}",
+                    refundNo, status.getLabel());
+            return false;
+        }
+        boolean closed = closeAsRejected(record, status, AUTO_CLOSE_REMARK, false);
+        if (closed) {
+            log.info("退货超时未寄回，已自动关闭：refundNo={}, orderNo={}", refundNo, record.getOrderNo());
+        }
+        return closed;
+    }
+
+    /**
+     * 「置已拒绝 + 回退订单」的唯一落库路径，人工拒绝与超时自动关闭共用。
+     *
+     * <p>幂等靠条件 UPDATE（{@code WHERE status = 当前状态}）：抢到的那一次才回退订单，
+     * 与用户「刚提交物流单号」并发时只有一个能成功。</p>
+     *
+     * @param from          期望的当前状态（作为 UPDATE 条件，防并发）
+     * @param remark        审核意见
+     * @param touchAuditTime 是否同时更新「审核时间」：人工拒绝要，系统自动关闭不要
+     * @return 是否抢到（false = 状态已被别人改掉）
+     */
+    private boolean closeAsRejected(RefundRecord record, RefundStatus from,
+                                    String remark, boolean touchAuditTime) {
+        LambdaUpdateWrapper<RefundRecord> update = new LambdaUpdateWrapper<RefundRecord>()
+                .eq(RefundRecord::getId, record.getId())
+                .eq(RefundRecord::getStatus, from.getCode())
+                .set(RefundRecord::getStatus, RefundStatus.REJECTED.getCode())
+                .set(RefundRecord::getAuditRemark, remark)
+                // ★ 必须显式写 NULL：updateById 写不进 null，不释放唯一键就再也申请不了
+                .setSql("active_key = NULL");
+        if (touchAuditTime) {
+            update.set(RefundRecord::getAuditTime, LocalDateTime.now());
+        }
+        if (refundRecordMapper.update(null, update) == 0) {
+            return false;
+        }
         orderService.rollbackRefund(record.getOrderNo(), record.getOriginStatus());
-        log.info("退款申请已拒绝：refundNo={}, orderNo={}", refundNo, record.getOrderNo());
+        log.info("退款申请已关闭（{}）：refundNo={}, orderNo={}",
+                touchAuditTime ? "人工拒绝" : "超时未寄回", record.getRefundNo(), record.getOrderNo());
+        return true;
     }
 
     /**
