@@ -110,7 +110,7 @@ pnpm dev:admin      # 后台 → http://localhost:5174（另开一个终端）
 
 ```bash
 cp .env.example .env            # 至少改掉 JWT_SECRET
-docker compose up -d --build    # 首次约 5~8 分钟
+docker compose up -d --build    # 首次要拉基础镜像 + 依赖，视网络约 10~30 分钟
 docker compose ps               # 5 个服务全部 healthy 后即可访问
 ```
 
