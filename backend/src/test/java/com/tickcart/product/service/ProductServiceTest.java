@@ -348,6 +348,77 @@ class ProductServiceTest {
     }
 
     @Test
+    @DisplayName("详情库存现读：缓存里的旧库存被数据库覆盖")
+    void detailStockIsReadFresh() {
+        Product cachedProduct = new Product();
+        cachedProduct.setId(1L);
+        cachedProduct.setStock(99);
+        ProductSku cachedSku = new ProductSku();
+        cachedSku.setId(11L);
+        cachedSku.setProductId(1L);
+        cachedSku.setStock(99);
+        // 缓存命中：返回一份 60 秒前的快照（库存 99）
+        when(cacheService.get(anyString(), anyLong(), eq(ProductDetail.class), any()))
+                .thenReturn(ProductDetail.from(cachedProduct, List.of(cachedSku), List.of()));
+
+        // 数据库里已经卖掉 94 件
+        ProductSku freshSku = new ProductSku();
+        freshSku.setId(11L);
+        freshSku.setStock(5);
+        when(skuMapper.selectList(any())).thenReturn(List.of(freshSku));
+
+        ProductDetail detail = productService.detail(1L);
+
+        assertThat(detail.getSkus().get(0).getStock()).isEqualTo(5);
+        // 商品汇总是 SKU 合计，同样不能是缓存里的 99
+        assertThat(detail.getStock()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("无规格商品的详情库存也现读商品表")
+    void detailStockIsFreshWithoutSku() {
+        Product cachedProduct = new Product();
+        cachedProduct.setId(2L);
+        cachedProduct.setStock(99);
+        when(cacheService.get(anyString(), anyLong(), eq(ProductDetail.class), any()))
+                .thenReturn(ProductDetail.from(cachedProduct, List.of(), List.of()));
+
+        Product freshProduct = new Product();
+        freshProduct.setStock(3);
+        when(productMapper.selectOne(any())).thenReturn(freshProduct);
+
+        ProductDetail detail = productService.detail(2L);
+
+        assertThat(detail.getStock()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("进缓存的那一份不带库存，避免缓存里留着会过期的数字")
+    void cachedDetailCarriesNoStock() {
+        Product p = new Product();
+        p.setId(1L);
+        p.setCategoryId(1L);
+        p.setStock(99);
+        when(productMapper.selectById(1L)).thenReturn(p);
+        ProductSku s = new ProductSku();
+        s.setId(1L);
+        s.setProductId(1L);
+        s.setStock(99);
+        when(skuMapper.selectList(any())).thenReturn(List.of(s));
+        when(imageMapper.selectList(any())).thenReturn(List.of());
+
+        when(cacheService.get(anyString(), anyLong(), eq(ProductDetail.class), any()))
+                .thenAnswer(inv -> {
+                    ProductDetail toCache = ((Supplier<ProductDetail>) inv.getArgument(3)).get();
+                    assertThat(toCache.getStock()).isZero();
+                    assertThat(toCache.getSkus()).allSatisfy(sku -> assertThat(sku.getStock()).isZero());
+                    return toCache;
+                });
+
+        productService.detail(1L);
+    }
+
+    @Test
     @DisplayName("非法状态值被拒绝")
     void changeStatusInvalid() {
         assertThatThrownBy(() -> productService.changeStatus(1L, 5))

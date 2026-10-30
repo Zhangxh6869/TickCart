@@ -122,6 +122,13 @@ public class ProductDetail {
         return stock;
     }
 
+    /**
+     * 覆盖库存。缓存里这一项恒为 0，读到后由 {@code ProductService#detail} 现读覆盖。
+     */
+    public void setStock(Integer stock) {
+        this.stock = stock;
+    }
+
     public Integer getSales() {
         return sales;
     }

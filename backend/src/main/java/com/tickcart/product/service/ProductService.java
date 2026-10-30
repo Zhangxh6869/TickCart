@@ -332,19 +332,32 @@ public class ProductService {
     /**
      * 商品详情（含 SKU、图集、分类名）。
      *
-     * <p>走读缓存：一次详情原本要打 4 条 SQL（product / product_sku / product_image / category），
-     * 命中后为 0 条。库存也在缓存里，允许 TTL 内的短暂陈旧 —— 权威校验在下单时的
-     * 条件 UPDATE（{@code WHERE stock >= n}），详情页只做展示。</p>
+     * <p><b>缓存只放静态信息，库存每次现读</b>：一次详情原本要打 4 条 SQL
+     * （product / product_sku / product_image / category），命中后 0 条。
+     * 但库存是唯一会随下单、取消、退款变动的字段，把它放进缓存就会出现
+     * 「卖完了还显示有货」和「退款回补后仍显示已售罄」—— 而详情页正是拿它
+     * 决定规格卡是否禁用、底部按钮是否可点（见 {@code ProductDetailView}），
+     * 不是纯展示字段。</p>
+     *
+     * <p>所以缓存里的 {@code stock} 与 {@code skus[].stock} 一律置 0 占位，
+     * 读到后必然被 {@link #applyFreshStock} 覆盖。代价是每次详情多 1 条 SQL
+     * （只取库存一列，走主键/索引）；换来的是库存不需要在每条写路径上「记得失效缓存」——
+     * 少一类「漏调一次就静默陈旧 60 秒」的缺陷。反例就在隔壁：
+     * {@code InventoryService} 的扣减/回补不失效详情缓存，正是本次改动的起因。</p>
+     *
+     * <p><b>销量仍走缓存</b>：它同样会变（退款会回退销量），但不影响「能不能买」，
+     * TTL 内的陈旧可以接受。</p>
      */
     public ProductDetail detail(Long id) {
         ProductDetail detail = cacheService.get(
                 CacheKeys.productDetail(id),
                 cacheProperties.getProductDetailTtlSeconds(),
                 ProductDetail.class,
-                () -> loadDetail(id));
+                () -> withoutStock(loadDetail(id)));
         if (detail == null) {
             throw BizException.notFound("商品不存在");
         }
+        applyFreshStock(detail);
         return detail;
     }
 
@@ -383,6 +396,61 @@ public class ProductService {
             detail.setCategoryName(category.getName());
         }
         return detail;
+    }
+
+    /**
+     * 抹掉库存，得到「可以进缓存的那一份」。
+     *
+     * <p>置 0 而不是保留原值：缓存里一旦留着库存，将来任何一处直接读缓存对象都会拿到旧值。
+     * 置 0 的方向也是安全的 —— 万一覆盖逻辑失效，页面显示「已售罄」而不是「有货」，
+     * 不会让人点了下单才发现没货。</p>
+     *
+     * <p>{@code null} 原样返回：{@link CacheService} 靠 loader 返回 null 来写空值标记
+     * （防穿透），这里若把 null 包成一个对象，商品不存在就会被缓存成 60 秒的「空详情」。</p>
+     */
+    private static ProductDetail withoutStock(ProductDetail detail) {
+        if (detail == null) {
+            return null;
+        }
+        detail.setStock(0);
+        if (detail.getSkus() != null) {
+            for (ProductSku sku : detail.getSkus()) {
+                sku.setStock(0);
+            }
+        }
+        return detail;
+    }
+
+    /**
+     * 现读库存并覆盖到详情上 —— 每次 {@link #detail} 调用都会执行。
+     *
+     * <p>有规格读 {@code product_sku.stock}（真账），无规格读 {@code product.stock}；
+     * 有规格时商品汇总按 SKU 合计重算，与「SKU 是真账、product.stock 是派生汇总」的口径一致。</p>
+     *
+     * <p>查不到的库存按 0 处理（SKU 刚被删、商品刚被删）：宁可显示售罄，也不要凭空显示有货。</p>
+     */
+    private void applyFreshStock(ProductDetail detail) {
+        List<ProductSku> skus = detail.getSkus();
+        if (skus == null || skus.isEmpty()) {
+            Product fresh = productMapper.selectOne(new LambdaQueryWrapper<Product>()
+                    .select(Product::getStock)
+                    .eq(Product::getId, detail.getId()));
+            detail.setStock(fresh == null || fresh.getStock() == null ? 0 : fresh.getStock());
+            return;
+        }
+        Map<Long, Integer> stockById = skuMapper.selectList(new LambdaQueryWrapper<ProductSku>()
+                        .select(ProductSku::getId, ProductSku::getStock)
+                        .eq(ProductSku::getProductId, detail.getId()))
+                .stream()
+                .collect(Collectors.toMap(ProductSku::getId,
+                        sku -> sku.getStock() == null ? 0 : sku.getStock()));
+        int total = 0;
+        for (ProductSku sku : skus) {
+            int stock = stockById.getOrDefault(sku.getId(), 0);
+            sku.setStock(stock);
+            total += stock;
+        }
+        detail.setStock(total);
     }
 
     /** 新增商品（含 SKU 与图集）。 */
