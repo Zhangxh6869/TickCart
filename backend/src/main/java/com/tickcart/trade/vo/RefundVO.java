@@ -53,6 +53,26 @@ public class RefundVO {
     @Schema(description = "退款完成时间")
     private LocalDateTime refundTime;
 
+    // ---- 退货退款（type=3）专用 ----
+
+    @Schema(description = "退货收货地址；仅「待寄回」时下发，用户按此寄回")
+    private String returnAddress;
+
+    @Schema(description = "退货快递公司")
+    private String returnCompany;
+
+    @Schema(description = "退货物流单号")
+    private String returnTrackingNo;
+
+    @Schema(description = "用户寄出时间")
+    private LocalDateTime returnTime;
+
+    @Schema(description = "商家确认收到退货的时间")
+    private LocalDateTime receiveTime;
+
+    @Schema(description = "验收备注")
+    private String receiveRemark;
+
     public String getRefundNo() {
         return refundNo;
     }
@@ -163,5 +183,53 @@ public class RefundVO {
 
     public void setRefundTime(LocalDateTime refundTime) {
         this.refundTime = refundTime;
+    }
+
+    public String getReturnAddress() {
+        return returnAddress;
+    }
+
+    public void setReturnAddress(String returnAddress) {
+        this.returnAddress = returnAddress;
+    }
+
+    public String getReturnCompany() {
+        return returnCompany;
+    }
+
+    public void setReturnCompany(String returnCompany) {
+        this.returnCompany = returnCompany;
+    }
+
+    public String getReturnTrackingNo() {
+        return returnTrackingNo;
+    }
+
+    public void setReturnTrackingNo(String returnTrackingNo) {
+        this.returnTrackingNo = returnTrackingNo;
+    }
+
+    public LocalDateTime getReturnTime() {
+        return returnTime;
+    }
+
+    public void setReturnTime(LocalDateTime returnTime) {
+        this.returnTime = returnTime;
+    }
+
+    public LocalDateTime getReceiveTime() {
+        return receiveTime;
+    }
+
+    public void setReceiveTime(LocalDateTime receiveTime) {
+        this.receiveTime = receiveTime;
+    }
+
+    public String getReceiveRemark() {
+        return receiveRemark;
+    }
+
+    public void setReceiveRemark(String receiveRemark) {
+        this.receiveRemark = receiveRemark;
     }
 }

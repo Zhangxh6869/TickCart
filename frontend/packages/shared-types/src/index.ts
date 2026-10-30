@@ -212,8 +212,12 @@ export interface CartAddRequest {
 /** 订单状态码：0待付款 1待发货 2待收货 3已完成 4已取消 5已超时关闭 6退款中 7已退款 */
 export type OrderStatusValue = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7
 
-/** 退款单状态：0待审核 1已退款 2已拒绝 3已撤销 */
-export type RefundStatusValue = 0 | 1 | 2 | 3
+/**
+ * 退款单状态：0待审核 1已退款 2已拒绝 3已撤销 4待寄回 5待收货
+ *
+ * ★ 4/5 不是终态：退货退款同意后还要用户寄货、商家验收，这期间退款没结束。
+ */
+export type RefundStatusValue = 0 | 1 | 2 | 3 | 4 | 5
 
 /** 退款单（订单详情里挂的最新一条）。 */
 export interface RefundSummary {
@@ -234,6 +238,18 @@ export interface RefundSummary {
   createdAt: string
   auditTime?: string | null
   refundTime?: string | null
+  /** 退货收货地址；仅「待寄回」时后端下发，用户按此寄回 */
+  returnAddress?: string | null
+  /** 退货快递公司 */
+  returnCompany?: string | null
+  /** 退货物流单号 */
+  returnTrackingNo?: string | null
+  /** 用户寄出时间 */
+  returnTime?: string | null
+  /** 商家确认收到退货的时间 */
+  receiveTime?: string | null
+  /** 验收备注 */
+  receiveRemark?: string | null
 }
 
 /** 订单明细项（下单时的快照）。 */

@@ -8,6 +8,7 @@ import com.tickcart.trade.dto.OrderBuyNowRequest;
 import com.tickcart.trade.dto.OrderCreateRequest;
 import com.tickcart.trade.dto.OrderQuery;
 import com.tickcart.trade.dto.RefundApplyRequest;
+import com.tickcart.trade.dto.RefundTrackingRequest;
 import com.tickcart.trade.service.OrderService;
 import com.tickcart.trade.service.RefundService;
 import com.tickcart.trade.vo.OrderCountVO;
@@ -116,10 +117,19 @@ public class OrderController {
         return R.ok(refundService.apply(currentUserId(), orderNo, req));
     }
 
-    @Operation(summary = "撤销退款申请", description = "仅「待审核」可撤销，撤销后订单回到申请前的状态")
+    @Operation(summary = "撤销退款申请", description = "待审核 / 待寄回可撤销，撤销后订单回到申请前的状态")
     @PutMapping("/{orderNo}/refund/cancel")
     public R<Void> cancelRefund(@PathVariable String orderNo) {
         refundService.cancelApply(currentUserId(), orderNo);
+        return R.ok();
+    }
+
+    @Operation(summary = "提交退货物流单号",
+            description = "仅退货退款（已完成订单发起）需要；状态从「待寄回」变为「待收货」")
+    @PutMapping("/{orderNo}/refund/tracking")
+    public R<Void> submitRefundTracking(@PathVariable String orderNo,
+                                        @Valid @RequestBody RefundTrackingRequest req) {
+        refundService.submitTracking(currentUserId(), orderNo, req.getCompany(), req.getTrackingNo());
         return R.ok();
     }
 

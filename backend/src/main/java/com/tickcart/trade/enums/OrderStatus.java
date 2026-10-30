@@ -17,26 +17,26 @@ import java.util.Set;
  *
  * <pre>
  *   0 待付款 ──支付──▶ 1 待发货 ──发货──▶ 2 待收货 ──确认收货──▶ 3 已完成
- *      │                 │                  │
- *      │                 └──────申请退款─────┘
+ *      │                 │                  │                    │
+ *      │                 └──────申请退款─────┴────────────────────┘
  *      │                          │
  *      │                          ▼
- *      │                     6 退款中 ──同意退款──▶ 7 已退款
+ *      │                     6 退款中 ──退款完成──▶ 7 已退款
  *      │                          │
- *      │                          └──拒绝/撤销──▶ 回到 1 或 2
+ *      │                          └──拒绝/撤销──▶ 回到 1 / 2 / 3
  *      │
  *      ├──用户取消──▶ 4 已取消
  *      └──超时未付──▶ 5 已超时关闭
  * </pre>
  *
  * <p><b>关于 6 / 7 与「回退边」</b>：退款中是个中转态，审核结果有三种 ——
- * 同意则进 7（终态），拒绝或用户撤销则**回到申请前的状态**。因此
- * {@code REFUNDING} 的出边里保留了 1 与 2，它们是「回退边」而非正常流转。
+ * 完成则进 7（终态），拒绝或用户撤销则**回到申请前的状态**。因此
+ * {@code REFUNDING} 的出边里保留了 1 / 2 / 3，它们是「回退边」而非正常流转。
  * 回退目标不写死，由 {@code refund_record.origin_status} 决定。</p>
  *
- * <p>★ <b>退款入口</b>：1 待发货（P0 未发货退款）、2 待收货（P1 仅退款）。
- * P2（已完成退货退款）需要再加 {@code COMPLETED → REFUNDING} 与
- * {@code REFUNDING → COMPLETED}。</p>
+ * <p>★ <b>退款入口</b>：1 待发货（未发货退款）、2 待收货（仅退款）、3 已完成（退货退款）。
+ * 因此 <b>「已完成」不是终态</b>（{@link #isFinal()} 为 false）——
+ * 售后是它唯一还能走的出口。</p>
  */
 public enum OrderStatus {
 
@@ -81,17 +81,18 @@ public enum OrderStatus {
 
     static {
         TRANSITIONS.put(PENDING_PAYMENT, EnumSet.of(PENDING_SHIPMENT, CANCELLED, TIMEOUT_CLOSED));
-        // 退款入口：待发货（P0 未发货退款）、待收货（P1 仅退款）。
-        // 已完成（P2 退货退款）的入口边留到 P2 再加 —— 一旦 COMPLETED 有出边，
-        // 它就不再是 isFinal()，语义会被悄悄改掉。
+        // 退款入口：待发货（P0 未发货退款）、待收货（P1 仅退款）、已完成（P2 退货退款）
         TRANSITIONS.put(PENDING_SHIPMENT, EnumSet.of(PENDING_RECEIPT, REFUNDING));
         TRANSITIONS.put(PENDING_RECEIPT, EnumSet.of(COMPLETED, REFUNDING));
-        TRANSITIONS.put(COMPLETED, Collections.emptySet());
+        // ★ P2 起「已完成」不再是绝对终态：还能发起退货退款，所以 isFinal() 变 false。
+        //   这不是妥协 —— 加了售后之后它确实可以流转。
+        TRANSITIONS.put(COMPLETED, EnumSet.of(REFUNDING));
         TRANSITIONS.put(CANCELLED, Collections.emptySet());
         TRANSITIONS.put(TIMEOUT_CLOSED, Collections.emptySet());
-        // 1 / 2 是「回退边」：拒绝退款或用户撤销时回到申请前的状态。
-        // 回退目标由 refund_record.origin_status 决定，P2 加入口边时在这里补 COMPLETED。
-        TRANSITIONS.put(REFUNDING, EnumSet.of(REFUNDED, PENDING_SHIPMENT, PENDING_RECEIPT));
+        // 1 / 2 / 3 是「回退边」：拒绝退款或用户撤销时回到申请前的状态。
+        // 回退目标由 refund_record.origin_status 决定。
+        TRANSITIONS.put(REFUNDING, EnumSet.of(REFUNDED, PENDING_SHIPMENT,
+                PENDING_RECEIPT, COMPLETED));
         TRANSITIONS.put(REFUNDED, Collections.emptySet());
     }
 

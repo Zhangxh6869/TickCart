@@ -60,15 +60,26 @@ export function closeOrder(orderNo: string): Promise<void> {
 }
 
 /**
- * 同意退款：置「已退款」→ 回补库存 → 回退销量。
+ * 同意退款申请。
  *
- * 重复提交按幂等处理（后端只在抢到状态流转时回补一次），不会把库存补成两倍。
+ * ★ 结果取决于退款类型：未发货退款 / 仅退款直接置「已退款」并回补库存；
+ * 退货退款只置「待寄回」，等用户寄货、商家验收后才退款。
+ * 重复提交按幂等处理，不会把库存补成两倍。
  */
 export function approveRefund(refundNo: string): Promise<void> {
   return request.post(`/admin/refunds/${refundNo}/approve`)
 }
 
-/** 拒绝退款：原因必填，会展示给用户；订单回退到申请前的状态。 */
+/**
+ * 确认收到退货（仅退货退款、且状态为「待收货」）。
+ *
+ * 这是这批货的库存唯一被加回来的时点 —— 货没回来之前不能加。
+ */
+export function receiveRefund(refundNo: string, receiveRemark?: string): Promise<void> {
+  return request.post(`/admin/refunds/${refundNo}/receive`, { receiveRemark })
+}
+
+/** 拒绝退款 / 关闭退货：原因必填，会展示给用户；订单回退到申请前的状态。 */
 export function rejectRefund(refundNo: string, auditRemark: string): Promise<void> {
   return request.post(`/admin/refunds/${refundNo}/reject`, { auditRemark })
 }

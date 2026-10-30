@@ -15,6 +15,7 @@ import com.tickcart.trade.mapper.RefundRecordMapper;
 import com.tickcart.trade.vo.RefundVO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,12 +64,22 @@ public class RefundService {
     private final PaymentRecordMapper paymentRecordMapper;
     private final OrderService orderService;
 
+    /**
+     * 退货收货地址：商家同意「退货退款」后随退款单展示给用户。
+     *
+     * <p>做成配置而不是建表 —— 只有一个地址，多一张表只会多一次查询。
+     * 空值时不下发，前端据此隐藏「寄回地址」区块。</p>
+     */
+    private final String returnAddress;
+
     public RefundService(RefundRecordMapper refundRecordMapper,
                          PaymentRecordMapper paymentRecordMapper,
-                         OrderService orderService) {
+                         OrderService orderService,
+                         @Value("${tickcart.refund.return-address:}") String returnAddress) {
         this.refundRecordMapper = refundRecordMapper;
         this.paymentRecordMapper = paymentRecordMapper;
         this.orderService = orderService;
+        this.returnAddress = returnAddress;
     }
 
     // =========================================================================
@@ -132,21 +143,24 @@ public class RefundService {
     /**
      * 订单状态 → 退款类型；返回 0 表示该状态不支持申请退款。
      *
-     * <p><b>类型必须由后端按订单状态判定，不能让前端传</b>：它决定「同意退款时
-     * 库存怎么处理」—— 未发货要回补、仅退款不能回补。让客户端决定等于把库存账交出去。</p>
+     * <p><b>类型必须由后端按订单状态判定，不能让前端传</b>：它决定「退款完成时
+     * 库存怎么处理」—— 未发货要回补、仅退款不能回补、退货退款要等验收才回补。
+     * 让客户端决定等于把库存账交出去。</p>
      */
     private static int refundTypeOf(OrderStatus status) {
         return switch (status) {
             case PENDING_SHIPMENT -> RefundRecord.TYPE_UNSHIPPED;
             case PENDING_RECEIPT -> RefundRecord.TYPE_REFUND_ONLY;
+            case COMPLETED -> RefundRecord.TYPE_RETURN_GOODS;
             default -> 0;
         };
     }
 
     /**
-     * 用户撤销退款申请（仅待审核可撤销）。
+     * 用户撤销退款申请（待审核 / 待寄回可撤销）。
      *
-     * <p>撤销后订单回到申请前的状态，用户可以继续等发货。</p>
+     * <p>撤销后订单回到申请前的状态。★ <b>货已寄出（待收货）之后不允许撤销</b>：
+     * 那批货已经在路上，撤了退款单，货和钱就都悬空了 —— 此时只能由商家验收或关闭。</p>
      */
     @Transactional
     public void cancelApply(Long userId, String orderNo) {
@@ -156,9 +170,13 @@ public class RefundService {
         if (record == null) {
             throw BizException.notFound("该订单没有进行中的退款申请");
         }
+        RefundStatus status = RefundStatus.of(record.getStatus());
+        if (!cancellable(status)) {
+            throw BizException.conflict("退款单当前为「" + status.getLabel() + "」，无法撤销");
+        }
         int affected = refundRecordMapper.update(null, new LambdaUpdateWrapper<RefundRecord>()
                 .eq(RefundRecord::getId, record.getId())
-                .eq(RefundRecord::getStatus, RefundStatus.PENDING_AUDIT.getCode())
+                .eq(RefundRecord::getStatus, status.getCode())
                 .set(RefundRecord::getStatus, RefundStatus.CANCELLED.getCode())
                 .set(RefundRecord::getAuditTime, LocalDateTime.now())
                 // ★ 释放唯一键。必须用 setSql 显式写 NULL —— updateById 写不进 null
@@ -170,12 +188,58 @@ public class RefundService {
         log.info("退款申请已撤销：orderNo={}, refundNo={}", orderNo, record.getRefundNo());
     }
 
+    /** 可撤销的状态：还没寄货之前都能撤。已寄出之后再撤，货就悬空了。 */
+    private static boolean cancellable(RefundStatus status) {
+        return status == RefundStatus.PENDING_AUDIT || status == RefundStatus.WAIT_RETURN;
+    }
+
+    /**
+     * 提交退货物流单号（待寄回 → 待收货）。
+     *
+     * <p>只有退货退款（type=3）需要寄回商品；未发货退款与仅退款没有这一步。</p>
+     *
+     * @param company    快递公司（可选）
+     * @param trackingNo 物流单号（必填）
+     * @throws BizException 没有进行中的申请、不是退货退款、状态不在「待寄回」
+     */
+    @Transactional
+    public void submitTracking(Long userId, String orderNo, String company, String trackingNo) {
+        orderService.getOwned(userId, orderNo);
+
+        RefundRecord record = findActive(orderNo);
+        if (record == null) {
+            throw BizException.notFound("该订单没有进行中的退款申请");
+        }
+        if (!Integer.valueOf(RefundRecord.TYPE_RETURN_GOODS).equals(record.getType())) {
+            throw BizException.conflict("该退款单不需要寄回商品");
+        }
+        int affected = refundRecordMapper.update(null, new LambdaUpdateWrapper<RefundRecord>()
+                .eq(RefundRecord::getId, record.getId())
+                .eq(RefundRecord::getStatus, RefundStatus.WAIT_RETURN.getCode())
+                .set(RefundRecord::getStatus, RefundStatus.WAIT_RECEIVE.getCode())
+                .set(RefundRecord::getReturnCompany, company)
+                .set(RefundRecord::getReturnTrackingNo, trackingNo)
+                .set(RefundRecord::getReturnTime, LocalDateTime.now()));
+        if (affected == 0) {
+            throw BizException.conflict("退款单当前不在「待寄回」状态，无法提交物流单号");
+        }
+        // ★ 不清 active_key：货还在路上，退款没结束
+        log.info("退货物流已提交：orderNo={}, refundNo={}, trackingNo={}",
+                orderNo, record.getRefundNo(), trackingNo);
+    }
+
     // =========================================================================
     // 后台
     // =========================================================================
 
     /**
-     * 同意退款：置「已退款」→ 回补库存 → 回退销量。
+     * 同意退款申请。
+     *
+     * <p><b>★ 结果取决于退款类型</b>：</p>
+     * <ul>
+     *   <li>未发货退款 / 仅退款（type=1/2）：同意即完成 —— 置「已退款」、按类型处理库存、回退销量</li>
+     *   <li>退货退款（type=3）：同意只是**开始退货流程** —— 置「待寄回」，库存与销量都还不能动</li>
+     * </ul>
      *
      * <p>库存回补只在抢到订单状态流转时执行一次，所以重复点「同意」不会把库存补成两倍。</p>
      *
@@ -185,13 +249,21 @@ public class RefundService {
     public void approve(String refundNo) {
         RefundRecord record = loadByRefundNo(refundNo);
         RefundStatus status = RefundStatus.of(record.getStatus());
-        if (status == RefundStatus.REFUNDED) {
-            // 幂等：管理员连点、网络重试都会到这里
-            log.info("退款单已是已退款状态，跳过：{}", refundNo);
+        boolean returnGoods = Integer.valueOf(RefundRecord.TYPE_RETURN_GOODS).equals(record.getType());
+
+        // 幂等：管理员连点、网络重试都会到这里
+        if (status == RefundStatus.REFUNDED
+                || (returnGoods && status == RefundStatus.WAIT_RETURN)) {
+            log.info("退款单已处理过，跳过：refundNo={}, status={}", refundNo, status.getLabel());
             return;
         }
         if (status != RefundStatus.PENDING_AUDIT) {
             throw BizException.conflict("退款单当前为「" + status.getLabel() + "」，无法同意");
+        }
+
+        if (returnGoods) {
+            approveReturnGoods(record);
+            return;
         }
 
         int affected = refundRecordMapper.update(null, new LambdaUpdateWrapper<RefundRecord>()
@@ -210,20 +282,100 @@ public class RefundService {
             throw BizException.conflict("退款申请已被处理，请刷新后重试");
         }
 
+        completeRefund(record);
+    }
+
+    /**
+     * 同意退货退款：置「待寄回」，等用户寄货。
+     *
+     * <p>★ 这一步**不动库存、不动销量、不清 active_key**：退货才刚开始，
+     * 用户可能根本不寄货。提前退款或提前回补库存都会让货凭空消失。</p>
+     */
+    private void approveReturnGoods(RefundRecord record) {
+        int affected = refundRecordMapper.update(null, new LambdaUpdateWrapper<RefundRecord>()
+                .eq(RefundRecord::getId, record.getId())
+                .eq(RefundRecord::getStatus, RefundStatus.PENDING_AUDIT.getCode())
+                .set(RefundRecord::getStatus, RefundStatus.WAIT_RETURN.getCode())
+                .set(RefundRecord::getAuditTime, LocalDateTime.now()));
+        if (affected == 0) {
+            RefundRecord latest = loadByRefundNo(record.getRefundNo());
+            if (RefundStatus.of(latest.getStatus()) == RefundStatus.WAIT_RETURN) {
+                return;
+            }
+            throw BizException.conflict("退款申请已被处理，请刷新后重试");
+        }
+        log.info("退货退款已同意，等待用户寄回：refundNo={}, orderNo={}",
+                record.getRefundNo(), record.getOrderNo());
+    }
+
+    /**
+     * 确认收到退货（待收货 → 已退款），并回补库存、回退销量。
+     *
+     * <p>这是退货退款真正「退完」的那一刻，也是这批货的库存**唯一**被加回来的时点。</p>
+     *
+     * @param receiveRemark 验收备注（可选，如「包装破损，同意退款」）
+     * @throws BizException 退款单不存在、状态不在「待收货」
+     */
+    @Transactional
+    public void receive(String refundNo, String receiveRemark) {
+        RefundRecord record = loadByRefundNo(refundNo);
+        RefundStatus status = RefundStatus.of(record.getStatus());
+        if (status == RefundStatus.REFUNDED) {
+            log.info("退款单已是已退款状态，跳过：{}", refundNo);
+            return;
+        }
+        if (status != RefundStatus.WAIT_RECEIVE) {
+            throw BizException.conflict("退款单当前为「" + status.getLabel() + "」，无法确认收货");
+        }
+
+        int affected = refundRecordMapper.update(null, new LambdaUpdateWrapper<RefundRecord>()
+                .eq(RefundRecord::getId, record.getId())
+                .eq(RefundRecord::getStatus, RefundStatus.WAIT_RECEIVE.getCode())
+                .set(RefundRecord::getStatus, RefundStatus.REFUNDED.getCode())
+                .set(RefundRecord::getReceiveTime, LocalDateTime.now())
+                .set(RefundRecord::getReceiveRemark, receiveRemark)
+                .set(RefundRecord::getRefundTime, LocalDateTime.now())
+                .setSql("active_key = NULL"));
+        if (affected == 0) {
+            RefundRecord latest = loadByRefundNo(refundNo);
+            if (RefundStatus.of(latest.getStatus()) == RefundStatus.REFUNDED) {
+                return;
+            }
+            throw BizException.conflict("退款申请已被处理，请刷新后重试");
+        }
+
+        // ★ 退货入库：货真的回来了，这时才回补库存
         if (orderService.finishRefund(record.getOrderNo())) {
-            applyStockAction(record);
+            orderService.restoreStock(orderService.loadByOrderNo(record.getOrderNo()));
             orderService.reverseSales(record.getOrderNo());
-            log.info("退款完成：refundNo={}, orderNo={}, type={}, amount={}",
-                    refundNo, record.getOrderNo(), record.getType(), record.getAmount());
+            log.info("退货验收通过，库存已回补：refundNo={}, orderNo={}, amount={}",
+                    refundNo, record.getOrderNo(), record.getAmount());
         } else {
-            // 理论上不该发生：退款单是待审核，订单必然在退款中。真出现说明数据被人改过
-            log.warn("退款单已置已退款，但订单不在退款中：refundNo={}, orderNo={}",
+            log.warn("退货单已置已退款，但订单不在退款中：refundNo={}, orderNo={}",
                     refundNo, record.getOrderNo());
         }
     }
 
     /**
-     * 拒绝退款：置「已拒绝」→ 订单回退到申请前的状态。
+     * 退款真正完成：推进订单到「已退款」、按类型处理库存、回退销量。
+     *
+     * <p>未发货退款与仅退款在「同意」时就走到这里；退货退款要等到「确认收货」。</p>
+     */
+    private void completeRefund(RefundRecord record) {
+        if (orderService.finishRefund(record.getOrderNo())) {
+            applyStockAction(record);
+            orderService.reverseSales(record.getOrderNo());
+            log.info("退款完成：refundNo={}, orderNo={}, type={}, amount={}",
+                    record.getRefundNo(), record.getOrderNo(), record.getType(), record.getAmount());
+        } else {
+            // 理论上不该发生：退款单是待审核，订单必然在退款中。真出现说明数据被人改过
+            log.warn("退款单已置已退款，但订单不在退款中：refundNo={}, orderNo={}",
+                    record.getRefundNo(), record.getOrderNo());
+        }
+    }
+
+    /**
+     * 拒绝退款 / 关闭退货：置「已拒绝」→ 订单回退到申请前的状态。
      *
      * @param auditRemark 拒绝原因，必填（由 Controller 的 {@code @NotBlank} 保证）
      * @throws BizException 退款单不存在、已退款/已撤销
@@ -236,13 +388,13 @@ public class RefundService {
             log.info("退款单已是已拒绝状态，跳过：{}", refundNo);
             return;
         }
-        if (status != RefundStatus.PENDING_AUDIT) {
+        if (!rejectable(status)) {
             throw BizException.conflict("退款单当前为「" + status.getLabel() + "」，无法拒绝");
         }
 
         int affected = refundRecordMapper.update(null, new LambdaUpdateWrapper<RefundRecord>()
                 .eq(RefundRecord::getId, record.getId())
-                .eq(RefundRecord::getStatus, RefundStatus.PENDING_AUDIT.getCode())
+                .eq(RefundRecord::getStatus, status.getCode())
                 .set(RefundRecord::getStatus, RefundStatus.REJECTED.getCode())
                 .set(RefundRecord::getAuditRemark, auditRemark)
                 .set(RefundRecord::getAuditTime, LocalDateTime.now())
@@ -255,6 +407,19 @@ public class RefundService {
     }
 
     /**
+     * 可拒绝 / 关闭的状态。
+     *
+     * <p>★ 除了「待审核」，还允许在「待寄回 / 待收货」关闭退货 —— 这是用户同意退货后
+     * 长期不寄货的唯一兜底（退货超时自动关闭没做）。没有它，订单会永久卡在「退款中」，
+     * 既不能确认收货也不能退款。</p>
+     */
+    private static boolean rejectable(RefundStatus status) {
+        return status == RefundStatus.PENDING_AUDIT
+                || status == RefundStatus.WAIT_RETURN
+                || status == RefundStatus.WAIT_RECEIVE;
+    }
+
+    /**
      * 同意退款后的库存动作，按退款类型分流。
      *
      * <ul>
@@ -263,9 +428,10 @@ public class RefundService {
      *       也可能用户留下了，凭空加回库存就是超卖的源头</li>
      * </ul>
      *
-     * <p>★ 仅退款的代价是这批货的库存永久少 1 件（除非将来 P2 的退货入库补上）。
-     * 这是业务正确的：货确实不在仓里，加回去才会出错。这里打一条 INFO 留痕，
-     * 方便日后对账时能解释「为什么这个 SKU 的库存比预期少」。</p>
+     * <p>★ 仅退款的代价是这批货的库存会一直少 1 件 —— 直到用户真的把货寄回、
+     * 走退货退款（type=3）验收通过才补上。这是业务正确的：货确实不在仓里，
+     * 加回去才会出错。这里打一条 INFO 留痕，方便日后对账时解释
+     * 「为什么这个 SKU 的库存比预期少」。</p>
      */
     private void applyStockAction(RefundRecord record) {
         if (Integer.valueOf(RefundRecord.TYPE_REFUND_ONLY).equals(record.getType())) {
@@ -363,6 +529,17 @@ public class RefundService {
         vo.setCreatedAt(record.getCreatedAt());
         vo.setAuditTime(record.getAuditTime());
         vo.setRefundTime(record.getRefundTime());
+        vo.setReturnCompany(record.getReturnCompany());
+        vo.setReturnTrackingNo(record.getReturnTrackingNo());
+        vo.setReturnTime(record.getReturnTime());
+        vo.setReceiveTime(record.getReceiveTime());
+        vo.setReceiveRemark(record.getReceiveRemark());
+        // 退货地址只在退货退款且未寄出时下发：寄出后再显示会让人以为还要再寄一次
+        if (Integer.valueOf(RefundRecord.TYPE_RETURN_GOODS).equals(record.getType())
+                && RefundStatus.of(record.getStatus()) == RefundStatus.WAIT_RETURN
+                && returnAddress != null && !returnAddress.isBlank()) {
+            vo.setReturnAddress(returnAddress);
+        }
         return vo;
     }
 

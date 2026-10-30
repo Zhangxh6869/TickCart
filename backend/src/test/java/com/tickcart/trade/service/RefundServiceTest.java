@@ -193,14 +193,14 @@ class RefundServiceTest {
     }
 
     @Test
-    @DisplayName("申请退款：已完成订单暂不支持（P2 退货退款未做）")
-    void applyRejectsCompletedStatus() {
+    @DisplayName("申请退款：待付款 / 已取消等状态不支持，应先走取消")
+    void applyRejectsNonRefundableStatus() {
         when(orderService.getOwned(UID, ORDER_NO))
-                .thenReturn(order(OrderStatus.COMPLETED.getCode(), new BigDecimal("198.00")));
+                .thenReturn(order(OrderStatus.PENDING_PAYMENT.getCode(), new BigDecimal("198.00")));
 
         assertThatThrownBy(() -> refundService.apply(UID, ORDER_NO, applyRequest()))
                 .isInstanceOf(BizException.class)
-                .hasMessageContaining("已完成")
+                .hasMessageContaining("待付款")
                 .hasMessageContaining("暂不支持申请退款");
 
         verify(refundRecordMapper, never()).insert(ArgumentMatchers.<RefundRecord>any());
@@ -452,6 +452,179 @@ class RefundServiceTest {
                 .hasMessageContaining("无法拒绝");
 
         verify(orderService, never()).rollbackRefund(any(), anyInt());
+    }
+
+    // ---------------- P2 退货退款 ----------------
+
+    /** 造一张退货退款单（type=3）。 */
+    private RefundRecord returnRefund(int status, int originStatus) {
+        RefundRecord r = refund(status, originStatus);
+        r.setType(RefundRecord.TYPE_RETURN_GOODS);
+        return r;
+    }
+
+    @Test
+    @DisplayName("申请退款：已完成订单落「退货退款」类型")
+    void applyFromCompletedOrderUsesReturnGoodsType() {
+        when(orderService.getOwned(UID, ORDER_NO))
+                .thenReturn(order(OrderStatus.COMPLETED.getCode(), new BigDecimal("198.00")));
+        when(refundRecordMapper.selectOne(any())).thenReturn(null);
+        when(paymentRecordMapper.selectOne(any())).thenReturn(paidPayment(new BigDecimal("188.00")));
+        when(orderService.startRefund(ORDER_NO)).thenReturn(OrderStatus.COMPLETED.getCode());
+
+        RefundVO vo = refundService.apply(UID, ORDER_NO, applyRequest());
+
+        ArgumentCaptor<RefundRecord> captor = ArgumentCaptor.forClass(RefundRecord.class);
+        verify(refundRecordMapper).insert(captor.capture());
+        assertThat(captor.getValue().getType()).isEqualTo(RefundRecord.TYPE_RETURN_GOODS);
+        assertThat(captor.getValue().getOriginStatus()).isEqualTo(OrderStatus.COMPLETED.getCode());
+        assertThat(vo.getTypeLabel()).isEqualTo("退货退款");
+    }
+
+    @Test
+    @DisplayName("同意退货退款：只进「待寄回」，不动库存、不动销量、不清 active_key")
+    void approveReturnGoodsWaitsForShipment() {
+        when(refundRecordMapper.selectOne(any()))
+                .thenReturn(returnRefund(RefundStatus.PENDING_AUDIT.getCode(),
+                        OrderStatus.COMPLETED.getCode()));
+        when(refundRecordMapper.update(ArgumentMatchers.<RefundRecord>isNull(), any())).thenReturn(1);
+
+        refundService.approve(REFUND_NO);
+
+        String sqlSet = captureRefundUpdate().getSqlSet();
+        assertThat(sqlSet).contains("status");
+        // ★ 退货才刚开始：这三件事一件都不能做
+        assertThat(sqlSet).doesNotContain("active_key = NULL");
+        assertThat(sqlSet).doesNotContain("refund_time");
+        verify(orderService, never()).finishRefund(any());
+        verify(orderService, never()).restoreStock(any());
+        verify(orderService, never()).reverseSales(any());
+    }
+
+    @Test
+    @DisplayName("提交退货物流：待寄回 → 待收货，写入单号与寄出时间")
+    void submitTrackingMovesToWaitReceive() {
+        when(orderService.getOwned(UID, ORDER_NO))
+                .thenReturn(order(OrderStatus.REFUNDING.getCode(), new BigDecimal("198.00")));
+        when(refundRecordMapper.selectOne(any()))
+                .thenReturn(returnRefund(RefundStatus.WAIT_RETURN.getCode(),
+                        OrderStatus.COMPLETED.getCode()));
+        when(refundRecordMapper.update(ArgumentMatchers.<RefundRecord>isNull(), any())).thenReturn(1);
+
+        refundService.submitTracking(UID, ORDER_NO, "顺丰", "SF1234567890");
+
+        String sqlSet = captureRefundUpdate().getSqlSet();
+        assertThat(sqlSet).contains("return_tracking_no").contains("return_company").contains("return_time");
+        // 货还在路上，不能清 active_key
+        assertThat(sqlSet).doesNotContain("active_key = NULL");
+    }
+
+    @Test
+    @DisplayName("提交退货物流：未发货退款/仅退款不需要寄回")
+    void submitTrackingRejectedForNonReturnRefund() {
+        when(orderService.getOwned(UID, ORDER_NO))
+                .thenReturn(order(OrderStatus.REFUNDING.getCode(), new BigDecimal("198.00")));
+        when(refundRecordMapper.selectOne(any()))
+                .thenReturn(refund(RefundStatus.WAIT_RETURN.getCode(), OrderStatus.PENDING_RECEIPT.getCode()));
+
+        assertThatThrownBy(() -> refundService.submitTracking(UID, ORDER_NO, "顺丰", "SF1"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("不需要寄回商品");
+
+        verify(refundRecordMapper, never()).update(any(), any());
+    }
+
+    @Test
+    @DisplayName("确认收到退货：置已退款 + 回补库存 + 回退销量")
+    void receiveRestoresStock() {
+        when(refundRecordMapper.selectOne(any()))
+                .thenReturn(returnRefund(RefundStatus.WAIT_RECEIVE.getCode(),
+                        OrderStatus.COMPLETED.getCode()));
+        when(refundRecordMapper.update(ArgumentMatchers.<RefundRecord>isNull(), any())).thenReturn(1);
+        when(orderService.finishRefund(ORDER_NO)).thenReturn(true);
+        Order order = order(OrderStatus.REFUNDED.getCode(), new BigDecimal("198.00"));
+        when(orderService.loadByOrderNo(ORDER_NO)).thenReturn(order);
+
+        refundService.receive(REFUND_NO, "外包装破损，商品完好");
+
+        String sqlSet = captureRefundUpdate().getSqlSet();
+        assertThat(sqlSet).contains("receive_time").contains("receive_remark").contains("active_key = NULL");
+        // ★ 货真的回来了，这时才回补库存
+        verify(orderService).restoreStock(order);
+        verify(orderService).reverseSales(ORDER_NO);
+    }
+
+    @Test
+    @DisplayName("确认收到退货：重复提交按幂等返回，不重复回补库存")
+    void receiveIsIdempotent() {
+        when(refundRecordMapper.selectOne(any()))
+                .thenReturn(returnRefund(RefundStatus.REFUNDED.getCode(), OrderStatus.COMPLETED.getCode()));
+
+        refundService.receive(REFUND_NO, null);
+
+        verify(refundRecordMapper, never()).update(any(), any());
+        verify(orderService, never()).restoreStock(any());
+    }
+
+    @Test
+    @DisplayName("确认收到退货：还没寄出时不能收货")
+    void receiveRejectedBeforeShipped() {
+        when(refundRecordMapper.selectOne(any()))
+                .thenReturn(returnRefund(RefundStatus.WAIT_RETURN.getCode(),
+                        OrderStatus.COMPLETED.getCode()));
+
+        assertThatThrownBy(() -> refundService.receive(REFUND_NO, null))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("待寄回")
+                .hasMessageContaining("无法确认收货");
+
+        verify(orderService, never()).restoreStock(any());
+    }
+
+    @Test
+    @DisplayName("撤销退货退款：待寄回可撤销，订单回到已完成")
+    void cancelReturnBeforeShipped() {
+        when(orderService.getOwned(UID, ORDER_NO))
+                .thenReturn(order(OrderStatus.REFUNDING.getCode(), new BigDecimal("198.00")));
+        when(refundRecordMapper.selectOne(any()))
+                .thenReturn(returnRefund(RefundStatus.WAIT_RETURN.getCode(),
+                        OrderStatus.COMPLETED.getCode()));
+        when(refundRecordMapper.update(ArgumentMatchers.<RefundRecord>isNull(), any())).thenReturn(1);
+
+        refundService.cancelApply(UID, ORDER_NO);
+
+        verify(orderService).rollbackRefund(ORDER_NO, OrderStatus.COMPLETED.getCode());
+    }
+
+    @Test
+    @DisplayName("撤销退货退款：货已寄出后不允许撤销，否则货和钱都悬空")
+    void cancelRejectedAfterShipped() {
+        when(orderService.getOwned(UID, ORDER_NO))
+                .thenReturn(order(OrderStatus.REFUNDING.getCode(), new BigDecimal("198.00")));
+        when(refundRecordMapper.selectOne(any()))
+                .thenReturn(returnRefund(RefundStatus.WAIT_RECEIVE.getCode(),
+                        OrderStatus.COMPLETED.getCode()));
+
+        assertThatThrownBy(() -> refundService.cancelApply(UID, ORDER_NO))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("待收货")
+                .hasMessageContaining("无法撤销");
+
+        verify(orderService, never()).rollbackRefund(any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("关闭退货：待收货也可拒绝，作为用户长期不寄货的兜底")
+    void rejectFromWaitReceiveClosesReturn() {
+        when(refundRecordMapper.selectOne(any()))
+                .thenReturn(returnRefund(RefundStatus.WAIT_RECEIVE.getCode(),
+                        OrderStatus.COMPLETED.getCode()));
+        when(refundRecordMapper.update(ArgumentMatchers.<RefundRecord>isNull(), any())).thenReturn(1);
+
+        refundService.reject(REFUND_NO, "超时未收到退货，关闭本次售后");
+
+        verify(orderService).rollbackRefund(ORDER_NO, OrderStatus.COMPLETED.getCode());
+        verify(orderService, never()).restoreStock(any());
     }
 
     // ---------------- 查询 ----------------

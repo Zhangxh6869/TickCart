@@ -19,6 +19,8 @@ const props = defineProps<{
   submitting?: boolean
   /** 订单是否已发货：已发货走「仅退款」，文案要提醒拒收 */
   shipped?: boolean
+  /** 订单是否已完成：走「退货退款」，要寄回商品且等商家验收 */
+  returnGoods?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -72,9 +74,11 @@ function onSubmit() {
       </div>
       <div class="refund-sheet__hint">
         {{
-          shipped
-            ? '商品已发出，退款成功后如收到货请拒收'
-            : '提交后订单将进入「退款中」，由商家审核'
+          returnGoods
+            ? '商家同意后需寄回商品，收到并验收通过后才退款'
+            : shipped
+              ? '商品已发出，退款成功后如收到货请拒收'
+              : '提交后订单将进入「退款中」，由商家审核'
         }}
       </div>
 

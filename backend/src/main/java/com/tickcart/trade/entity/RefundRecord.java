@@ -75,6 +75,23 @@ public class RefundRecord {
 
     private LocalDateTime auditTime;
 
+    // ---- 退货物流与入库验收（仅 type=3 退货退款使用，P0/P1 为 NULL） ----
+
+    /** 退货快递公司（用户填写，可选） */
+    private String returnCompany;
+
+    /** 退货物流单号（用户填写） */
+    private String returnTrackingNo;
+
+    /** 用户寄出时间（填物流单号的时间） */
+    private LocalDateTime returnTime;
+
+    /** 商家确认收到退货的时间 */
+    private LocalDateTime receiveTime;
+
+    /** 验收备注（如「包装破损，同意退款」） */
+    private String receiveRemark;
+
     private LocalDateTime refundTime;
 
     @TableLogic
@@ -196,6 +213,46 @@ public class RefundRecord {
 
     public void setAuditTime(LocalDateTime auditTime) {
         this.auditTime = auditTime;
+    }
+
+    public String getReturnCompany() {
+        return returnCompany;
+    }
+
+    public void setReturnCompany(String returnCompany) {
+        this.returnCompany = returnCompany;
+    }
+
+    public String getReturnTrackingNo() {
+        return returnTrackingNo;
+    }
+
+    public void setReturnTrackingNo(String returnTrackingNo) {
+        this.returnTrackingNo = returnTrackingNo;
+    }
+
+    public LocalDateTime getReturnTime() {
+        return returnTime;
+    }
+
+    public void setReturnTime(LocalDateTime returnTime) {
+        this.returnTime = returnTime;
+    }
+
+    public LocalDateTime getReceiveTime() {
+        return receiveTime;
+    }
+
+    public void setReceiveTime(LocalDateTime receiveTime) {
+        this.receiveTime = receiveTime;
+    }
+
+    public String getReceiveRemark() {
+        return receiveRemark;
+    }
+
+    public void setReceiveRemark(String receiveRemark) {
+        this.receiveRemark = receiveRemark;
     }
 
     public LocalDateTime getRefundTime() {

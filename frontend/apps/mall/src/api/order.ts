@@ -85,7 +85,19 @@ export function applyRefund(
   return request.post(`/orders/${orderNo}/refund`, payload)
 }
 
-/** 撤销退款申请（仅「待审核」可撤销）。 */
+/** 撤销退款申请（待审核 / 待寄回可撤销）。 */
 export function cancelRefund(orderNo: string): Promise<void> {
   return request.put(`/orders/${orderNo}/refund/cancel`)
+}
+
+/**
+ * 提交退货物流单号（仅退货退款）。
+ *
+ * 状态从「待寄回」变为「待收货」，等商家验收后才会真正退款。
+ */
+export function submitRefundTracking(
+  orderNo: string,
+  payload: { company?: string; trackingNo: string },
+): Promise<void> {
+  return request.put(`/orders/${orderNo}/refund/tracking`, payload)
 }

@@ -1,6 +1,7 @@
 package com.tickcart.trade.controller;
 
 import com.tickcart.common.api.R;
+import com.tickcart.trade.dto.RefundReceiveRequest;
 import com.tickcart.trade.dto.RefundRejectRequest;
 import com.tickcart.trade.service.RefundService;
 import com.tickcart.trade.vo.RefundVO;
@@ -41,14 +42,26 @@ public class AdminRefundController {
     }
 
     @Operation(summary = "同意退款",
-            description = "置「已退款」→ 回补库存 → 回退销量。重复提交按幂等处理，不会重复回补库存")
+            description = "未发货退款 / 仅退款：置「已退款」并回补库存；退货退款：置「待寄回」，等用户寄货。"
+                    + "重复提交按幂等处理，不会重复回补库存")
     @PostMapping("/{refundNo}/approve")
     public R<Void> approve(@PathVariable String refundNo) {
         refundService.approve(refundNo);
         return R.ok();
     }
 
-    @Operation(summary = "拒绝退款", description = "拒绝原因必填，会展示给用户；订单回退到申请前的状态")
+    @Operation(summary = "确认收到退货",
+            description = "仅退货退款在「待收货」可用：置「已退款」并回补库存（货真的回来了才加库存）")
+    @PostMapping("/{refundNo}/receive")
+    public R<Void> receive(@PathVariable String refundNo,
+                           @Valid @RequestBody(required = false) RefundReceiveRequest req) {
+        refundService.receive(refundNo, req == null ? null : req.getReceiveRemark());
+        return R.ok();
+    }
+
+    @Operation(summary = "拒绝退款 / 关闭退货",
+            description = "拒绝原因必填，会展示给用户；订单回退到申请前的状态。"
+                    + "「待寄回 / 待收货」也可调用，作为用户长期不寄货的兜底")
     @PostMapping("/{refundNo}/reject")
     public R<Void> reject(@PathVariable String refundNo,
                           @Valid @RequestBody RefundRejectRequest req) {

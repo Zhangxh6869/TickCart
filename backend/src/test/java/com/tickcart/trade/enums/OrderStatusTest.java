@@ -38,9 +38,12 @@ class OrderStatusTest {
     @Test
     @DisplayName("终态不可再流转")
     void finalStates() {
-        assertThat(OrderStatus.COMPLETED.isFinal()).isTrue();
+        // ★ 「已完成」自 P2 起不再是终态：还能发起退货退款。
+        //   这不是妥协 —— 加了售后之后它确实可以流转。
+        assertThat(OrderStatus.COMPLETED.isFinal()).isFalse();
         assertThat(OrderStatus.CANCELLED.isFinal()).isTrue();
         assertThat(OrderStatus.TIMEOUT_CLOSED.isFinal()).isTrue();
+        assertThat(OrderStatus.REFUNDED.isFinal()).isTrue();
         assertThat(OrderStatus.PENDING_PAYMENT.isFinal()).isFalse();
     }
 
@@ -76,13 +79,13 @@ class OrderStatusTest {
     }
 
     @Test
-    @DisplayName("待发货（P0）与待收货（P1）都能申请退款，已完成（P2）还不能")
+    @DisplayName("待发货 / 待收货 / 已完成 三个状态都能申请退款")
     void refundEntryStates() {
         assertThat(OrderStatus.PENDING_SHIPMENT.canTransitionTo(OrderStatus.REFUNDING)).isTrue();
         assertThat(OrderStatus.PENDING_RECEIPT.canTransitionTo(OrderStatus.REFUNDING)).isTrue();
-        // P2 退货退款的入口边留到 P2 再加：COMPLETED 一旦有出边就不再是 isFinal()
-        assertThat(OrderStatus.COMPLETED.canTransitionTo(OrderStatus.REFUNDING)).isFalse();
-        assertThat(OrderStatus.COMPLETED.isFinal()).isTrue();
+        assertThat(OrderStatus.COMPLETED.canTransitionTo(OrderStatus.REFUNDING)).isTrue();
+        // 售后是「已完成」唯一还能走的出口
+        assertThat(OrderStatus.COMPLETED.isFinal()).isFalse();
     }
 
     @Test
@@ -93,11 +96,12 @@ class OrderStatusTest {
     }
 
     @Test
-    @DisplayName("退款中：可同意进入已退款，也可回退到申请前的状态（待发货 / 待收货）")
+    @DisplayName("退款中：可完成退款，也可回退到申请前的三个状态")
     void refundingTransitions() {
         assertThat(OrderStatus.REFUNDING.canTransitionTo(OrderStatus.REFUNDED)).isTrue();
         assertThat(OrderStatus.REFUNDING.canTransitionTo(OrderStatus.PENDING_SHIPMENT)).isTrue();
         assertThat(OrderStatus.REFUNDING.canTransitionTo(OrderStatus.PENDING_RECEIPT)).isTrue();
+        assertThat(OrderStatus.REFUNDING.canTransitionTo(OrderStatus.COMPLETED)).isTrue();
         // 退款中不是终态：还要等审核结果
         assertThat(OrderStatus.REFUNDING.isFinal()).isFalse();
     }

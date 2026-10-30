@@ -10,9 +10,11 @@ import {
   cancelRefund,
   confirmOrder,
   fetchOrderDetail,
+  submitRefundTracking,
 } from '@/api/order'
 import PageNavBar from '@/components/PageNavBar.vue'
 import RefundApplySheet from '@/components/RefundApplySheet.vue'
+import RefundTrackingSheet from '@/components/RefundTrackingSheet.vue'
 import { usePayCountdown } from '@/composables/usePayCountdown'
 import { ORDER_ORIGIN_BUY_NOW, ORDER_ORIGIN_CART, parseOrderOrigin } from '@/utils/checkout-route'
 
@@ -26,6 +28,9 @@ const acting = ref(false)
 
 /** 退款申请弹层开关 */
 const refundSheetVisible = ref(false)
+
+/** 退货物流弹层开关（退货退款专用） */
+const trackingSheetVisible = ref(false)
 
 /** 取消成功后「回首页」的延时句柄：组件卸载时要清掉，避免页面已销毁还在跳转 */
 let redirectTimer: ReturnType<typeof setTimeout> | null = null
@@ -59,10 +64,20 @@ const tip = computed(() => {
 })
 const canCancel = computed(() => order.value?.status === 0)
 const canConfirm = computed(() => order.value?.status === 2)
-/** 待发货走「未发货退款」，待收货走「仅退款」；两者都不需要等收货 */
-const canRefund = computed(() => order.value?.status === 1 || order.value?.status === 2)
-/** 只有「待审核」的退款单能撤销；已审核的只能等结果 */
-const canCancelRefund = computed(() => order.value?.status === 6 && order.value?.refund?.status === 0)
+/** 待发货走「未发货退款」，待收货走「仅退款」，已完成走「退货退款」 */
+const canRefund = computed(() => {
+  const status = order.value?.status
+  return status === 1 || status === 2 || status === 3
+})
+/** 还没寄货之前都能撤（待审核 / 待寄回）；已寄出再撤，货和钱都悬空 */
+const canCancelRefund = computed(() => {
+  const refundStatus = order.value?.refund?.status
+  return order.value?.status === 6 && (refundStatus === 0 || refundStatus === 4)
+})
+/** 退货退款：商家已同意、等用户寄回时才显示「填写退货单号」 */
+const canSubmitTracking = computed(
+  () => order.value?.status === 6 && order.value?.refund?.status === 4,
+)
 
 /** 退款单状态标签配色：待审核黄、已退款绿、已拒绝红、已撤销灰 */
 const refundTagType = computed<'warning' | 'success' | 'danger' | 'default'>(() => {
@@ -155,12 +170,12 @@ async function onSubmitRefund(payload: { reasonCode: number; reason?: string }) 
   }
 }
 
-/** 撤销退款申请：仅「待审核」可撤销，撤销后订单回到待发货 */
+/** 撤销退款申请：待审核 / 待寄回可撤销，撤销后订单回到申请前的状态 */
 async function onCancelRefund() {
   try {
     await showConfirmDialog({
       title: '撤销退款',
-      message: '撤销后订单将回到「待发货」，确认撤销这笔退款申请？',
+      message: '撤销后订单将回到申请前的状态，确认撤销这笔退款申请？',
     })
   } catch {
     return // 用户取消
@@ -169,6 +184,21 @@ async function onCancelRefund() {
   try {
     await cancelRefund(orderNo)
     showToast('已撤销退款申请')
+    await load()
+  } catch {
+    // 错误提示由请求拦截器统一处理
+  } finally {
+    acting.value = false
+  }
+}
+
+/** 提交退货物流单号：待寄回 → 待收货，之后等商家验收 */
+async function onSubmitTracking(payload: { company?: string; trackingNo: string }) {
+  acting.value = true
+  try {
+    await submitRefundTracking(orderNo, payload)
+    trackingSheetVisible.value = false
+    showToast('物流单号已提交，等待商家收货')
     await load()
   } catch {
     // 错误提示由请求拦截器统一处理
@@ -284,6 +314,29 @@ onBeforeUnmount(() => {
           <span>审核意见</span>
           <span class="row__muted">{{ order.refund.auditRemark }}</span>
         </div>
+        <!-- 退货退款专用：地址只在「待寄回」下发，寄出后换成物流信息 -->
+        <div v-if="order.refund.returnAddress" class="row row--block">
+          <span>寄回地址</span>
+          <span class="row__muted">{{ order.refund.returnAddress }}</span>
+        </div>
+        <div v-if="order.refund.returnTrackingNo" class="row">
+          <span>退货物流</span>
+          <span class="row__muted">
+            {{ order.refund.returnCompany || '快递' }} {{ order.refund.returnTrackingNo }}
+          </span>
+        </div>
+        <div v-if="order.refund.returnTime" class="row">
+          <span>寄出时间</span>
+          <span class="row__muted">{{ formatTime(order.refund.returnTime) }}</span>
+        </div>
+        <div v-if="order.refund.receiveRemark" class="row">
+          <span>验收备注</span>
+          <span class="row__muted">{{ order.refund.receiveRemark }}</span>
+        </div>
+        <div v-if="order.refund.receiveTime" class="row">
+          <span>收货时间</span>
+          <span class="row__muted">{{ formatTime(order.refund.receiveTime) }}</span>
+        </div>
         <div v-if="order.refund.refundTime" class="row">
           <span>退款时间</span>
           <span class="row__muted">{{ formatTime(order.refund.refundTime) }}</span>
@@ -301,14 +354,27 @@ onBeforeUnmount(() => {
       </div>
 
       <div
-        v-if="canCancel || canConfirm || canRefund || canCancelRefund"
+        v-if="canCancel || canConfirm || canRefund || canCancelRefund || canSubmitTracking"
         class="detail__actions"
       >
         <van-button v-if="canCancel" round plain block :loading="acting" @click="onCancel">取消订单</van-button>
         <van-button v-if="canCancel" round block type="primary" color="rgb(107,163,200)" @click="onPay">去支付</van-button>
         <van-button v-if="canConfirm" round block type="primary" :loading="acting" @click="onConfirm">确认收货</van-button>
         <van-button v-if="canRefund" round plain block :loading="acting" @click="onApplyRefund">申请退款</van-button>
-        <van-button v-if="canCancelRefund" round plain block :loading="acting" @click="onCancelRefund">撤销退款</van-button>
+        <van-button
+          v-if="canSubmitTracking"
+          round
+          block
+          type="primary"
+          color="rgb(107,163,200)"
+          :loading="acting"
+          @click="trackingSheetVisible = true"
+        >
+          填写退货单号
+        </van-button>
+        <van-button v-if="canCancelRefund" round plain block :loading="acting" @click="onCancelRefund">
+          撤销退款
+        </van-button>
       </div>
     </template>
 
@@ -319,7 +385,15 @@ onBeforeUnmount(() => {
       :amount="refundableAmount"
       :submitting="acting"
       :shipped="order?.status === 2"
+      :return-goods="order?.status === 3"
       @submit="onSubmitRefund"
+    />
+
+    <RefundTrackingSheet
+      v-model:show="trackingSheetVisible"
+      :return-address="order?.refund?.returnAddress"
+      :submitting="acting"
+      @submit="onSubmitTracking"
     />
   </div>
 </template>
@@ -440,6 +514,15 @@ onBeforeUnmount(() => {
   border-top: 1px solid #f2f3f5;
   font-size: 14px;
   color: #323233;
+}
+/* 地址这类长文本：上下排，不挤成两列 */
+.row--block {
+  display: block;
+  line-height: 1.6;
+}
+.row--block .row__muted {
+  display: block;
+  margin-top: 2px;
 }
 .row__amount {
   font-size: 17px;
