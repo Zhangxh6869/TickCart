@@ -92,8 +92,9 @@ export async function clearCart(ctx: APIRequestContext, token: string): Promise<
 /**
  * 库存守卫。
  *
- * <p>E2E 每跑一次就真买一件，库存只减不增（订单已支付，状态机不允许再取消，
- * 详见下方说明）。本地库跑够多次就会把这个规格买空，届时失败原因会是
+ * <p>E2E 每跑一次就真买一件。正常情况下收尾阶段会通过退款把这件货退掉、库存回补
+ * （见 `support/e2e-refund.ts`），所以长期跑库存应当稳定；<b>这里的告警是那条链路失效的信号</b> ——
+ * 退款一旦出问题，库存就会重新开始净减，跑够次数会把规格买空，届时失败原因会是
  * 「结算按钮不可点」，与真正的回归混在一起。</p>
  *
  * <p><b>为什么看 SKU 而不是商品汇总</b>：加购扣的是具体规格的库存
@@ -121,9 +122,9 @@ export async function checkStock(ctx: APIRequestContext): Promise<number | null>
   if (typeof effective === 'number' && effective < 5) {
     console.warn(
       `\n⚠️  E2E 目标商品（id=${TARGET_PRODUCT_ID}）库存告急：${breakdown}\n` +
-        `   E2E 每跑一次会真实卖出 1 件且不会回补（已支付订单状态机不允许取消），\n` +
-        `   库存耗尽后下单链路会失败，而那不是代码问题。\n` +
-        `   处理：重置开发库（重跑 Flyway 种子）或手动补货。\n`,
+        `   收尾阶段本应通过退款把每轮卖出的 1 件补回来，库存持续下降说明退款链路没生效\n` +
+        `   （看上一轮收尾的「退款回补失败」告警）。\n` +
+        `   处理：修好收尾逻辑后重跑一次（会顺带补回历史欠账），或手动补货。\n`,
     )
   }
   return effective ?? null

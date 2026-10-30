@@ -10,8 +10,8 @@ import { E2E_PASSWORD, E2E_USER, clearCart, ensureAccount } from './support/e2e-
  *
  * <p><b>数据隔离</b>：用专用账号 `e2e_runner`（不是 demo），前置条件由
  * `e2e/global-setup.ts` 统一准备 —— 注册/登录、补收货地址、清空购物车。
- * 这条用例仍会真实下单扣库存，订单会留在专用账号名下；已支付订单无法删除，
- * 但污染范围收敛在这一个账号，不影响 demo 用户手动体验。</p>
+ * 这条用例会真实下单扣库存；跑完由 `e2e/global-teardown.ts` 把订单逐笔退款，
+ * 库存与销量回到跑之前，订单落到终态「已退款」而不是堆在「待发货」待办里。</p>
  */
 test.describe('下单主链路', () => {
   /**
