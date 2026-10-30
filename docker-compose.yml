@@ -1,0 +1,152 @@
+# TickCart 一键启动编排（演示 / 面试用）
+#
+#   docker compose up -d --build      首次构建并启动
+#   docker compose ps                 查看健康状态
+#   docker compose logs -f backend    跟踪后端日志
+#   docker compose down               停止（保留数据）
+#   docker compose down -v            停止并清空数据
+#
+# 访问入口：
+#   商城  http://localhost         demo  / 123456
+#   后台  http://localhost:8081    admin / admin123
+#   接口  http://localhost:8080/swagger-ui/index.html
+#
+# 与 docker/docker-compose.dev.yml 的区别：dev 版只起中间件、应用在 IDE 里跑；
+# 本文件起完整系统。两者同时运行会抢 15672 端口，二选一。
+
+name: tickcart
+
+services:
+  # ---------------------------------------------------------------------------
+  # MySQL 8：Flyway 在 backend 启动时自动建表 + 灌种子数据，无需 init.sql
+  # 不映射宿主机端口：容器内网走 3306，避免与本机 MySQL80 / dev 版的 3307 冲突
+  # 需要进库时：docker compose exec mysql mysql -uroot -proot tickcart
+  # ---------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: tickcart-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: tickcart
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --default-authentication-plugin=mysql_native_password
+    volumes:
+      - tickcart-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: tickcart-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - tickcart-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: tickcart-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+      TZ: Asia/Shanghai
+    ports:
+      # 管理台 http://localhost:15672（guest/guest）；与 dev 版冲突时可注释掉
+      - "15672:15672"
+    volumes:
+      - tickcart-rabbit-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # 后端：环境变量名与 application.yml 的 ${XXX:default} 占位一一对应
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      args:
+        # 留空走官方 docker.io；直连超时时在 .env 里设 REGISTRY 走加速器
+        REGISTRY: ${REGISTRY:-}
+    container_name: tickcart-backend
+    restart: unless-stopped
+    environment:
+      # 容器内网端口是 3306；3307 只是 dev 版给宿主机做的映射，写错会 Access denied
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: tickcart
+      MYSQL_USERNAME: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+      # 演示图片目录与上传目录（对应两个 volume）
+      IMGS_DIR: /app/imgs
+      UPLOAD_DIR: /app/uploads
+      # 显式声明端口，避免宿主环境的 SERVER__PORT 覆盖 server.port
+      SERVER_PORT: "8080"
+      JWT_SECRET: ${JWT_SECRET:-tickcart-dev-secret-key-please-change-in-production-0123456789}
+      TZ: Asia/Shanghai
+    volumes:
+      - ./imgs:/app/imgs:ro
+      - tickcart-uploads:/app/uploads
+    ports:
+      # 方便直接看 Swagger / 调接口；本地 IDE 里同时跑后端会冲突，演示时只留一个
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      # start_period 覆盖 Flyway 跑完 V1->V22 的时间
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+
+  # ---------------------------------------------------------------------------
+  # 前端：nginx 同时服务商城(80)与后台(8081)，并把 /api、/img 反代到 backend
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: ./frontend
+      args:
+        REGISTRY: ${REGISTRY:-}
+    container_name: tickcart-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "8081:8081"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  tickcart-mysql-data:
+  tickcart-redis-data:
+  tickcart-rabbit-data:
+  tickcart-uploads:

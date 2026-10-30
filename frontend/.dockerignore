@@ -1,0 +1,10 @@
+# 构建上下文瘦身：本地依赖与产物不进镜像
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.git/
+.gitignore
+test-results/
+playwright-report/
+*.log
