@@ -7,6 +7,7 @@ import com.tickcart.auth.dto.LoginRequest;
 import com.tickcart.auth.dto.RegisterRequest;
 import com.tickcart.auth.dto.ResetPasswordRequest;
 import com.tickcart.auth.dto.SmsLoginRequest;
+import com.tickcart.auth.dto.SmsCodeSendResult;
 import com.tickcart.auth.dto.TokenResponse;
 import com.tickcart.auth.entity.RefreshToken;
 import com.tickcart.auth.entity.SmsCode;
@@ -67,6 +68,11 @@ class AuthServiceTest {
     private SmsCodeGuard smsCodeGuard;
     private TokenBlacklist tokenBlacklist;
 
+    /** 短信服务：默认 Mock 开启（真实实现），个别用例换成桩以验证「关闭 Mock」的分支。 */
+    private SmsService smsService;
+    private JwtProperties jwtProperties;
+    private JwtTokenProvider tokenProvider;
+
     /**
      * 纯单元测试没有 Spring 容器，而 {@code LambdaQueryWrapper} 解析列名依赖实体的
      * TableInfo 缓存，需先手动初始化，否则报 "can not find lambda cache for this entity"。
@@ -80,14 +86,14 @@ class AuthServiceTest {
 
     @BeforeEach
     void setUp() {
-        JwtProperties props = new JwtProperties();
-        props.setSecret("tickcart-test-secret-key-must-be-at-least-32-bytes-long");
-        props.setAccessTokenMinutes(30);
-        props.setRefreshTokenDays(7);
-        props.setIssuer("tickcart");
-        JwtTokenProvider tokenProvider = new JwtTokenProvider(props);
+        jwtProperties = new JwtProperties();
+        jwtProperties.setSecret("tickcart-test-secret-key-must-be-at-least-32-bytes-long");
+        jwtProperties.setAccessTokenMinutes(30);
+        jwtProperties.setRefreshTokenDays(7);
+        jwtProperties.setIssuer("tickcart");
+        tokenProvider = new JwtTokenProvider(jwtProperties);
 
-        SmsService smsService = new SmsService();
+        smsService = new SmsService();
 
         loginGuard = mock(LoginGuard.class);
         captchaService = mock(CaptchaService.class);
@@ -96,8 +102,13 @@ class AuthServiceTest {
         // 默认放行发送；只有专门测限流的用例才覆盖它
         lenient().when(smsCodeGuard.tryAcquireSend(anyString())).thenReturn(true);
         // 密码策略用真实实现：弱口令字典就在测试 classpath 里，没必要造假
-        authService = new AuthService(userMapper, refreshTokenMapper, smsCodeMapper,
-                smsService, passwordEncoder, tokenProvider, props,
+        authService = buildAuthService(smsService);
+    }
+
+    /** 换一个短信服务实现重建被测对象（用于验证「关闭 Mock」分支）。 */
+    private AuthService buildAuthService(SmsService sms) {
+        return new AuthService(userMapper, refreshTokenMapper, smsCodeMapper,
+                sms, passwordEncoder, tokenProvider, jwtProperties,
                 loginGuard, captchaService, new PasswordPolicy(), smsCodeGuard, tokenBlacklist);
     }
 
@@ -316,6 +327,38 @@ class AuthServiceTest {
                 .hasMessageContaining("25 秒");
         // 被限流时不该落库、也不该发短信
         verify(smsCodeMapper, never()).insert(any(SmsCode.class));
+    }
+
+    @Test
+    @DisplayName("Mock 模式下发送验证码回传 devCode，供前端自测直接填")
+    void sendSmsCodeReturnsDevCodeInMockMode() {
+        SmsCodeSendResult result = authService.sendSmsCode("13700000000", AuthService.SMS_SCENE_LOGIN);
+
+        assertThat(result.devCode()).matches("[1-9]\\d{5}");
+        assertThat(result.expireSeconds()).isEqualTo(300);
+
+        // 回显的码必须与真正落库的那条一致，否则前端照着填也登不进去
+        ArgumentCaptor<SmsCode> captor = ArgumentCaptor.forClass(SmsCode.class);
+        verify(smsCodeMapper).insert(captor.capture());
+        assertThat(captor.getValue().getCode()).isEqualTo(result.devCode());
+        assertThat(captor.getValue().getScene()).isEqualTo(AuthService.SMS_SCENE_LOGIN);
+    }
+
+    @Test
+    @DisplayName("关闭 Mock 时不回传 devCode，验证码不会泄漏到生产")
+    void sendSmsCodeHidesDevCodeWhenMockDisabled() {
+        SmsService realGateway = mock(SmsService.class);
+        when(realGateway.generateCode()).thenReturn("483920");
+        when(realGateway.getCodeExpireSeconds()).thenReturn(300);
+        when(realGateway.isMockEnabled()).thenReturn(false);
+
+        SmsCodeSendResult result = buildAuthService(realGateway)
+                .sendSmsCode("13700000000", AuthService.SMS_SCENE_LOGIN);
+
+        assertThat(result.devCode()).isNull();
+        assertThat(result.expireSeconds()).isEqualTo(300);
+        // 码照样落库（用户收到的是真短信），只是不回传
+        verify(smsCodeMapper).insert(any(SmsCode.class));
     }
 
     @Test

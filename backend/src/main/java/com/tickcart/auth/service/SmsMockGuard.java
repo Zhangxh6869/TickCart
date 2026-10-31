@@ -11,9 +11,9 @@ import java.util.Arrays;
 /**
  * 短信 Mock 模式的生产环境守卫。
  *
- * <p>Mock 模式下验证码是配置里写死的明文（默认 {@code 123456}），任何人只要看到配置
- * 就能登录任意账号、重置任意账号的密码。这种配置一旦被带上生产，前面所有频控都白做 ——
- * 攻击者第一次就猜中，根本不需要爆破。</p>
+ * <p>Mock 模式下验证码会随 {@code /api/auth/sms/send} 的响应回显（{@code data.devCode}），
+ * 等于把码直接交给调用方：任何人拿到它就能登录任意账号、重置任意账号的密码。
+ * 这种配置一旦被带上生产，前面所有频控都白做 —— 攻击者第一次就猜中，根本不需要爆破。</p>
  *
  * <p>所以这里把「静默裸奔」变成「起不来」：显式激活 prod/production profile 且仍开着
  * Mock 时，直接让应用启动失败。</p>
@@ -44,10 +44,9 @@ public class SmsMockGuard {
         if (production) {
             throw new IllegalStateException(
                     "生产环境禁止开启短信 Mock（tickcart.sms.mock-enabled=true）："
-                            + "验证码为固定明文，任何人可登录/重置任意账号。"
+                            + "验证码会随响应回显，任何人可登录/重置任意账号。"
                             + "请接入真实短信网关后关闭 Mock。");
         }
-        log.warn("短信为 Mock 模式，验证码固定为 {}（仅限开发环境，禁止用于生产）",
-                smsService.getMockCode());
+        log.warn("短信为 Mock 模式，验证码会随 /api/auth/sms/send 响应回显（仅限开发环境，禁止用于生产）");
     }
 }

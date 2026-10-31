@@ -6,6 +6,7 @@ import com.tickcart.auth.dto.RefreshRequest;
 import com.tickcart.auth.dto.RegisterRequest;
 import com.tickcart.auth.dto.ResetPasswordRequest;
 import com.tickcart.auth.dto.SendSmsCodeRequest;
+import com.tickcart.auth.dto.SmsCodeSendResult;
 import com.tickcart.auth.dto.SmsLoginRequest;
 import com.tickcart.auth.dto.SmsRegisterRequest;
 import com.tickcart.auth.dto.TokenResponse;
@@ -42,11 +43,12 @@ public class AuthController {
         this.captchaService = captchaService;
     }
 
-    @Operation(summary = "发送短信验证码", description = "开发环境为 Mock，固定返回 123456")
+    @Operation(summary = "发送短信验证码",
+            description = "验证码每次随机生成。Mock 模式下响应 data.devCode 会回显验证码，供本地自测；"
+                    + "真实网关模式不返回该字段")
     @PostMapping("/sms/send")
-    public R<Void> sendSmsCode(@Valid @RequestBody SendSmsCodeRequest req) {
-        authService.sendSmsCode(req.getPhone(), req.getScene());
-        return R.ok();
+    public R<SmsCodeSendResult> sendSmsCode(@Valid @RequestBody SendSmsCodeRequest req) {
+        return R.ok(authService.sendSmsCode(req.getPhone(), req.getScene()));
     }
 
     @Operation(summary = "账密注册")

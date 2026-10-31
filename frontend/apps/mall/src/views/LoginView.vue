@@ -162,11 +162,13 @@ async function sendCode() {
   fieldErrors.phone = ''
   try {
     // 场景必须与后端校验时一致（1=注册 / 2=登录），否则拿注册的码去登录会被拒
-    await sendSmsCode(
+    const result = await sendSmsCode(
       form.phone,
       mode.value === 'register' ? SMS_SCENE.REGISTER : SMS_SCENE.LOGIN
     )
-    showToast('验证码已发送（开发环境固定 123456）')
+    // 验证码每次随机；Mock 模式下后端把码回显在 devCode 里，直接展示省得去翻后端日志。
+    // 真实网关模式没有该字段，退化成普通提示。
+    showToast(result?.devCode ? `验证码已发送（开发环境：${result.devCode}）` : '验证码已发送')
     startCodeCountdown()
   } catch {
     // 限流时后端已经通过全局 toast 给出了「请 X 秒后重试」，这里只兜住未处理的拒绝

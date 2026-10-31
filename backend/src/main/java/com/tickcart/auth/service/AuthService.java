@@ -5,6 +5,7 @@ import com.tickcart.auth.dto.CaptchaChallenge;
 import com.tickcart.auth.dto.LoginRequest;
 import com.tickcart.auth.dto.RegisterRequest;
 import com.tickcart.auth.dto.ResetPasswordRequest;
+import com.tickcart.auth.dto.SmsCodeSendResult;
 import com.tickcart.auth.dto.SmsLoginRequest;
 import com.tickcart.auth.dto.SmsRegisterRequest;
 import com.tickcart.auth.dto.TokenResponse;
@@ -115,9 +116,14 @@ public class AuthService {
      *
      * <p>频控放在生成/落库/发送之前：先发后拒等于没防，钱已经花了。
      * 发送失败（网关异常）要释放间隔占位，否则用户什么都没收到却要白等 30 秒。</p>
+     *
+     * <p><b>返回值里的 {@code devCode} 只在 Mock 模式下非空</b>，让本地联调不必翻日志；
+     * 真实网关模式下码只能从用户手机上来，回传等于自毁。</p>
+     *
+     * @return 有效期；Mock 模式额外带上验证码本身
      */
     @Transactional
-    public void sendSmsCode(String phone, Integer scene) {
+    public SmsCodeSendResult sendSmsCode(String phone, Integer scene) {
         if (scene == null || scene < 1 || scene > 3) {
             throw BizException.badRequest("短信场景不合法");
         }
@@ -136,6 +142,9 @@ public class AuthService {
 
             smsService.send(phone, code);
             smsCodeGuard.recordSent(phone);
+
+            return new SmsCodeSendResult(smsService.getCodeExpireSeconds(),
+                    smsService.isMockEnabled() ? code : null);
         } catch (RuntimeException ex) {
             smsCodeGuard.releaseSend(phone);
             throw ex;

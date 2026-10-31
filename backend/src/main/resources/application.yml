@@ -133,11 +133,10 @@ tickcart:
     # 图形码有效期（秒）与字符数
     captcha-expire-seconds: ${LOGIN_CAPTCHA_EXPIRE_SECONDS:300}
     captcha-length: 4
-  # 模拟短信验证码：开发环境固定返回该验证码，便于联调（不接真实短信网关）
+  # 模拟短信：开发环境不接真实网关，验证码随机生成并随 /auth/sms/send 响应回显（data.devCode）
   # ★ 激活 prod/production profile 时若仍开着 mock，应用会启动失败（见 SmsMockGuard）
   sms:
     mock-enabled: ${SMS_MOCK_ENABLED:true}
-    mock-code: ${SMS_MOCK_CODE:123456}
     # 验证码有效期（秒）
     code-expire-seconds: 300
     # 短信频控：发送侧防轰炸（直接花钱），校验侧防爆破（6 位码只有 100 万种）

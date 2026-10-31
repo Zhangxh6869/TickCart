@@ -18,6 +18,17 @@ export interface CaptchaChallenge {
   expiresIn: number
 }
 
+/**
+ * 发送短信验证码的结果。
+ *
+ * `devCode` 只在后端 Mock 模式（tickcart.sms.mock-enabled=true）下才有值，
+ * 真实网关模式下该字段整个不出现 —— 前端只能把它当「可选的自测便利」，不能依赖。
+ */
+export interface SmsCodeSendResult {
+  expireSeconds: number
+  devCode?: string
+}
+
 /** 账密登录入参：captcha 两字段只在「需要安全验证」时出现。 */
 export interface LoginPayload {
   username: string
@@ -26,8 +37,12 @@ export interface LoginPayload {
   captchaCode?: string
 }
 
-/** 发送短信验证码。 */
-export function sendSmsCode(phone: string, scene: number): Promise<void> {
+/**
+ * 发送短信验证码。
+ *
+ * 返回值带 `devCode`（仅 Mock 模式）：验证码每次随机，联调时靠它拿到码。
+ */
+export function sendSmsCode(phone: string, scene: number): Promise<SmsCodeSendResult> {
   return request.post('/auth/sms/send', { phone, scene })
 }
 

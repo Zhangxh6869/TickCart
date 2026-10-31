@@ -29,8 +29,9 @@ async function sendCode() {
     return
   }
   // 场景必须与后端校验时一致（3 = 重置密码），否则「登录的码」也能拿来改密码
-  await sendSmsCode(form.phone, SMS_SCENE.RESET_PASSWORD)
-  showToast('验证码已发送（开发环境固定 123456）')
+  const result = await sendSmsCode(form.phone, SMS_SCENE.RESET_PASSWORD)
+  // 验证码每次随机；Mock 模式下后端回显 devCode，真实网关模式没有该字段
+  showToast(result?.devCode ? `验证码已发送（开发环境：${result.devCode}）` : '验证码已发送')
 }
 
 async function submit() {
