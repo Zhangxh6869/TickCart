@@ -135,6 +135,7 @@ docker compose ps               # 5 个服务全部 healthy 后即可访问
 - 商城与后台用 `80` / `8081` 两个端口，而不是 `/admin/` 子路径——两个前端都用 `createWebHistory` 且未配 `base`，挂子路径要改 `vite base` + `router base`，不值当。
 - 与 `docker/docker-compose.dev.yml` **二选一**：两者都映射 `15672`，同时跑会端口冲突。
 - 本地 IDE 若已在 `8080` 跑后端，先停掉再 `up`。
+- 若构建机网络受限导致 `pnpm build` 卡住，可把 `docker-compose.yml` 里 web 的 `dockerfile` 改成 `Dockerfile.prebuilt`（跳过容器内构建，直接用本地 `pnpm -r build` 的产物）。**默认不用它**：它依赖本地 `dist`，而 `dist` 不入库，clone 下来的人无法直接构建。
 
 常用命令
 
