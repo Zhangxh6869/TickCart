@@ -10,11 +10,11 @@ import org.springframework.stereotype.Component;
 import java.security.SecureRandom;
 
 /**
- * 短信服务（阶段1 Mock 实现）。
+ * 短信服务（Mock 实现）。
  *
- * <p>开发环境不接真实短信网关：{@code tickcart.sms.mock-enabled=true} 时只把验证码打到日志、
- * 并由 {@code AuthService} 随响应回显给前端（见 {@code SmsCodeSendResult.devCode}），
- * 方便前后端联调。</p>
+ * <p><b>本项目不接真实短信网关，Mock 就是最终形态</b>：{@code tickcart.sms.mock-enabled=true}
+ * 时只把验证码打到日志、并由 {@code AuthService} 随响应回显给前端
+ * （见 {@code SmsCodeSendResult.devCode}），前后端联调与演示都靠它。</p>
  *
  * <p><b>验证码一律随机生成，不提供「固定码」配置。</b>早期版本在 Mock 下返回配置里的明文，
  * 任何人看到配置就能登录/重置任意账号 —— 那是安全漏洞，不是联调便利。要固定请改本类，
@@ -49,7 +49,11 @@ public class SmsService {
     /**
      * 发送验证码。
      *
-     * <p>阶段1 为 Mock：真实环境应在次处调用短信网关。Mock 模式下仅打日志，不真实发送。</p>
+     * <p>Mock 模式下仅打日志，不真实发送；验证码由 {@code AuthService} 回显给前端。</p>
+     *
+     * <p>{@code mock-enabled=false} 时直接抛异常是<b>刻意的 fail-loud</b>，不是待修的缺陷：
+     * 没有网关却静默「发送成功」，会让人以为短信真的发出去了，排障时更难查。
+     * 真要接网关，请在本方法里替换实现，同时保留这段兜底。</p>
      */
     public void send(String phone, String code) {
         if (!mockEnabled) {

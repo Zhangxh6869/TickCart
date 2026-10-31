@@ -18,6 +18,10 @@ import java.util.Arrays;
  * <p>所以这里把「静默裸奔」变成「起不来」：显式激活 prod/production profile 且仍开着
  * Mock 时，直接让应用启动失败。</p>
  *
+ * <p><b>本项目不接真实短信网关</b>，所以这条守卫的实际含义是「本应用不能以 prod profile
+ * 启动」。这不是缺陷：演示/开发环境不激活 profile 即可正常跑，而一旦有人打上 prod 标签，
+ * 就说明这套代码被当成真生产用了 —— 那时必须先把网关接上。</p>
+ *
  * <p>未激活任何 profile 视为本地开发（项目目前没有 profile 文件），不拦 ——
  * 否则本地 `mvn spring-boot:run` 会直接起不来。</p>
  */
@@ -45,7 +49,7 @@ public class SmsMockGuard {
             throw new IllegalStateException(
                     "生产环境禁止开启短信 Mock（tickcart.sms.mock-enabled=true）："
                             + "验证码会随响应回显，任何人可登录/重置任意账号。"
-                            + "请接入真实短信网关后关闭 Mock。");
+                            + "本项目未接真实短信网关，请勿以 prod/production profile 部署。");
         }
         log.warn("短信为 Mock 模式，验证码会随 /api/auth/sms/send 响应回显（仅限开发环境，禁止用于生产）");
     }
