@@ -3,6 +3,7 @@ import { computed, onUnmounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { useUserStore } from '@/stores/user'
+import DevCodeNotice from '@/components/DevCodeNotice.vue'
 import { SMS_SCENE, fetchCaptcha, sendSmsCode, type CaptchaChallenge } from '@/api/auth'
 
 const route = useRoute()
@@ -43,6 +44,8 @@ let retryTimer: number | undefined
 /** 验证码重发倒计时：与后端 tickcart.sms.guard.send-interval-seconds 保持一致 */
 const codeLeft = ref(0)
 let codeTimer: number | undefined
+/** Mock 模式回显的验证码：非空即显示绿色悬浮窗（真实网关模式下恒为空） */
+const devCode = ref('')
 
 const isRegister = computed(() => mode.value === 'register')
 const showMethodSwitch = computed(() => !isRegister.value)
@@ -166,9 +169,13 @@ async function sendCode() {
       form.phone,
       mode.value === 'register' ? SMS_SCENE.REGISTER : SMS_SCENE.LOGIN
     )
-    // 验证码每次随机；Mock 模式下后端把码回显在 devCode 里，直接展示省得去翻后端日志。
-    // 真实网关模式没有该字段，退化成普通提示。
-    showToast(result?.devCode ? `验证码已发送（开发环境：${result.devCode}）` : '验证码已发送')
+    // 验证码每次随机；Mock 模式下后端把码回显在 devCode 里。
+    // 有码就弹绿色悬浮窗（toast 一闪而过，6 位数字根本来不及抄），没有才退回普通提示。
+    if (result?.devCode) {
+      devCode.value = result.devCode
+    } else {
+      showToast('验证码已发送')
+    }
     startCodeCountdown()
   } catch {
     // 限流时后端已经通过全局 toast 给出了「请 X 秒后重试」，这里只兜住未处理的拒绝
@@ -474,6 +481,10 @@ onUnmounted(() => {
         {{ isRegister ? '去登录' : '立即注册' }}
       </button>
     </div>
+
+    <!-- 开发环境验证码：绿色悬浮窗，升起 → 停留 → 缓缓上移淡出。
+         :key 绑码值，重新获取时能重放动画（同码不会出现，这里只是兜底） -->
+    <DevCodeNotice v-if="devCode" :key="devCode" :code="devCode" @done="devCode = ''" />
   </div>
 </template>
 

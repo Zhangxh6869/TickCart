@@ -2,11 +2,14 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
+import DevCodeNotice from '@/components/DevCodeNotice.vue'
 import { SMS_SCENE, resetPassword, sendSmsCode } from '@/api/auth'
 
 const router = useRouter()
 
 const loading = ref(false)
+/** Mock 模式回显的验证码：非空即显示绿色悬浮窗（真实网关模式下恒为空） */
+const devCode = ref('')
 const form = reactive({
   phone: '',
   code: '',
@@ -30,8 +33,12 @@ async function sendCode() {
   }
   // 场景必须与后端校验时一致（3 = 重置密码），否则「登录的码」也能拿来改密码
   const result = await sendSmsCode(form.phone, SMS_SCENE.RESET_PASSWORD)
-  // 验证码每次随机；Mock 模式下后端回显 devCode，真实网关模式没有该字段
-  showToast(result?.devCode ? `验证码已发送（开发环境：${result.devCode}）` : '验证码已发送')
+  // 有 devCode 就弹绿色悬浮窗（toast 太短，抄码来不及），没有才退回普通提示
+  if (result?.devCode) {
+    devCode.value = result.devCode
+  } else {
+    showToast('验证码已发送')
+  }
 }
 
 async function submit() {
@@ -144,6 +151,9 @@ async function submit() {
       <span class="forgot__link-text">想起来了？</span>
       <button class="forgot__link" type="button" @click="backToLogin">返回登录</button>
     </div>
+
+    <!-- 开发环境验证码：与登录页同一个悬浮窗组件 -->
+    <DevCodeNotice v-if="devCode" :key="devCode" :code="devCode" @done="devCode = ''" />
   </div>
 </template>
 
