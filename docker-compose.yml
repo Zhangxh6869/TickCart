@@ -13,6 +13,11 @@
 #
 # 与 docker/docker-compose.dev.yml 的区别：dev 版只起中间件、应用在 IDE 里跑；
 # 本文件起完整系统。两者同时运行会抢 15672 端口，二选一。
+#
+# ★ 刻意不写 container_name：它是全局唯一名，会覆盖项目名前缀。
+#   dev 版里也硬编码了 tickcart-mysql / tickcart-redis / tickcart-rabbitmq，
+#   两边同名就会报 "container name is already in use"。
+#   去掉后由 compose 按「项目名-服务名-序号」自动命名，两套编排可以共存。
 
 name: tickcart
 
@@ -24,7 +29,6 @@ services:
   # ---------------------------------------------------------------------------
   mysql:
     image: mysql:8.0
-    container_name: tickcart-mysql
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
@@ -45,7 +49,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: tickcart-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
@@ -58,7 +61,6 @@ services:
 
   rabbitmq:
     image: rabbitmq:3.13-management
-    container_name: tickcart-rabbitmq
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: guest
@@ -86,7 +88,6 @@ services:
         # 留空走官方 docker.io；直连超时时在 .env 里设 REGISTRY 走加速器
         REGISTRY: ${REGISTRY:-}
         MAVEN_MIRROR: ${MAVEN_MIRROR:-https://maven.aliyun.com/repository/public}
-    container_name: tickcart-backend
     restart: unless-stopped
     environment:
       # 容器内网端口是 3306；3307 只是 dev 版给宿主机做的映射，写错会 Access denied
@@ -140,7 +141,6 @@ services:
       args:
         REGISTRY: ${REGISTRY:-}
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
-    container_name: tickcart-web
     restart: unless-stopped
     ports:
       - "80:80"
