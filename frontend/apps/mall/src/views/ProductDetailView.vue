@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { showToast } from 'vant'
+import { showImagePreview, showToast } from 'vant'
 import type { ProductDetail, ProductSku } from '@tickcart/shared-types'
 import { formatCount, formatPrice } from '@tickcart/shared-utils'
 import ShareSheet from '@/components/ShareSheet.vue'
@@ -11,6 +11,7 @@ import { reportViewHistory } from '@/api/view-history'
 import { useCartStore } from '@/stores/cart'
 import { useUserStore } from '@/stores/user'
 import { buildBuyNowQuery } from '@/utils/checkout-route'
+import { sanitizeRichText } from '@/utils/rich-text'
 import type { ShareProduct } from '@/utils/share'
 
 /**
@@ -72,7 +73,7 @@ const selectedSku = ref<ProductSku | null>(null)
 /** 图集当前页下标（从 0 开始） */
 const activeImage = ref(0)
 /** 顶部快捷行高亮的区块 */
-const activeSection = ref<'gallery' | 'detail'>('gallery')
+const activeSection = ref<'gallery' | 'params' | 'detail'>('gallery')
 /** 长标题是否已展开；只有折叠态下真的被截断才显示「更多」 */
 const titleExpanded = ref(false)
 const titleOverflow = ref(false)
@@ -91,6 +92,7 @@ const shareSheetVisible = ref(false)
 
 const titleRef = ref<HTMLElement | null>(null)
 const galleryRef = ref<HTMLElement | null>(null)
+const paramsRef = ref<HTMLElement | null>(null)
 const descRef = ref<HTMLElement | null>(null)
 
 /**
@@ -148,6 +150,79 @@ const priceParts = computed(() => {
 })
 /** 当前收藏状态对应的星形：未收藏描边、已收藏实心 */
 const starIcon = computed(() => (favorited.value ? STAR_FILLED : STAR_OUTLINE))
+
+/**
+ * 商品详情富文本。
+ *
+ * <p>{@code product.detail} 存的是 HTML（图文详情：卖点、参数表、插图），
+ * 必须过白名单清洗后才能交给 {@code v-html} —— 详见 {@code utils/rich-text.ts}。</p>
+ */
+const detailHtml = computed(() => sanitizeRichText(detail.value?.detail))
+
+/**
+ * 「商品参数」表的数据。
+ *
+ * <p>只取详情接口里**已经有的**字段（编号、分类、规格、价格区间、销量），不额外造数据：
+ * 参数表一旦出现后端不存在的字段，改库存/改价格时它就会和真实值对不上。
+ * 规格名取第一个非空的 {@code specName}，值按 SKU 顺序去重拼接。</p>
+ */
+const paramRows = computed<{ label: string; value: string }[]>(() => {
+  const data = detail.value
+  if (!data) return []
+  const rows: { label: string; value: string }[] = [{ label: '商品编号', value: String(data.id) }]
+  if (data.categoryName) rows.push({ label: '商品分类', value: data.categoryName })
+
+  const specName = data.skus.find((sku) => sku.specName)?.specName
+  const specValues = [...new Set(data.skus.map((sku) => sku.specValue).filter(Boolean))]
+  if (specName && specValues.length) rows.push({ label: specName, value: specValues.join(' / ') })
+
+  const prices = data.skus.map((sku) => sku.price).filter((price) => price > 0)
+  if (prices.length > 1) {
+    const min = Math.min(...prices)
+    const max = Math.max(...prices)
+    if (min !== max) rows.push({ label: '价格区间', value: `¥${formatPrice(min)} ~ ¥${formatPrice(max)}` })
+  }
+
+  rows.push({ label: '累计销量', value: `${formatCount(data.sales)} 件` })
+  return rows
+})
+
+/**
+ * 款式卡片上的缩略图。
+ *
+ * <p>优先该规格自己的图（{@code skuImage}），没有就退回商品主图 —— 尺码类规格
+ * （鞋服）本来就没有独立外观，为每个尺码配一张不同的图反而会误导「换个尺码换个样子」。</p>
+ */
+function skuThumb(sku: ProductSku): string {
+  return sku.skuImage || detail.value?.mainImage || ''
+}
+
+/** 款式名：规格值可能是空串（后台建的无规格 SKU），这时显示「默认款」而不是一片空白 */
+function skuLabel(sku: ProductSku): string {
+  return sku.specValue?.trim() || '默认款'
+}
+
+/** 点击主图放大预览（Vant 的图片预览，支持双指缩放） */
+function previewImage(index: number) {
+  if (!gallery.value.length) return
+  showImagePreview({ images: gallery.value, startPosition: index, closeable: true })
+}
+
+/**
+ * 图文详情里的插图点击放大。
+ *
+ * <p>用事件委托而不是给每个 {@code <img>} 绑 click：内容是 {@code v-html} 注入的，
+ * 拿不到组件实例，逐个绑定只能等 DOM 渲染完再遍历。委托挂在容器上，重新渲染也不会丢。</p>
+ */
+function previewRichImage(event: MouseEvent) {
+  const target = event.target as HTMLElement
+  if (target.tagName !== 'IMG') return
+  const container = event.currentTarget as HTMLElement
+  const images = Array.from(container.querySelectorAll('img')).map((img) => img.src)
+  const index = images.indexOf((target as HTMLImageElement).src)
+  if (!images.length) return
+  showImagePreview({ images, startPosition: Math.max(0, index), closeable: true })
+}
 
 // 换规格后库存跟着变，把数量夹回合法区间，避免出现「选了 3 件但只剩 1 件」
 watch(selectedSku, () => {
@@ -224,10 +299,10 @@ function selectSku(sku: ProductSku) {
 }
 
 /** 顶部快捷行：滚动到对应区块 */
-function scrollToSection(section: 'gallery' | 'detail') {
+function scrollToSection(section: 'gallery' | 'params' | 'detail') {
   activeSection.value = section
-  const el = section === 'gallery' ? galleryRef.value : descRef.value
-  el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const target = { gallery: galleryRef, params: paramsRef, detail: descRef }[section]
+  target.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 function goBack() {
@@ -381,7 +456,7 @@ function submitBuyNow(count: number) {
     <van-loading v-if="loading" class="detail__loading" />
 
     <template v-else-if="detail">
-      <!-- 主图 / 图集 -->
+      <!-- 主图 / 图集：点图放大，下方缩略图可直接切换 -->
       <div ref="galleryRef" class="gallery">
         <van-swipe
           v-if="gallery.length"
@@ -390,13 +465,28 @@ function submitBuyNow(count: number) {
           :show-indicators="gallery.length > 1"
         >
           <van-swipe-item v-for="(url, index) in gallery" :key="index">
-            <img :src="url" :alt="detail.name" />
+            <img :src="url" :alt="detail.name" @click="previewImage(index)" />
           </van-swipe-item>
         </van-swipe>
         <div v-else class="gallery__empty">暂无图片</div>
+
+        <!-- 缩略图条：图集多张时才有意义 -->
+        <div v-if="gallery.length > 1" class="thumbs">
+          <button
+            v-for="(url, index) in gallery"
+            :key="`thumb-${index}`"
+            class="thumbs__item"
+            :class="{ 'is-active': activeImage === index }"
+            type="button"
+            :aria-label="`第 ${index + 1} 张图`"
+            @click="activeImage = index"
+          >
+            <img :src="url" alt="" />
+          </button>
+        </div>
       </div>
 
-      <!-- 快捷行：图集页码 / 款式数 / 详情 -->
+      <!-- 快捷行：图集页码 / 款式数 / 参数 / 详情 -->
       <div class="quick-bar">
         <button
           class="quick-bar__item"
@@ -411,6 +501,14 @@ function submitBuyNow(count: number) {
         </button>
         <button
           class="quick-bar__item"
+          :class="{ 'is-active': activeSection === 'params' }"
+          type="button"
+          @click="scrollToSection('params')"
+        >
+          参数
+        </button>
+        <button
+          class="quick-bar__item"
           :class="{ 'is-active': activeSection === 'detail' }"
           type="button"
           @click="scrollToSection('detail')"
@@ -419,7 +517,7 @@ function submitBuyNow(count: number) {
         </button>
       </div>
 
-      <!-- 款式横向卡片：直接点选规格 -->
+      <!-- 款式横向卡片：直接点选规格，卡片上带款式图 -->
       <div v-if="skuCount" class="sku-cards">
         <button
           v-for="sku in detail.skus"
@@ -429,7 +527,11 @@ function submitBuyNow(count: number) {
           type="button"
           @click="selectSku(sku)"
         >
-          <span class="sku-card__value">{{ sku.specValue }}</span>
+          <span class="sku-card__thumb">
+            <img v-if="skuThumb(sku)" :src="skuThumb(sku)" alt="" />
+            <van-icon v-else name="photo-o" size="18" />
+          </span>
+          <span class="sku-card__value">{{ skuLabel(sku) }}</span>
           <span class="sku-card__price">¥{{ formatPrice(sku.price) }}</span>
           <span class="sku-card__stock">{{ sku.stock > 0 ? `库存 ${sku.stock}` : '已售罄' }}</span>
         </button>
@@ -463,11 +565,35 @@ function submitBuyNow(count: number) {
         <div class="price__right">总销 {{ formatCount(detail.sales) }}</div>
       </div>
 
-      <!-- 商品详情 -->
+      <!-- 服务承诺：纯展示，不参与下单逻辑 -->
+      <div class="services">
+        <span class="services__item"><van-icon name="passed" size="13" />正品保障</span>
+        <span class="services__item"><van-icon name="logistics" size="13" />极速发货</span>
+        <span class="services__item"><van-icon name="after-sale" size="13" />7 天无理由退换</span>
+        <span class="services__item"><van-icon name="coupon-o" size="13" />全场免运费</span>
+      </div>
+
+      <!-- 商品参数：只展示详情接口里已有的字段 -->
+      <div ref="paramsRef" class="section section--params">
+        <div class="section__title">商品参数</div>
+        <dl class="params">
+          <div v-for="row in paramRows" :key="row.label" class="params__row">
+            <dt class="params__label">{{ row.label }}</dt>
+            <dd class="params__value">{{ row.value }}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <!-- 商品详情：图文详情走富文本（已过白名单清洗） -->
       <div ref="descRef" class="section">
         <div class="section__title">商品详情</div>
-        <p v-if="detail.detail" class="section__text">{{ detail.detail }}</p>
-        <p v-else class="section__text section__text--empty">暂无详情内容</p>
+        <div v-if="detailHtml" class="section__rich" v-html="detailHtml" @click="previewRichImage" />
+        <!-- 兜底：详情没写图文时，至少把副标题与图集铺出来，不留一句「暂无详情内容」 -->
+        <div v-else class="section__fallback">
+          <p v-if="detail.subtitle" class="section__text">{{ detail.subtitle }}</p>
+          <p v-else class="section__text section__text--empty">商家暂未填写图文详情</p>
+          <img v-for="(url, index) in gallery" :key="`desc-${index}`" :src="url" :alt="detail.name" />
+        </div>
       </div>
 
       <!-- 底部操作栏：sticky 而非 fixed，这样能跟着页面一起滑入滑出 -->
@@ -550,7 +676,7 @@ function submitBuyNow(count: number) {
                 <van-icon v-else name="photo-o" size="18" />
               </span>
               <span class="sku-popup__name">
-                {{ sku.specName ? `${sku.specName} ` : '' }}{{ sku.specValue }}
+                {{ sku.specName ? `${sku.specName} ` : '' }}{{ skuLabel(sku) }}
               </span>
               <span class="sku-popup__price">¥{{ formatPrice(sku.price) }}</span>
               <span class="sku-popup__stock">{{ sku.stock > 0 ? `库存 ${sku.stock}` : '已售罄' }}</span>
@@ -651,6 +777,8 @@ function submitBuyNow(count: number) {
   width: 100%;
   aspect-ratio: 1;
   object-fit: contain;
+  /* 图集可点开大图，光标给个提示 */
+  cursor: zoom-in;
 }
 .gallery__empty {
   display: flex;
@@ -660,6 +788,39 @@ function submitBuyNow(count: number) {
   background: #f7f8fa;
   color: #c8c9cc;
   font-size: 14px;
+}
+
+/* ── 图集缩略图条 ── */
+.thumbs {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.thumbs::-webkit-scrollbar {
+  display: none;
+}
+.thumbs__item {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: #f7f8fa;
+  cursor: pointer;
+}
+.thumbs__item.is-active {
+  border-color: #ee0a24;
+}
+.thumbs__item img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 /* ── 快捷行 ── */
@@ -706,13 +867,35 @@ function submitBuyNow(count: number) {
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  min-width: 96px;
+  /* ★ 必须给**确定宽度**而不是 min-width：卡片里有个 width:100% 的方图，
+     宽度不定时「图撑卡片、卡片撑图」互为参照，浏览器会退化成按图片原始尺寸撑开
+     （900px 的图直接把卡片拉成整屏宽）。 */
+  width: 104px;
   padding: 8px 10px;
   border: 1px solid #ebedf0;
   border-radius: 6px;
   background: #fafafa;
   text-align: left;
   cursor: pointer;
+}
+/* 款式图：铺满卡片宽度，方图裁切；有图/无图两种卡片高度一致，横向滚动时不会参差 */
+.sku-card__thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  margin-bottom: 4px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #f2f3f5;
+  color: #c8c9cc;
+}
+.sku-card__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .sku-card.is-active {
   border-color: #ee0a24;
@@ -827,6 +1010,125 @@ function submitBuyNow(count: number) {
 }
 .section__text--empty {
   color: #c8c9cc;
+}
+/* ── 服务承诺 ── */
+.services {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 0 12px 12px;
+  font-size: 12px;
+  color: #969799;
+}
+.services__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.services__item .van-icon {
+  color: #ee0a24;
+}
+
+/* ── 商品参数 ── */
+.params {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid #f2f3f5;
+  border-radius: 6px;
+}
+.params__row {
+  display: flex;
+  gap: 12px;
+  padding: 9px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.params__row:nth-child(odd) {
+  background: #fafafa;
+}
+.params__label {
+  flex: 0 0 76px;
+  color: #969799;
+}
+.params__value {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: #323233;
+  word-break: break-all;
+}
+
+/* ── 商品详情（富文本） ──
+   内容是 v-html 注入的，样式只能靠 :deep 下钻；标签范围由 rich-text.ts 的白名单限定 */
+.section__rich {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #646566;
+}
+.section__rich :deep(h3) {
+  margin: 16px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #323233;
+}
+.section__rich :deep(h3:first-child) {
+  margin-top: 0;
+}
+.section__rich :deep(p) {
+  margin: 0 0 10px;
+}
+.section__rich :deep(ul),
+.section__rich :deep(ol) {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+/* Vant 的基础样式把列表符号清掉了，富文本里的要点必须显式要回来，
+   否则「产品亮点」会变成几行没有圆点的缩进文字 */
+.section__rich :deep(ul) {
+  list-style: disc outside;
+}
+.section__rich :deep(ol) {
+  list-style: decimal outside;
+}
+.section__rich :deep(li) {
+  display: list-item;
+  margin-bottom: 4px;
+}
+.section__rich :deep(img) {
+  display: block;
+  width: 100%;
+  margin: 12px 0;
+  border-radius: 8px;
+  cursor: zoom-in;
+}
+.section__rich :deep(table) {
+  width: 100%;
+  margin: 0 0 12px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.section__rich :deep(th),
+.section__rich :deep(td) {
+  padding: 8px 10px;
+  border: 1px solid #f2f3f5;
+  text-align: left;
+  vertical-align: top;
+}
+.section__rich :deep(th) {
+  width: 76px;
+  background: #fafafa;
+  font-weight: 400;
+  color: #969799;
+}
+.section__rich :deep(td) {
+  color: #323233;
+}
+/* 兜底详情：没有图文时铺副标题 + 图集 */
+.section__fallback img {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  border-radius: 8px;
 }
 
 /* ── 底部操作栏 ──

@@ -919,7 +919,15 @@ async function onSubmit() {
               </el-radio-group>
             </el-form-item>
             <el-form-item label="商品详情">
-              <el-input v-model="form.detail" type="textarea" :rows="4" />
+              <el-input
+                v-model="form.detail"
+                type="textarea"
+                :rows="8"
+                placeholder="支持 HTML：h3 / p / ul / li / table / img 等，商城详情页按富文本渲染"
+              />
+              <div class="dr-hint">
+                这里编辑的是详情页「商品详情」区的图文内容（HTML 源码）。图片地址用 /img/ 开头的站内路径。
+              </div>
             </el-form-item>
           </el-form>
         </el-tab-pane>

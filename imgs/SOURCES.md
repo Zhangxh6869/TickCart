@@ -354,3 +354,310 @@
 | `imgs/fresh/fresh-04.jpg` | https://unsplash.com/photos/IhgdJavmiXQ |
 | `imgs/fresh/fresh-05.jpg` | https://unsplash.com/photos/QvkAQTNj4zk |
 | `imgs/fresh/fresh-06.jpg` | https://unsplash.com/photos/Y5n8mCpvlZU |
+
+
+---
+
+## imgs/<分类目录>/<商品id>-<序号>.jpg —— 商品详情页的图集补充图
+
+由 `scripts/fetch-detail-images.py` 下载，供 `V23__product_detail_content.sql` 写入
+`product_image`（每个商品 2 张，共 102 个商品 / 204 张）。
+
+来源：**Pexels 免费图**（[Pexels License](https://www.pexels.com/license/)，可免费使用，
+仅作本地演示）。统一取 `?auto=compress&cs=tinysrgb&w=900&h=900&fit=crop` 的 900×900 方图，
+与既有商品图同规格（平均 ~74KB）。
+
+> ★ 图片是按**商品名**逐一定向检索后人工挑的，所以同分类下的 6 个商品拿到的是 6 组不同图片，
+> 不是同一批图反复用。但图库毕竟不是商品实拍，个别图与商品名只是「同类」而非「同款」
+> （例如「西兰花」拿到的是同属十字花科的皱叶甘蓝）——演示数据可接受，要逐张校对就改 `PLAN` 重跑。
+>
+> ★ 检索页对连续请求会 403，所以 photo id 全部固化在脚本的 `PLAN` 里，脚本只负责下载。
+
+### skincare（`imgs/skincare/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/skincare/201-1.jpg` | 商品 201 | https://www.pexels.com/photo/bottle-with-a-cosmetic-product-15569182/ |
+| `img/skincare/201-2.jpg` | 商品 201 | https://www.pexels.com/photo/tubes-of-cosmetics-to-makeup-and-a-makeup-brush-12969358/ |
+| `img/skincare/202-1.jpg` | 商品 202 | https://www.pexels.com/photo/glass-bottles-with-droppers-6767761/ |
+| `img/skincare/202-2.jpg` | 商品 202 | https://www.pexels.com/photo/two-small-bottle-on-a-wooden-tray-20849460/ |
+| `img/skincare/203-1.jpg` | 商品 203 | https://www.pexels.com/photo/jar-of-moisturiser-24602070/ |
+| `img/skincare/203-2.jpg` | 商品 203 | https://www.pexels.com/photo/display-of-skincare-products-24602075/ |
+| `img/skincare/204-1.jpg` | 商品 204 | https://www.pexels.com/photo/white-plastic-small-jar-11753640/ |
+| `img/skincare/204-2.jpg` | 商品 204 | https://www.pexels.com/photo/assorted-cosmetics-on-white-surface-4735904/ |
+| `img/skincare/205-1.jpg` | 商品 205 | https://www.pexels.com/photo/close-up-photo-of-pink-lipstick-and-blush-on-2533266/ |
+| `img/skincare/205-2.jpg` | 商品 205 | https://www.pexels.com/photo/pink-lipstick-1213558/ |
+| `img/skincare/206-1.jpg` | 商品 206 | https://www.pexels.com/photo/pressed-powder-lot-2732197/ |
+| `img/skincare/206-2.jpg` | 商品 206 | https://www.pexels.com/photo/cosmetic-products-on-wooden-table-5563664/ |
+
+### bath（`imgs/bath/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/bath/207-1.jpg` | 商品 207 | https://www.pexels.com/photo/photo-of-a-shampoo-bottle-16749129/ |
+| `img/bath/207-2.jpg` | 商品 207 | https://www.pexels.com/photo/photograph-of-a-white-bottle-with-shampoo-7440056/ |
+| `img/bath/208-1.jpg` | 商品 208 | https://www.pexels.com/photo/bottles-of-cosmetics-13516802/ |
+| `img/bath/208-2.jpg` | 商品 208 | https://www.pexels.com/photo/plastic-pump-bottle-on-white-textile-13516803/ |
+| `img/bath/209-1.jpg` | 商品 209 | https://www.pexels.com/photo/orange-and-black-pump-bottle-4154194/ |
+| `img/bath/209-2.jpg` | 商品 209 | https://www.pexels.com/photo/arranged-pump-bottles-of-bath-essentials-5629136/ |
+| `img/bath/210-1.jpg` | 商品 210 | https://www.pexels.com/photo/white-dispenser-pump-and-white-tube-8015792/ |
+| `img/bath/210-2.jpg` | 商品 210 | https://www.pexels.com/photo/assorted-cosmetic-products-near-black-bowl-8467957/ |
+| `img/bath/211-1.jpg` | 商品 211 | https://www.pexels.com/photo/close-up-of-two-bottles-on-a-yellow-background-19717724/ |
+| `img/bath/211-2.jpg` | 商品 211 | https://www.pexels.com/photo/white-and-black-pump-bottle-8054407/ |
+| `img/bath/212-1.jpg` | 商品 212 | https://www.pexels.com/photo/a-close-up-shot-of-a-plastic-bottle-13006784/ |
+| `img/bath/212-2.jpg` | 商品 212 | https://www.pexels.com/photo/close-up-photo-of-empty-containers-on-white-surface-8015465/ |
+
+### bags（`imgs/bags/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/bags/213-1.jpg` | 商品 213 | https://www.pexels.com/photo/hand-bags-shoot-21897118/ |
+| `img/bags/213-2.jpg` | 商品 213 | https://www.pexels.com/photo/photo-of-a-brown-leather-bag-on-white-surface-8502477/ |
+| `img/bags/214-1.jpg` | 商品 214 | https://www.pexels.com/photo/bags-on-white-background-22434759/ |
+| `img/bags/214-2.jpg` | 商品 214 | https://www.pexels.com/photo/hand-bags-shoot-21897314/ |
+| `img/bags/215-1.jpg` | 商品 215 | https://www.pexels.com/photo/close-up-of-of-a-handbag-19197737/ |
+| `img/bags/215-2.jpg` | 商品 215 | https://www.pexels.com/photo/elegant-gray-handbag-with-festive-decoration-36385199/ |
+| `img/bags/216-1.jpg` | 商品 216 | https://www.pexels.com/photo/hand-bags-shoot-21897151/ |
+| `img/bags/216-2.jpg` | 商品 216 | https://www.pexels.com/photo/red-and-gray-bags-22432985/ |
+| `img/bags/217-1.jpg` | 商品 217 | https://www.pexels.com/photo/pink-small-leather-handbags-on-white-tables-5706269/ |
+| `img/bags/217-2.jpg` | 商品 217 | https://www.pexels.com/photo/leather-bags-in-a-studio-27046147/ |
+| `img/bags/218-1.jpg` | 商品 218 | https://www.pexels.com/photo/leather-bags-on-white-background-22434775/ |
+| `img/bags/218-2.jpg` | 商品 218 | https://www.pexels.com/photo/brown-and-black-bags-27046143/ |
+
+### home（`imgs/home/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/home/219-1.jpg` | 商品 219 | https://www.pexels.com/photo/kitchenware-on-white-background-17974511/ |
+| `img/home/219-2.jpg` | 商品 219 | https://www.pexels.com/photo/cozy-kitchen-scene-with-elegant-white-dishware-30694614/ |
+| `img/home/220-1.jpg` | 商品 220 | https://www.pexels.com/photo/pans-and-blender-in-store-19599328/ |
+| `img/home/220-2.jpg` | 商品 220 | https://www.pexels.com/photo/kitchen-counter-with-kitchenware-7303849/ |
+| `img/home/221-1.jpg` | 商品 221 | https://www.pexels.com/photo/close-up-of-glasses-near-sink-in-kitchen-16955291/ |
+| `img/home/221-2.jpg` | 商品 221 | https://www.pexels.com/photo/plates-and-clear-wine-glasses-on-white-wooden-kitchen-cabinet-5556176/ |
+| `img/home/222-1.jpg` | 商品 222 | https://www.pexels.com/photo/wooden-bowls-and-wooden-spoons-on-the-table-6962755/ |
+| `img/home/222-2.jpg` | 商品 222 | https://www.pexels.com/photo/wooden-tableware-on-wooden-tray-with-ceramic-pitcher-7303977/ |
+| `img/home/223-1.jpg` | 商品 223 | https://www.pexels.com/photo/organized-kitchen-shelf-with-various-items-29219834/ |
+| `img/home/223-2.jpg` | 商品 223 | https://www.pexels.com/photo/black-kitchenware-on-a-woven-mat-10936546/ |
+| `img/home/224-1.jpg` | 商品 224 | https://www.pexels.com/photo/composition-of-kitchen-utensils-10117711/ |
+| `img/home/224-2.jpg` | 商品 224 | https://www.pexels.com/photo/rustic-kitchen-window-with-thermos-and-pots-34433526/ |
+
+### accessories（`imgs/accessories/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/accessories/225-1.jpg` | 商品 225 | https://www.pexels.com/photo/close-up-photo-of-a-woman-in-a-white-top-wearing-necklaces-9328377/ |
+| `img/accessories/225-2.jpg` | 商品 225 | https://www.pexels.com/photo/tablet-sunglasses-and-earrings-on-paper-background-5494377/ |
+| `img/accessories/226-1.jpg` | 商品 226 | https://www.pexels.com/photo/pink-sunglasses-on-white-surface-8084237/ |
+| `img/accessories/226-2.jpg` | 商品 226 | https://www.pexels.com/photo/woman-wearing-red-framed-sunglasses-10256324/ |
+| `img/accessories/227-1.jpg` | 商品 227 | https://www.pexels.com/photo/various-womens-fashion-accessories-2986445/ |
+| `img/accessories/227-2.jpg` | 商品 227 | https://www.pexels.com/photo/elegant-makeup-and-accessories-flat-lay-37575397/ |
+| `img/accessories/228-1.jpg` | 商品 228 | https://www.pexels.com/photo/black-framed-sunglasses-and-jewelries-12901704/ |
+| `img/accessories/228-2.jpg` | 商品 228 | https://www.pexels.com/photo/top-view-of-vacation-accessories-5405629/ |
+| `img/accessories/229-1.jpg` | 商品 229 | https://www.pexels.com/photo/tablet-and-sunglasses-near-white-daisies-5494376/ |
+| `img/accessories/229-2.jpg` | 商品 229 | https://www.pexels.com/photo/a-person-holding-a-sunglass-7819291/ |
+| `img/accessories/230-1.jpg` | 商品 230 | https://www.pexels.com/photo/a-woman-wearing-sunglasses-and-black-leather-jacket-11028523/ |
+| `img/accessories/230-2.jpg` | 商品 230 | https://www.pexels.com/photo/portrait-of-woman-in-sunglasses-23279690/ |
+
+### sports（`imgs/sports/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/sports/231-1.jpg` | 商品 231 | https://www.pexels.com/photo/black-dumbbell-on-white-background-for-fitness-38721839/ |
+| `img/sports/231-2.jpg` | 商品 231 | https://www.pexels.com/photo/two-red-2kg-dumbbells-white-surface-4047134/ |
+| `img/sports/232-1.jpg` | 商品 232 | https://www.pexels.com/photo/close-up-shot-of-a-black-dumbbell-8032962/ |
+| `img/sports/232-2.jpg` | 商品 232 | https://www.pexels.com/photo/close-up-of-dumbbells-16080056/ |
+| `img/sports/233-1.jpg` | 商品 233 | https://www.pexels.com/photo/fitness-equipment-on-white-surface-14100682/ |
+| `img/sports/233-2.jpg` | 商品 233 | https://www.pexels.com/photo/people-workout-using-resistance-bands-6516206/ |
+| `img/sports/234-1.jpg` | 商品 234 | https://www.pexels.com/photo/assorted-fitness-equipment-with-headset-and-bottle-4793245/ |
+| `img/sports/234-2.jpg` | 商品 234 | https://www.pexels.com/photo/blue-dumbells-on-gray-surface-7016908/ |
+| `img/sports/235-1.jpg` | 商品 235 | https://www.pexels.com/photo/iron-dumbbell-on-white-background-for-fitness-use-38721834/ |
+| `img/sports/235-2.jpg` | 商品 235 | https://www.pexels.com/photo/close-up-of-colorful-dumbbells-16567046/ |
+| `img/sports/236-1.jpg` | 商品 236 | https://www.pexels.com/photo/purple-dumbbells-and-white-sport-bra-on-table-4397830/ |
+| `img/sports/236-2.jpg` | 商品 236 | https://www.pexels.com/photo/plastic-sport-water-bottles-17755959/ |
+
+### watches（`imgs/watches/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/watches/237-1.jpg` | 商品 237 | https://www.pexels.com/photo/silver-linked-bracelet-silver-and-black-round-chronograph-watch-190819/ |
+| `img/watches/237-2.jpg` | 商品 237 | https://www.pexels.com/photo/close-up-of-a-mens-wristwatch-16739804/ |
+| `img/watches/238-1.jpg` | 商品 238 | https://www.pexels.com/photo/minimalist-black-and-white-analog-wristwatch-33524465/ |
+| `img/watches/238-2.jpg` | 商品 238 | https://www.pexels.com/photo/elegant-timex-watch-with-leather-strap-display-28157826/ |
+| `img/watches/239-1.jpg` | 商品 239 | https://www.pexels.com/photo/close-up-of-classic-casio-digital-watch-39102103/ |
+| `img/watches/239-2.jpg` | 商品 239 | https://www.pexels.com/photo/person-wearing-two-wristwatches-8533468/ |
+| `img/watches/240-1.jpg` | 商品 240 | https://www.pexels.com/photo/gold-and-black-analog-watch-3656125/ |
+| `img/watches/240-2.jpg` | 商品 240 | https://www.pexels.com/photo/chronograph-wristwatches-in-close-up-shot-6098254/ |
+| `img/watches/241-1.jpg` | 商品 241 | https://www.pexels.com/photo/person-wearing-black-round-analog-watch-2222751/ |
+| `img/watches/241-2.jpg` | 商品 241 | https://www.pexels.com/photo/person-wearing-silver-and-black-watch-5789882/ |
+| `img/watches/242-1.jpg` | 商品 242 | https://www.pexels.com/photo/a-person-wearing-a-wristwatch-9713527/ |
+| `img/watches/242-2.jpg` | 商品 242 | https://www.pexels.com/photo/a-man-in-a-white-shirt-and-black-pants-is-adjusting-his-watch-28383343/ |
+
+### drinks（`imgs/drinks/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/drinks/243-1.jpg` | 商品 243 | https://www.pexels.com/photo/bottles-of-wine-17313073/ |
+| `img/drinks/243-2.jpg` | 商品 243 | https://www.pexels.com/photo/white-and-red-labeled-bottle-4254034/ |
+| `img/drinks/244-1.jpg` | 商品 244 | https://www.pexels.com/photo/craft-beer-bottle-with-red-cap-on-white-background-31581609/ |
+| `img/drinks/244-2.jpg` | 商品 244 | https://www.pexels.com/photo/close-up-shot-of-bottles-of-beer-5537952/ |
+| `img/drinks/245-1.jpg` | 商品 245 | https://www.pexels.com/photo/bottle-of-whiskey-on-gradient-background-32995841/ |
+| `img/drinks/245-2.jpg` | 商品 245 | https://www.pexels.com/photo/close-up-shot-of-a-bottle-of-whiskey-10023483/ |
+| `img/drinks/246-1.jpg` | 商品 246 | https://www.pexels.com/photo/a-dark-brown-liquor-in-a-decanter-7253927/ |
+| `img/drinks/246-2.jpg` | 商品 246 | https://www.pexels.com/photo/close-up-shot-of-a-bottle-of-alcoholic-beverage-7253705/ |
+| `img/drinks/247-1.jpg` | 商品 247 | https://www.pexels.com/photo/glass-bottles-on-white-surface-12039663/ |
+| `img/drinks/247-2.jpg` | 商品 247 | https://www.pexels.com/photo/two-glass-bottles-on-marble-top-table-11564946/ |
+| `img/drinks/248-1.jpg` | 商品 248 | https://www.pexels.com/photo/white-wine-bottles-18844913/ |
+| `img/drinks/248-2.jpg` | 商品 248 | https://www.pexels.com/photo/two-labeled-bottles-of-wine-beside-a-wine-glass-3019019/ |
+
+### health（`imgs/health/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/health/249-1.jpg` | 商品 249 | https://www.pexels.com/photo/comprehensive-first-aid-supplies-kit-essentials-31852746/ |
+| `img/health/249-2.jpg` | 商品 249 | https://www.pexels.com/photo/covid-essentials-on-red-surface-5994625/ |
+| `img/health/250-1.jpg` | 商品 250 | https://www.pexels.com/photo/medication-beside-a-glass-of-water-and-thermometer-6753154/ |
+| `img/health/250-2.jpg` | 商品 250 | https://www.pexels.com/photo/blue-and-white-plastic-container-7722956/ |
+| `img/health/251-1.jpg` | 商品 251 | https://www.pexels.com/photo/medications-with-orange-background-12585198/ |
+| `img/health/251-2.jpg` | 商品 251 | https://www.pexels.com/photo/stethoscope-and-pills-9585237/ |
+| `img/health/252-1.jpg` | 商品 252 | https://www.pexels.com/photo/flat-lay-of-veterinary-medical-supplies-on-table-33394245/ |
+| `img/health/252-2.jpg` | 商品 252 | https://www.pexels.com/photo/drugs-in-box-11211050/ |
+| `img/health/253-1.jpg` | 商品 253 | https://www.pexels.com/photo/syringes-with-medical-drugs-on-yellow-background-4210557/ |
+| `img/health/253-2.jpg` | 商品 253 | https://www.pexels.com/photo/an-array-of-syringes-in-thermoforming-packaging-7722562/ |
+| `img/health/254-1.jpg` | 商品 254 | https://www.pexels.com/photo/needles-and-syringe-in-hospital-23655557/ |
+| `img/health/254-2.jpg` | 商品 254 | https://www.pexels.com/photo/over-the-shoulder-shot-of-medical-practitioner-getting-medicine-from-shelf-6129576/ |
+
+### appliances（`imgs/appliances/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/appliances/255-1.jpg` | 商品 255 | https://www.pexels.com/photo/pans-and-blender-in-store-19599328/ |
+| `img/appliances/255-2.jpg` | 商品 255 | https://www.pexels.com/photo/vintage-radoco-kitchen-appliances-set-against-blue-30946798/ |
+| `img/appliances/256-1.jpg` | 商品 256 | https://www.pexels.com/photo/slices-of-bread-popping-up-from-toaster-4493668/ |
+| `img/appliances/256-2.jpg` | 商品 256 | https://www.pexels.com/photo/mounted-appliances-in-the-kitchen-7534297/ |
+| `img/appliances/257-1.jpg` | 商品 257 | https://www.pexels.com/photo/vibrant-kitchenware-display-in-cape-town-shop-40331524/ |
+| `img/appliances/257-2.jpg` | 商品 257 | https://www.pexels.com/photo/a-clean-kitchen-with-cupboards-and-kitchenware-5330134/ |
+| `img/appliances/258-1.jpg` | 商品 258 | https://www.pexels.com/photo/kitchen-cooking-utensils-photo-12292645/ |
+| `img/appliances/258-2.jpg` | 商品 258 | https://www.pexels.com/photo/white-wooden-kitchen-cabinet-1599791/ |
+| `img/appliances/259-1.jpg` | 商品 259 | https://www.pexels.com/photo/modern-kitchen-cabinets-8082222/ |
+| `img/appliances/259-2.jpg` | 商品 259 | https://www.pexels.com/photo/photo-of-kitchen-interior-4713253/ |
+| `img/appliances/260-1.jpg` | 商品 260 | https://www.pexels.com/photo/closets-in-kitchen-7546223/ |
+| `img/appliances/260-2.jpg` | 商品 260 | https://www.pexels.com/photo/rectangular-white-island-table-in-kitchen-2398375/ |
+
+### toys（`imgs/toys/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/toys/261-1.jpg` | 商品 261 | https://www.pexels.com/photo/a-robot-figure-doing-a-sit-up-9372666/ |
+| `img/toys/261-2.jpg` | 商品 261 | https://www.pexels.com/photo/red-figurine-in-a-studio-19946597/ |
+| `img/toys/262-1.jpg` | 商品 262 | https://www.pexels.com/photo/collectible-figurine-of-fictional-character-in-gray-background-7422160/ |
+| `img/toys/262-2.jpg` | 商品 262 | https://www.pexels.com/photo/toy-soldier-figures-on-white-background-5257333/ |
+| `img/toys/263-1.jpg` | 商品 263 | https://www.pexels.com/photo/photo-of-a-red-meeple-near-blue-meeple-pieces-6990039/ |
+| `img/toys/263-2.jpg` | 商品 263 | https://www.pexels.com/photo/group-of-colorful-human-shape-wooden-blocks-6990407/ |
+| `img/toys/264-1.jpg` | 商品 264 | https://www.pexels.com/photo/close-up-of-toys-on-a-white-background-5257327/ |
+| `img/toys/264-2.jpg` | 商品 264 | https://www.pexels.com/photo/grey-military-plastic-models-5257358/ |
+| `img/toys/265-1.jpg` | 商品 265 | https://www.pexels.com/photo/military-machinery-miniatures-on-white-background-5257282/ |
+| `img/toys/265-2.jpg` | 商品 265 | https://www.pexels.com/photo/studio-shot-of-grey-model-soldiers-and-a-plastic-plants-5257404/ |
+| `img/toys/266-1.jpg` | 商品 266 | https://www.pexels.com/photo/military-playset-of-little-plastic-toy-soldiers-5257325/ |
+| `img/toys/266-2.jpg` | 商品 266 | https://www.pexels.com/photo/toy-soldiers-on-white-sheet-5257293/ |
+
+### pets（`imgs/pets/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/pets/267-1.jpg` | 商品 267 | https://www.pexels.com/photo/flat-lay-shot-of-a-dog-and-animal-accessories-3981763/ |
+| `img/pets/267-2.jpg` | 商品 267 | https://www.pexels.com/photo/bichon-frise-and-french-bulldog-in-a-t-shirt-and-necklace-17742005/ |
+| `img/pets/268-1.jpg` | 商品 268 | https://www.pexels.com/photo/animal-feed-in-bowl-12928245/ |
+| `img/pets/268-2.jpg` | 商品 268 | https://www.pexels.com/photo/a-person-putting-dog-food-on-the-dog-bowl-8434744/ |
+| `img/pets/269-1.jpg` | 商品 269 | https://www.pexels.com/photo/close-up-of-dog-treats-on-a-container-13419673/ |
+| `img/pets/269-2.jpg` | 商品 269 | https://www.pexels.com/photo/bowl-of-dog-food-8434633/ |
+| `img/pets/270-1.jpg` | 商品 270 | https://www.pexels.com/photo/chihuahua-in-a-pet-carrier-against-white-background-35651203/ |
+| `img/pets/270-2.jpg` | 商品 270 | https://www.pexels.com/photo/a-dog-lying-on-its-bed-4445456/ |
+| `img/pets/271-1.jpg` | 商品 271 | https://www.pexels.com/photo/boxes-and-vials-of-canine-medicine-17605538/ |
+| `img/pets/271-2.jpg` | 商品 271 | https://www.pexels.com/photo/a-dog-wearing-face-mask-4445609/ |
+| `img/pets/272-1.jpg` | 商品 272 | https://www.pexels.com/photo/short-coated-black-and-white-puppy-1458913/ |
+| `img/pets/272-2.jpg` | 商品 272 | https://www.pexels.com/photo/portrait-of-a-white-and-brown-cat-18688874/ |
+
+### baby（`imgs/baby/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/baby/273-1.jpg` | 商品 273 | https://www.pexels.com/photo/luxury-baby-clothing-set-in-elegant-gift-packaging-35727374/ |
+| `img/baby/273-2.jpg` | 商品 273 | https://www.pexels.com/photo/minimalist-baby-clothing-on-clothesline-35727373/ |
+| `img/baby/274-1.jpg` | 商品 274 | https://www.pexels.com/photo/socks-and-pacifiers-on-white-surface-7566224/ |
+| `img/baby/274-2.jpg` | 商品 274 | https://www.pexels.com/photo/gray-and-white-socks-7566233/ |
+| `img/baby/275-1.jpg` | 商品 275 | https://www.pexels.com/photo/adorable-baby-on-fluffy-rug-with-diapers-30344708/ |
+| `img/baby/275-2.jpg` | 商品 275 | https://www.pexels.com/photo/adorable-baby-with-diapers-and-baby-products-32950999/ |
+| `img/baby/276-1.jpg` | 商品 276 | https://www.pexels.com/photo/brown-baby-shoe-13823041/ |
+| `img/baby/276-2.jpg` | 商品 276 | https://www.pexels.com/photo/pair-of-toddler-s-white-and-gray-shoes-267278/ |
+| `img/baby/277-1.jpg` | 商品 277 | https://www.pexels.com/photo/pregnancy-test-kit-beside-a-pacifier-5982310/ |
+| `img/baby/277-2.jpg` | 商品 277 | https://www.pexels.com/photo/a-baby-surrounded-with-cosmetic-products-12188428/ |
+| `img/baby/278-1.jpg` | 商品 278 | https://www.pexels.com/photo/adorable-baby-with-toy-ducks-in-studio-34678851/ |
+| `img/baby/278-2.jpg` | 商品 278 | https://www.pexels.com/photo/baby-sitting-on-white-chair-961188/ |
+
+### cars（`imgs/cars/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/cars/279-1.jpg` | 商品 279 | https://www.pexels.com/photo/close-up-of-car-accessories-on-vehicle-door-39934707/ |
+| `img/cars/279-2.jpg` | 商品 279 | https://www.pexels.com/photo/red-and-black-hanging-car-decor-2379998/ |
+| `img/cars/280-1.jpg` | 商品 280 | https://www.pexels.com/photo/modern-car-dashboard-with-touchscreen-display-37224323/ |
+| `img/cars/280-2.jpg` | 商品 280 | https://www.pexels.com/photo/car-dashboard-with-car-radio-displaying-fm-tuner-35641871/ |
+| `img/cars/281-1.jpg` | 商品 281 | https://www.pexels.com/photo/vehicle-headrest-monitor-1073741/ |
+| `img/cars/281-2.jpg` | 商品 281 | https://www.pexels.com/photo/toy-dice-hanging-behind-car-windshield-17893272/ |
+| `img/cars/282-1.jpg` | 商品 282 | https://www.pexels.com/photo/car-interior-with-rearview-mirror-and-dashboard-38712727/ |
+| `img/cars/282-2.jpg` | 商品 282 | https://www.pexels.com/photo/car-with-black-interior-12956058/ |
+| `img/cars/283-1.jpg` | 商品 283 | https://www.pexels.com/photo/red-and-black-car-interior-366224/ |
+| `img/cars/283-2.jpg` | 商品 283 | https://www.pexels.com/photo/luxury-car-interior-with-red-leather-details-29566882/ |
+| `img/cars/284-1.jpg` | 商品 284 | https://www.pexels.com/photo/interior-view-of-a-luxury-car-with-illuminated-dashboard-40448555/ |
+| `img/cars/284-2.jpg` | 商品 284 | https://www.pexels.com/photo/luxury-car-interior-with-modern-dashboard-36841136/ |
+
+### instruments（`imgs/instruments/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/instruments/285-1.jpg` | 商品 285 | https://www.pexels.com/photo/guitar-on-white-background-15486142/ |
+| `img/instruments/285-2.jpg` | 商品 285 | https://www.pexels.com/photo/brown-acoustic-guitar-with-flowers-on-white-textile-9717768/ |
+| `img/instruments/286-1.jpg` | 商品 286 | https://www.pexels.com/photo/acoustic-guitar-on-a-bed-11168309/ |
+| `img/instruments/286-2.jpg` | 商品 286 | https://www.pexels.com/photo/three-wooden-flutes-18460856/ |
+| `img/instruments/287-1.jpg` | 商品 287 | https://www.pexels.com/photo/kazakh-dombyra-musical-instrument-on-white-background-30472403/ |
+| `img/instruments/287-2.jpg` | 商品 287 | https://www.pexels.com/photo/traditional-kazakh-dombyra-on-white-background-30472406/ |
+| `img/instruments/288-1.jpg` | 商品 288 | https://www.pexels.com/photo/hand-holding-a-kalimba-in-the-snow-11480583/ |
+| `img/instruments/288-2.jpg` | 商品 288 | https://www.pexels.com/photo/a-percussion-instrument-over-the-blanket-6274911/ |
+| `img/instruments/289-1.jpg` | 商品 289 | https://www.pexels.com/photo/golden-trumpet-on-white-background-with-soft-focus-34601478/ |
+| `img/instruments/289-2.jpg` | 商品 289 | https://www.pexels.com/photo/brass-trumpet-on-white-surface-12266889/ |
+| `img/instruments/290-1.jpg` | 商品 290 | https://www.pexels.com/photo/two-beglamas-traditional-instruments-5901731/ |
+| `img/instruments/290-2.jpg` | 商品 290 | https://www.pexels.com/photo/sun-hat-a-guitar-a-colored-pencil-pieces-of-paper-8904101/ |
+
+### books（`imgs/books/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/books/291-1.jpg` | 商品 291 | https://www.pexels.com/photo/stack-of-books-with-blue-covers-on-white-background-32046500/ |
+| `img/books/291-2.jpg` | 商品 291 | https://www.pexels.com/photo/stack-of-blue-covered-books-on-white-background-32046501/ |
+| `img/books/292-1.jpg` | 商品 292 | https://www.pexels.com/photo/brown-hardbound-books-on-white-surface-7682364/ |
+| `img/books/292-2.jpg` | 商品 292 | https://www.pexels.com/photo/studio-shot-of-stack-of-books-4284797/ |
+| `img/books/293-1.jpg` | 商品 293 | https://www.pexels.com/photo/stack-of-various-books-composed-on-white-surface-3847658/ |
+| `img/books/293-2.jpg` | 商品 293 | https://www.pexels.com/photo/stack-of-hardback-books-against-peach-background-35975197/ |
+| `img/books/294-1.jpg` | 商品 294 | https://www.pexels.com/photo/stack-of-books-on-white-table-7171398/ |
+| `img/books/294-2.jpg` | 商品 294 | https://www.pexels.com/photo/a-stack-of-books-11911071/ |
+| `img/books/295-1.jpg` | 商品 295 | https://www.pexels.com/photo/pile-of-books-433333/ |
+| `img/books/295-2.jpg` | 商品 295 | https://www.pexels.com/photo/red-and-blue-books-1383379/ |
+| `img/books/296-1.jpg` | 商品 296 | https://www.pexels.com/photo/stack-of-books-beside-white-wall-9291615/ |
+| `img/books/296-2.jpg` | 商品 296 | https://www.pexels.com/photo/black-framed-eyeglasses-on-stack-of-books-5706220/ |
+
+### fresh（`imgs/fresh/`）
+
+| 本地文件 | 对应商品 | Pexels 原图 |
+| --- | --- | --- |
+| `img/fresh/297-1.jpg` | 商品 297 | https://www.pexels.com/photo/fresh-savoy-cabbage-with-red-pepper-40324561/ |
+| `img/fresh/297-2.jpg` | 商品 297 | https://www.pexels.com/photo/fresh-green-cabbage-with-fennel-and-tomatoes-40581879/ |
+| `img/fresh/298-1.jpg` | 商品 298 | https://www.pexels.com/photo/red-tomatoes-and-green-vegetables-on-white-table-3987343/ |
+| `img/fresh/298-2.jpg` | 商品 298 | https://www.pexels.com/photo/cherry-tomatoes-and-garlic-on-the-plate-4963484/ |
+| `img/fresh/299-1.jpg` | 商品 299 | https://www.pexels.com/photo/close-up-shot-of-fresh-vegetables-on-a-white-surface-5719961/ |
+| `img/fresh/299-2.jpg` | 商品 299 | https://www.pexels.com/photo/variety-of-fresh-vegetables-on-wooden-surface-5033529/ |
+| `img/fresh/300-1.jpg` | 商品 300 | https://www.pexels.com/photo/food-vegetables-cooking-onions-12296936/ |
+| `img/fresh/300-2.jpg` | 商品 300 | https://www.pexels.com/photo/close-up-shot-of-beetroots-on-white-surface-5758605/ |
+| `img/fresh/301-1.jpg` | 商品 301 | https://www.pexels.com/photo/a-person-holding-fresh-carrots-5377336/ |
+| `img/fresh/301-2.jpg` | 商品 301 | https://www.pexels.com/photo/green-cucumber-on-white-surface-4203056/ |
+| `img/fresh/302-1.jpg` | 商品 302 | https://www.pexels.com/photo/avocado-and-broad-beans-on-plate-4963581/ |
+| `img/fresh/302-2.jpg` | 商品 302 | https://www.pexels.com/photo/close-up-of-two-fresh-asparagus-spears-on-light-background-4033028/ |
