@@ -33,3 +33,6 @@ export function formatCountdown(targetMs: number, nowMs: number = Date.now()): s
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
 }
+
+/** 商品详情的区块模型（后台可视化编辑 ⇄ `product.detail` HTML） */
+export * from './detail-blocks'

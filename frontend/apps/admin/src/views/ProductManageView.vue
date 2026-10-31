@@ -20,7 +20,8 @@ import {
   updateSkuStock,
   type ProductPayload,
 } from '@/api/product'
-import { ACCEPT_IMAGE_TYPES, MAX_IMAGE_SIZE_MB, uploadImage } from '@/api/upload'
+import { ACCEPT_IMAGE_TYPES, MAX_IMAGE_SIZE_MB, uploadImage, validateImageFile } from '@/api/upload'
+import DetailBlockEditor from '@/components/DetailBlockEditor.vue'
 
 /**
  * 商城前台地址：只用于「预览详情页」跳转。
@@ -362,6 +363,14 @@ const emptyForm = (): ProductPayload => ({
 const form = ref<ProductPayload>(emptyForm())
 /** 抽屉头部展示用：编辑时是商品 ID */
 const editingId = ref<number | null>(null)
+/**
+ * 详情编辑器里「从图集选择」的可选图片：主图 + 图集。
+ *
+ * <p>详情插图优先复用已有图片，避免同一个商品在磁盘上留下多份一样的文件。</p>
+ */
+const detailImageOptions = computed(() =>
+  [form.value.mainImage, ...form.value.images].filter((url): url is string => Boolean(url)),
+)
 
 function openCreate() {
   drawerTitle.value = '新增商品'
@@ -428,21 +437,11 @@ const galleryUploading = computed(() => galleryPending.value > 0)
 let galleryQueue: Promise<void> = Promise.resolve()
 
 /** 校验本地图片，返回错误文案；通过则返回 null（主图与图集共用）。 */
-function validateImage(raw: File): string | null {
-  if (!raw.type.startsWith('image/')) {
-    return '请选择图片文件'
-  }
-  if (raw.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
-    return `图片大小不能超过 ${MAX_IMAGE_SIZE_MB}MB`
-  }
-  return null
-}
-
 /** 选择本地图片后立即上传，成功后把后端返回的相对 URL 写入主图字段。 */
 async function onMainImageChange(uploadFile: UploadFile) {
   const raw = uploadFile.raw
   if (!raw) return
-  const error = validateImage(raw)
+  const error = validateImageFile(raw)
   if (error) {
     ElMessage.warning(error)
     return
@@ -469,7 +468,7 @@ function clearMainImage() {
 function onGalleryChange(uploadFile: UploadFile) {
   const raw = uploadFile.raw
   if (!raw) return
-  const error = validateImage(raw)
+  const error = validateImageFile(raw)
   if (error) {
     ElMessage.warning(error)
     return
@@ -514,7 +513,7 @@ const skuUploading = ref<Record<number, boolean>>({})
 async function onSkuImageChange(index: number, uploadFile: UploadFile) {
   const raw = uploadFile.raw
   if (!raw) return
-  const error = validateImage(raw)
+  const error = validateImageFile(raw)
   if (error) {
     ElMessage.warning(error)
     return
@@ -919,15 +918,7 @@ async function onSubmit() {
               </el-radio-group>
             </el-form-item>
             <el-form-item label="商品详情">
-              <el-input
-                v-model="form.detail"
-                type="textarea"
-                :rows="8"
-                placeholder="支持 HTML：h3 / p / ul / li / table / img 等，商城详情页按富文本渲染"
-              />
-              <div class="dr-hint">
-                这里编辑的是详情页「商品详情」区的图文内容（HTML 源码）。图片地址用 /img/ 开头的站内路径。
-              </div>
+              <DetailBlockEditor v-model="form.detail" :images="detailImageOptions" />
             </el-form-item>
           </el-form>
         </el-tab-pane>
