@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showImagePreview, showToast } from 'vant'
 import type { ProductDetail, ProductSku } from '@tickcart/shared-types'
+import type { SwipeInstance } from 'vant'
 import { formatCount, formatPrice } from '@tickcart/shared-utils'
 import ShareSheet from '@/components/ShareSheet.vue'
 import { fetchProductDetail } from '@/api/product'
@@ -11,6 +12,7 @@ import { reportViewHistory } from '@/api/view-history'
 import { useCartStore } from '@/stores/cart'
 import { useUserStore } from '@/stores/user'
 import { buildBuyNowQuery } from '@/utils/checkout-route'
+import { buildGallery } from '@/utils/product-gallery'
 import { sanitizeRichText } from '@/utils/rich-text'
 import type { ShareProduct } from '@/utils/share'
 
@@ -94,23 +96,23 @@ const titleRef = ref<HTMLElement | null>(null)
 const galleryRef = ref<HTMLElement | null>(null)
 const paramsRef = ref<HTMLElement | null>(null)
 const descRef = ref<HTMLElement | null>(null)
+/** 主图轮播实例：程序化切图只能走它的 swipeTo（见 goToImage） */
+const swipeRef = ref<SwipeInstance | null>(null)
 
 /**
  * 主图区展示的图片列表。
  *
- * <p>以图集表为准，为空时退回主图，保证主图区始终有内容。</p>
- *
- * <p>选中规格后，该规格自己的图片（{@code skuImage}）插到最前面：同一件商品的不同规格
- * 外观往往不同（颜色/容量），主图跟着规格走才符合预期；已经在图集里就不重复插，
- * 只把页码切过去。规格没配图时列表保持不变，也就不会打断用户正在看的那一页。</p>
+ * <p>以图集表为准，为空时退回主图；各规格自己的图（{@code skuImage}）追加在末尾并去重。
+ * 列表对同一件商品是**恒定**的 —— 切款式只改「当前第几张」，不改列表本身，
+ * 否则缩略图会跟着整体重排（规则与理由见 {@code utils/product-gallery.ts}）。</p>
  */
-const gallery = computed<string[]>(() => {
-  const urls = (detail.value?.images ?? []).map((image) => image.url).filter(Boolean)
-  const base = urls.length ? urls : detail.value?.mainImage ? [detail.value.mainImage] : []
-  const skuImage = selectedSku.value?.skuImage
-  if (!skuImage) return base
-  return base.includes(skuImage) ? base : [skuImage, ...base]
-})
+const gallery = computed<string[]>(() =>
+  buildGallery(
+    (detail.value?.images ?? []).map((image) => image.url),
+    detail.value?.mainImage,
+    (detail.value?.skus ?? []).map((sku) => sku.skuImage),
+  ),
+)
 
 const currentPrice = computed(() => selectedSku.value?.price ?? detail.value?.price ?? 0)
 const currentStock = computed(() => selectedSku.value?.stock ?? detail.value?.stock ?? 0)
@@ -200,6 +202,33 @@ function skuThumb(sku: ProductSku): string {
 /** 款式名：规格值可能是空串（后台建的无规格 SKU），这时显示「默认款」而不是一片空白 */
 function skuLabel(sku: ProductSku): string {
   return sku.specValue?.trim() || '默认款'
+}
+
+/**
+ * 切到图集第 {@code index} 张：缩略图高亮与主图一起走。
+ *
+ * <p>★★ <b>Vant 4 的 {@code van-swipe} 在「active」这件事上双向都不通</b>，两端都要自己接：</p>
+ * <ul>
+ *   <li><b>父 → 子</b>：轮播只在自己的 {@code state.active} 上维护位置，watch 列表里只有
+ *       {@code initialSwipe} 和「子项数量」，**没有 {@code active} 这个 prop**
+ *       （见 {@code vant/es/swipe/Swipe.mjs} 末尾）。所以光改 {@code activeImage}，
+ *       上面的大图纹丝不动 —— 用户看到的就是「点款式后缩略图高亮了、页码也变了，大图不动」。</li>
+ *   <li><b>子 → 父</b>：它 emit 的是 {@code change}，**不是 {@code update:active}**，
+ *       所以 {@code v-model:active} 也不会把下标抛回来 —— 手势滑到第 2 张时页码仍停在 1/N。</li>
+ * </ul>
+ *
+ * <p>因此：程序化切图调 {@code swipeTo}（{@code immediate} 免动画），手势滑动靠
+ * {@link onSwipeChange} 接 {@code change} 事件。两条路都落到同一个 {@code activeImage}。</p>
+ */
+function goToImage(index: number) {
+  if (index < 0 || index >= gallery.value.length) return
+  activeImage.value = index
+  swipeRef.value?.swipeTo(index, { immediate: true })
+}
+
+/** 手势滑动后同步页码与缩略图高亮（{@code swipeTo} 也会触发它，值相同，不会循环） */
+function onSwipeChange(index: number) {
+  activeImage.value = index
 }
 
 /** 点击主图放大预览（Vant 的图片预览，支持双指缩放） */
@@ -292,10 +321,7 @@ function selectSku(sku: ProductSku) {
   selectedSku.value = sku
   if (!sku.skuImage) return
   // gallery 是 computed：要等它按新的 selectedSku 重算完，才能拿到 SKU 图的新下标
-  nextTick(() => {
-    const index = gallery.value.indexOf(sku.skuImage as string)
-    if (index >= 0) activeImage.value = index
-  })
+  nextTick(() => goToImage(gallery.value.indexOf(sku.skuImage as string)))
 }
 
 /** 顶部快捷行：滚动到对应区块 */
@@ -460,9 +486,11 @@ function submitBuyNow(count: number) {
       <div ref="galleryRef" class="gallery">
         <van-swipe
           v-if="gallery.length"
-          v-model:active="activeImage"
+          ref="swipeRef"
+          :active="activeImage"
           class="gallery__swipe"
           :show-indicators="gallery.length > 1"
+          @change="onSwipeChange"
         >
           <van-swipe-item v-for="(url, index) in gallery" :key="index">
             <img :src="url" :alt="detail.name" @click="previewImage(index)" />
@@ -479,7 +507,7 @@ function submitBuyNow(count: number) {
             :class="{ 'is-active': activeImage === index }"
             type="button"
             :aria-label="`第 ${index + 1} 张图`"
-            @click="activeImage = index"
+            @click="goToImage(index)"
           >
             <img :src="url" alt="" />
           </button>
