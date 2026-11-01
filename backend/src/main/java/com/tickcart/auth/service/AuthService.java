@@ -264,47 +264,51 @@ public class AuthService {
     // =========================================================================
 
     /**
-     * 账密登录。
+     * 账密登录（账号为手机号）。
      *
      * <p>顺序固定为：QPS → 锁定态 → 人机验证 → 凭据比对。前两步先于查库，
      * 被锁定的账号连数据库都不用碰；凭据比对之后才记录失败，避免「账号不存在」
-     * 这种请求也计入失败次数（否则枚举用户名就能把别人的号刷到锁定）。</p>
+     * 这种请求也计入失败次数（否则枚举手机号就能把别人的号刷到锁定）。</p>
+     *
+     * <p><b>为什么不再接受用户名</b>：登录与验证码登录共用同一个手机号作为账号，
+     * 用户名退回「注册时起的展示名 + 唯一标识」。两套登录凭据并存会让失败计数、
+     * 锁定与图形码挑战各记一份 key，改手机号后旧 key 还会残留。</p>
      *
      * @param ip 客户端 IP，用于 IP 维度限流
      */
     public TokenResponse loginByPassword(LoginRequest req, String ip) {
-        String username = req.getUsername();
+        String account = req.getPhone();
 
         loginGuard.assertQps(ip);
-        loginGuard.assertNotLocked(ip, username);
+        loginGuard.assertNotLocked(ip, account);
 
         // 失败次数够了就必须先过图形码，否则直接要求验证（不回显任何账号信息）
-        if (loginGuard.isVerifyRequired(ip, username)
+        if (loginGuard.isVerifyRequired(ip, account)
                 && !captchaService.verify(req.getCaptchaId(), req.getCaptchaCode())) {
             throw verifyRequired();
         }
 
-        User user = findByUsername(username);
+        User user = findByPhone(account);
         // 用户不存在时也跑一次 BCrypt，让两条路径耗时接近（见 dummyHash 注释）
         String hash = (user != null) ? user.getPassword() : dummyHash;
         boolean matched = passwordEncoder.matches(req.getPassword(), hash);
 
         if (user == null || !matched) {
-            loginGuard.recordFailure(ip, username);
-            long retryAfter = loginGuard.getRetryAfterSeconds(ip, username);
+            loginGuard.recordFailure(ip, account);
+            long retryAfter = loginGuard.getRetryAfterSeconds(ip, account);
             if (retryAfter > 0) {
                 // 这次失败刚好触发锁定，直接告诉用户还要等多久，别让他再试一次才发现
                 throw new RateLimitedException(retryAfter);
             }
-            if (loginGuard.isVerifyRequired(ip, username)) {
+            if (loginGuard.isVerifyRequired(ip, account)) {
                 throw verifyRequired();
             }
-            // 统一提示，避免暴露"用户是否存在"
-            throw BizException.unauthorized("用户名或密码错误");
+            // 统一提示，避免暴露"账号是否存在"
+            throw BizException.unauthorized("手机号或密码错误");
         }
 
         assertUserUsable(user);
-        loginGuard.recordSuccess(ip, username);
+        loginGuard.recordSuccess(ip, account);
         return issueTokens(user);
     }
 

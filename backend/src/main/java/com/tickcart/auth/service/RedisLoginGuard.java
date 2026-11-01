@@ -56,12 +56,12 @@ public class RedisLoginGuard implements LoginGuard {
     }
 
     @Override
-    public void assertNotLocked(String ip, String username) {
+    public void assertNotLocked(String ip, String account) {
         if (!props.isEnabled()) {
             return;
         }
         try {
-            long accountLock = remainingSeconds(accountLockKey(ip, username));
+            long accountLock = remainingSeconds(accountLockKey(ip, account));
             if (accountLock > 0) {
                 throw new RateLimitedException(accountLock);
             }
@@ -75,12 +75,12 @@ public class RedisLoginGuard implements LoginGuard {
     }
 
     @Override
-    public boolean isVerifyRequired(String ip, String username) {
+    public boolean isVerifyRequired(String ip, String account) {
         if (!props.isEnabled()) {
             return false;
         }
         try {
-            return count(accountFailKey(username)) >= props.getVerifyThreshold();
+            return count(accountFailKey(account)) >= props.getVerifyThreshold();
         } catch (DataAccessException ex) {
             failOpen("验证判定", ex);
             return false;
@@ -88,24 +88,24 @@ public class RedisLoginGuard implements LoginGuard {
     }
 
     @Override
-    public void recordFailure(String ip, String username) {
+    public void recordFailure(String ip, String account) {
         if (!props.isEnabled()) {
             return;
         }
         try {
             long window = props.getFailWindowMinutes() * 60L;
-            long accountFails = incr(accountFailKey(username), window);
+            long accountFails = incr(accountFailKey(account), window);
             long ipFails = incr(ipFailKey(ip), window);
 
             // 账号达到锁定阈值：按 24h 内的第几轮决定锁多久（阶梯惩罚）
             if (accountFails >= props.getLockThreshold()) {
-                int round = (int) incr(gateKey(username), props.getEscalateWindowHours() * 3600L);
+                int round = (int) incr(gateKey(account), props.getEscalateWindowHours() * 3600L);
                 long lockSeconds = lockSecondsForRound(round, props);
-                redis.opsForValue().set(accountLockKey(ip, username), "1", Duration.ofSeconds(lockSeconds));
+                redis.opsForValue().set(accountLockKey(ip, account), "1", Duration.ofSeconds(lockSeconds));
                 // 清掉窗口计数：本轮已经用锁表达惩罚，否则解锁瞬间又会立刻触发
-                redis.delete(accountFailKey(username));
+                redis.delete(accountFailKey(account));
                 log.warn("账号 {} 在 IP {} 登录失败达 {} 次，第 {} 轮锁定 {} 秒",
-                        username, ip, accountFails, round, lockSeconds);
+                        account, ip, accountFails, round, lockSeconds);
             }
 
             if (ipFails >= props.getIpFailThreshold()) {
@@ -119,25 +119,25 @@ public class RedisLoginGuard implements LoginGuard {
     }
 
     @Override
-    public void recordSuccess(String ip, String username) {
+    public void recordSuccess(String ip, String account) {
         if (!props.isEnabled()) {
             return;
         }
         try {
             // 只清账号维度：IP 计数若一起清，攻击者只要掺一次自己的成功登录就能洗白整段爆破
-            redis.delete(List.of(accountFailKey(username), gateKey(username)));
+            redis.delete(List.of(accountFailKey(account), gateKey(account)));
         } catch (DataAccessException ex) {
             failOpen("成功清零", ex);
         }
     }
 
     @Override
-    public long getRetryAfterSeconds(String ip, String username) {
+    public long getRetryAfterSeconds(String ip, String account) {
         if (!props.isEnabled()) {
             return 0;
         }
         try {
-            long accountLock = remainingSeconds(accountLockKey(ip, username));
+            long accountLock = remainingSeconds(accountLockKey(ip, account));
             return accountLock > 0 ? accountLock : remainingSeconds(ipLockKey(ip));
         } catch (DataAccessException ex) {
             failOpen("剩余时长查询", ex);
@@ -202,8 +202,8 @@ public class RedisLoginGuard implements LoginGuard {
 
     // ---- key 构造 ----
 
-    private String accountFailKey(String username) {
-        return NS + "fail:acct:" + username;
+    private String accountFailKey(String account) {
+        return NS + "fail:acct:" + account;
     }
 
     private String ipFailKey(String ip) {
@@ -211,15 +211,15 @@ public class RedisLoginGuard implements LoginGuard {
     }
 
     /** 锁定粒度取「IP + 账号」：全局账号锁会被人用来恶意锁死他人账号。 */
-    private String accountLockKey(String ip, String username) {
-        return NS + "lock:acct:" + ip + ":" + username;
+    private String accountLockKey(String ip, String account) {
+        return NS + "lock:acct:" + ip + ":" + account;
     }
 
     private String ipLockKey(String ip) {
         return NS + "lock:ip:" + ip;
     }
 
-    private String gateKey(String username) {
-        return NS + "gate:acct:" + username;
+    private String gateKey(String account) {
+        return NS + "gate:acct:" + account;
     }
 }

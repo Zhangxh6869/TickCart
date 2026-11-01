@@ -14,18 +14,22 @@ public interface LoginGuard {
     /** 同 IP 每秒请求数超限则抛 {@code RateLimitedException}。 */
     void assertQps(String ip);
 
-    /** 账号（IP+账号组合）或 IP 处于锁定状态则抛 {@code RateLimitedException}。 */
-    void assertNotLocked(String ip, String username);
+    /**
+     * 账号（IP+账号组合）或 IP 处于锁定状态则抛 {@code RateLimitedException}。
+     *
+     * <p>参数 {@code account} 即登录账号 —— 改造后统一为手机号。</p>
+     */
+    void assertNotLocked(String ip, String account);
 
     /** 该账号是否已失败到需要人机验证的程度。 */
-    boolean isVerifyRequired(String ip, String username);
+    boolean isVerifyRequired(String ip, String account);
 
     /** 记录一次凭据错误。仅「密码错」计入，账号禁用、已锁定不计。 */
-    void recordFailure(String ip, String username);
+    void recordFailure(String ip, String account);
 
     /** 记录一次成功登录：清账号失败计数与惩罚轮次，不动 IP 计数。 */
-    void recordSuccess(String ip, String username);
+    void recordSuccess(String ip, String account);
 
     /** 当前剩余锁定秒数，未锁定返回 0。 */
-    long getRetryAfterSeconds(String ip, String username);
+    long getRetryAfterSeconds(String ip, String account);
 }

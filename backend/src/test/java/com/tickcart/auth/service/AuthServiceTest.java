@@ -119,6 +119,14 @@ class AuthServiceTest {
         return req;
     }
 
+    /** 账密登录请求：账号统一为手机号（用户名不再参与登录）。 */
+    private LoginRequest loginReq(String phone, String password) {
+        LoginRequest req = new LoginRequest();
+        req.setPhone(phone);
+        req.setPassword(password);
+        return req;
+    }
+
     private User existingUser(String username, String rawPassword, int role) {
         User user = new User();
         user.setId(1L);
@@ -181,43 +189,32 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("密码正确时登录成功")
+    @DisplayName("手机号与密码正确时登录成功")
     void loginSuccess() {
-        when(userMapper.selectOne(any())).thenReturn(existingUser("demo", "123456", 0));
+        when(userMapper.selectOne(any())).thenReturn(userWithPhone("13900000000", "123456"));
 
-        LoginRequest req = new LoginRequest();
-        req.setUsername("demo");
-        req.setPassword("123456");
-
-        assertThat(authService.loginByPassword(req, "127.0.0.1").getAccessToken()).isNotBlank();
+        assertThat(authService.loginByPassword(loginReq("13900000000", "123456"), "127.0.0.1")
+                .getAccessToken()).isNotBlank();
     }
 
     @Test
     @DisplayName("密码错误时登录失败且提示统一")
     void loginWrongPassword() {
-        when(userMapper.selectOne(any())).thenReturn(existingUser("demo", "123456", 0));
+        when(userMapper.selectOne(any())).thenReturn(userWithPhone("13900000000", "123456"));
 
-        LoginRequest req = new LoginRequest();
-        req.setUsername("demo");
-        req.setPassword("wrong");
-
-        assertThatThrownBy(() -> authService.loginByPassword(req, "127.0.0.1"))
+        assertThatThrownBy(() -> authService.loginByPassword(loginReq("13900000000", "wrong"), "127.0.0.1"))
                 .isInstanceOf(BizException.class)
-                .hasMessage("用户名或密码错误");
+                .hasMessage("手机号或密码错误");
     }
 
     @Test
     @DisplayName("禁用账号无法登录")
     void loginDisabledUser() {
-        User disabled = existingUser("demo", "123456", 0);
+        User disabled = userWithPhone("13900000000", "123456");
         disabled.setStatus(1);
         when(userMapper.selectOne(any())).thenReturn(disabled);
 
-        LoginRequest req = new LoginRequest();
-        req.setUsername("demo");
-        req.setPassword("123456");
-
-        assertThatThrownBy(() -> authService.loginByPassword(req, "127.0.0.1"))
+        assertThatThrownBy(() -> authService.loginByPassword(loginReq("13900000000", "123456"), "127.0.0.1"))
                 .isInstanceOf(BizException.class)
                 .hasMessage("账号已被禁用");
     }
@@ -227,11 +224,7 @@ class AuthServiceTest {
     void loginRequiresCaptchaWhenThresholdReached() {
         when(loginGuard.isVerifyRequired(any(), any())).thenReturn(true);
 
-        LoginRequest req = new LoginRequest();
-        req.setUsername("demo");
-        req.setPassword("123456");
-
-        assertThatThrownBy(() -> authService.loginByPassword(req, "127.0.0.1"))
+        assertThatThrownBy(() -> authService.loginByPassword(loginReq("13900000000", "123456"), "127.0.0.1"))
                 .isInstanceOf(VerifyRequiredException.class)
                 .hasMessageContaining("安全验证");
     }
@@ -242,9 +235,7 @@ class AuthServiceTest {
         when(loginGuard.isVerifyRequired(any(), any())).thenReturn(true);
         when(captchaService.verify("cid", "WRONG")).thenReturn(false);
 
-        LoginRequest req = new LoginRequest();
-        req.setUsername("demo");
-        req.setPassword("123456");
+        LoginRequest req = loginReq("13900000000", "123456");
         req.setCaptchaId("cid");
         req.setCaptchaCode("WRONG");
 
@@ -258,11 +249,9 @@ class AuthServiceTest {
     void loginSucceedsAfterCaptchaPassed() {
         when(loginGuard.isVerifyRequired(any(), any())).thenReturn(true);
         when(captchaService.verify("cid", "AB12")).thenReturn(true);
-        when(userMapper.selectOne(any())).thenReturn(existingUser("demo", "123456", 0));
+        when(userMapper.selectOne(any())).thenReturn(userWithPhone("13900000000", "123456"));
 
-        LoginRequest req = new LoginRequest();
-        req.setUsername("demo");
-        req.setPassword("123456");
+        LoginRequest req = loginReq("13900000000", "123456");
         req.setCaptchaId("cid");
         req.setCaptchaCode("AB12");
 
@@ -272,14 +261,10 @@ class AuthServiceTest {
     @Test
     @DisplayName("失败刚好触发锁定时返回剩余等待秒数")
     void loginReturnsRetryAfterWhenLocked() {
-        when(userMapper.selectOne(any())).thenReturn(existingUser("demo", "123456", 0));
+        when(userMapper.selectOne(any())).thenReturn(userWithPhone("13900000000", "123456"));
         when(loginGuard.getRetryAfterSeconds(any(), any())).thenReturn(600L);
 
-        LoginRequest req = new LoginRequest();
-        req.setUsername("demo");
-        req.setPassword("wrong");
-
-        assertThatThrownBy(() -> authService.loginByPassword(req, "127.0.0.1"))
+        assertThatThrownBy(() -> authService.loginByPassword(loginReq("13900000000", "wrong"), "127.0.0.1"))
                 .isInstanceOf(RateLimitedException.class)
                 .hasMessageContaining("10 分钟");
     }
@@ -289,15 +274,11 @@ class AuthServiceTest {
     void loginUnknownUserStillRecordsFailure() {
         when(userMapper.selectOne(any())).thenReturn(null);
 
-        LoginRequest req = new LoginRequest();
-        req.setUsername("nobody");
-        req.setPassword("whatever");
-
-        assertThatThrownBy(() -> authService.loginByPassword(req, "127.0.0.1"))
+        assertThatThrownBy(() -> authService.loginByPassword(loginReq("13900000000", "whatever"), "127.0.0.1"))
                 .isInstanceOf(BizException.class)
-                .hasMessage("用户名或密码错误");
-        // 关键：没有在「查不到用户」处短路，失败计数照记
-        verify(loginGuard).recordFailure("127.0.0.1", "nobody");
+                .hasMessage("手机号或密码错误");
+        // 关键：没有在「查不到用户」处短路，失败计数照记（账号维度用手机号）
+        verify(loginGuard).recordFailure("127.0.0.1", "13900000000");
     }
 
     @Test

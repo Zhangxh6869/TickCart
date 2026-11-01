@@ -63,7 +63,8 @@ public class AuthController {
         return R.ok(authService.registerBySms(req));
     }
 
-    @Operation(summary = "账密登录", description = "失败次数达到阈值后返回 40101，需带图形码重试")
+    @Operation(summary = "账密登录",
+            description = "账号为手机号；失败次数达到阈值后返回 40101，需带图形码重试")
     @PostMapping("/login")
     public R<TokenResponse> login(@Valid @RequestBody LoginRequest req, HttpServletRequest request) {
         return R.ok(authService.loginByPassword(req, ClientIpResolver.resolve(request)));
