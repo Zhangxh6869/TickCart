@@ -53,6 +53,8 @@ public class AuthService {
     /** 用户状态：正常 / 禁用 */
     private static final int STATUS_NORMAL = 0;
     private static final int STATUS_DISABLED = 1;
+    /** 角色：管理员（0=普通用户） */
+    private static final int ROLE_ADMIN = 1;
     /** 刷新令牌：有效 / 已吊销 */
     private static final int TOKEN_ACTIVE = 0;
     private static final int TOKEN_REVOKED = 1;
@@ -269,17 +271,47 @@ public class AuthService {
     /**
      * 账密登录（账号为手机号）。
      *
-     * <p>顺序固定为：QPS → 锁定态 → 人机验证 → 凭据比对。前两步先于查库，
-     * 被锁定的账号连数据库都不用碰；凭据比对之后才记录失败，避免「账号不存在」
-     * 这种请求也计入失败次数（否则枚举手机号就能把别人的号刷到锁定）。</p>
-     *
-     * <p><b>为什么不再接受用户名</b>：登录与验证码登录共用同一个手机号作为账号，
-     * 用户名退回「注册时起的展示名 + 唯一标识」。两套登录凭据并存会让失败计数、
-     * 锁定与图形码挑战各记一份 key，改手机号后旧 key 还会残留。</p>
+     * <p>只校验「凭据是否正确」，不区分用途 —— 管理员同样可以登录前台逛商城、下单。
+     * 后台专用的角色检查见 {@link #loginAsAdmin}。</p>
      *
      * @param ip 客户端 IP，用于 IP 维度限流
      */
     public TokenResponse loginByPassword(LoginRequest req, String ip) {
+        return issueTokens(authenticate(req, ip));
+    }
+
+    /**
+     * 后台登录：在 {@link #authenticate} 之上追加「必须是管理员」。
+     *
+     * <p><b>为什么单独开一个入口</b>：{@code /auth/login} 前后台共用，它只能验证
+     * 「你是不是本人」，无法验证「你要去哪儿」。角色检查只能落在后面两道门上
+     * （前端路由守卫、{@code /api/admin/**} 的 hasRole），于是普通账号在后台登录页
+     * 会「先拿到令牌、再被前端吊销」—— 用户看到的是登录成功后又弹回登录页。
+     * 把检查前移到发令牌之前，这个中间态就不存在了。</p>
+     *
+     * <p>密码正确但不是管理员时<b>不签发任何令牌</b>（access 与 refresh 都不写），
+     * 避免一次注定失败的登录在库里留下一条 refresh 记录。</p>
+     */
+    public TokenResponse loginAsAdmin(LoginRequest req, String ip) {
+        User user = authenticate(req, ip);
+        if (user.getRole() == null || user.getRole() != ROLE_ADMIN) {
+            throw BizException.forbidden("该账号不是管理员，无法登录后台");
+        }
+        return issueTokens(user);
+    }
+
+    /**
+     * 凭据校验（不含令牌签发）：频控 → 锁定态 → 人机验证 → 查账号 → 比对密码 → 禁用检查。
+     *
+     * <p>前两步先于查库，被锁定的账号连数据库都不用碰；凭据比对之后才记录失败，
+     * 避免「账号不存在」这种请求也计入失败次数（否则枚举手机号就能把别人的号刷到锁定）。</p>
+     *
+     * <p>用户不存在时也跑一次 BCrypt（{@code dummyHash} 陪跑），让两条路径耗时接近 ——
+     * 否则响应时间差 50~100ms，靠计时就能枚举出哪些手机号注册过。</p>
+     *
+     * @return 校验通过的账号（已确认未禁用）
+     */
+    private User authenticate(LoginRequest req, String ip) {
         String account = req.getPhone();
 
         loginGuard.assertQps(ip);
@@ -312,7 +344,7 @@ public class AuthService {
 
         assertUserUsable(user);
         loginGuard.recordSuccess(ip, account);
-        return issueTokens(user);
+        return user;
     }
 
     /** 构造一次人机验证挑战（新图形码 + 一次性提示）。 */

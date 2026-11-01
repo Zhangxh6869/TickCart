@@ -70,6 +70,14 @@ public class AuthController {
         return R.ok(authService.loginByPassword(req, ClientIpResolver.resolve(request)));
     }
 
+    @Operation(summary = "后台登录",
+            description = "与账密登录同一套凭据校验，但要求 role=ADMIN；"
+                    + "非管理员返回 403 且不签发任何令牌")
+    @PostMapping("/admin/login")
+    public R<TokenResponse> adminLogin(@Valid @RequestBody LoginRequest req, HttpServletRequest request) {
+        return R.ok(authService.loginAsAdmin(req, ClientIpResolver.resolve(request)));
+    }
+
     @Operation(summary = "获取图形验证码", description = "答案存 Redis，默认 5 分钟有效，校验一次即作废")
     @GetMapping("/captcha")
     public R<CaptchaChallenge> captcha() {

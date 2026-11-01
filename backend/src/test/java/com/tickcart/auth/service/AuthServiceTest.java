@@ -379,6 +379,43 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("管理员可以登录后台")
+    void adminLoginSuccess() {
+        User admin = userWithPhone("13800000000", "admin123");
+        admin.setRole(1);
+        when(userMapper.selectOne(any())).thenReturn(admin);
+
+        assertThat(authService.loginAsAdmin(loginReq("13800000000", "admin123"), "127.0.0.1")
+                .getAccessToken()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("普通用户不能登录后台，且不签发任何令牌")
+    void adminLoginRejectsNormalUser() {
+        when(userMapper.selectOne(any())).thenReturn(userWithPhone("13900000000", "123456"));
+
+        assertThatThrownBy(() -> authService.loginAsAdmin(loginReq("13900000000", "123456"), "127.0.0.1"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("不是管理员");
+        // 关键：连 refresh token 都不落库 —— 一次注定失败的登录不该留下记录
+        verify(refreshTokenMapper, never()).insert(any(RefreshToken.class));
+    }
+
+    @Test
+    @DisplayName("被禁用的管理员同样登不进后台")
+    void adminLoginRejectsDisabledAdmin() {
+        User admin = userWithPhone("13800000000", "admin123");
+        admin.setRole(1);
+        admin.setStatus(1);
+        when(userMapper.selectOne(any())).thenReturn(admin);
+
+        assertThatThrownBy(() -> authService.loginAsAdmin(loginReq("13800000000", "admin123"), "127.0.0.1"))
+                .isInstanceOf(BizException.class)
+                .hasMessage("账号已被禁用");
+        verify(refreshTokenMapper, never()).insert(any(RefreshToken.class));
+    }
+
+    @Test
     @DisplayName("注册拒绝弱口令")
     void registerRejectsWeakPassword() {
         assertThatThrownBy(() -> authService.registerByPassword(registerReq("alice", "password123")))
