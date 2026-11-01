@@ -2,6 +2,7 @@ package com.tickcart.auth.controller;
 
 import com.tickcart.auth.dto.CaptchaChallenge;
 import com.tickcart.auth.dto.LoginRequest;
+import com.tickcart.auth.dto.ProfileUpdateRequest;
 import com.tickcart.auth.dto.RefreshRequest;
 import com.tickcart.auth.dto.RegisterRequest;
 import com.tickcart.auth.dto.ResetPasswordRequest;
@@ -14,6 +15,8 @@ import com.tickcart.auth.dto.UserInfoResponse;
 import com.tickcart.auth.service.AuthService;
 import com.tickcart.auth.service.CaptchaService;
 import com.tickcart.common.api.R;
+import com.tickcart.common.exception.BizException;
+import com.tickcart.common.file.FileStorageService;
 import com.tickcart.common.security.ClientIpResolver;
 import com.tickcart.common.security.UserContext;
 import io.swagger.v3.oas.annotations.Operation;
@@ -23,9 +26,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * 认证接口。
@@ -37,10 +43,13 @@ public class AuthController {
 
     private final AuthService authService;
     private final CaptchaService captchaService;
+    private final FileStorageService fileStorageService;
 
-    public AuthController(AuthService authService, CaptchaService captchaService) {
+    public AuthController(AuthService authService, CaptchaService captchaService,
+                          FileStorageService fileStorageService) {
         this.authService = authService;
         this.captchaService = captchaService;
+        this.fileStorageService = fileStorageService;
     }
 
     @Operation(summary = "发送短信验证码",
@@ -107,6 +116,28 @@ public class AuthController {
     @GetMapping("/me")
     public R<UserInfoResponse> me() {
         return R.ok(authService.getUserInfo(UserContext.getUserId()));
+    }
+
+    @Operation(summary = "修改个人资料",
+            description = "仅可修改用户名（4~20 位字母/数字/下划线，昵称同步）与性别（0未知 1男 2女）；"
+                    + "手机号、角色、状态不可自助修改")
+    @PutMapping("/me")
+    public R<UserInfoResponse> updateProfile(@Valid @RequestBody ProfileUpdateRequest req) {
+        return R.ok(authService.updateProfile(UserContext.getUserId(), req));
+    }
+
+    @Operation(summary = "上传头像",
+            description = "表单字段名 file；存储成功后更新当前用户头像，返回最新用户信息")
+    @PostMapping("/avatar")
+    public R<UserInfoResponse> uploadAvatar(@RequestParam("file") MultipartFile file) {
+        // 先确认登录再落盘：/api/auth/** 整体 permitAll，若不先校验，
+        // 未登录请求也能往磁盘写文件（虽然随后更新用户会失败）
+        Long userId = UserContext.getUserId();
+        if (userId == null) {
+            throw BizException.unauthorized("未登录或登录已过期");
+        }
+        String url = fileStorageService.store(file);
+        return R.ok(authService.updateAvatar(userId, url));
     }
 
     @Operation(summary = "退出登录", description = "吊销当前 access token 与该用户全部刷新令牌，旧令牌立即失效")

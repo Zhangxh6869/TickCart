@@ -33,6 +33,17 @@ export interface UserInfo {
   role: number
 }
 
+/**
+ * 自助修改资料请求：仅用户名与性别。
+ *
+ * 手机号是登录账号、role/status 是安全字段，后端不接受这些字段的自助修改。
+ */
+export interface ProfileUpdateRequest {
+  username: string
+  /** 0未知 1男 2女 */
+  gender: number
+}
+
 /** 商品分类。 */
 export interface Category {
   id: number

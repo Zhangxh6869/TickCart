@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { UserInfo } from '@tickcart/shared-types'
+import type { ProfileUpdateRequest, UserInfo } from '@tickcart/shared-types'
 import * as authApi from '@/api/auth'
 import { setTokens, clearTokens, getAccessToken } from '@/utils/request'
 
@@ -46,6 +46,16 @@ export const useUserStore = defineStore('user', () => {
     userInfo.value = await authApi.fetchUserInfo()
   }
 
+  /** 修改当前用户资料（用户名/性别）；后端返回最新信息，直接覆盖本地缓存。 */
+  async function updateProfile(payload: ProfileUpdateRequest) {
+    userInfo.value = await authApi.updateProfile(payload)
+  }
+
+  /** 上传头像；成功后用后端返回的最新信息覆盖本地缓存。 */
+  async function uploadAvatar(file: File) {
+    userInfo.value = await authApi.uploadAvatar(file)
+  }
+
   async function logout() {
     try {
       await authApi.logout()
@@ -57,5 +67,17 @@ export const useUserStore = defineStore('user', () => {
     userInfo.value = null
   }
 
-  return { userInfo, token, isLoggedIn, isAdmin, login, loginWithSms, register, loadUserInfo, logout }
+  return {
+    userInfo,
+    token,
+    isLoggedIn,
+    isAdmin,
+    login,
+    loginWithSms,
+    register,
+    loadUserInfo,
+    updateProfile,
+    uploadAvatar,
+    logout,
+  }
 })

@@ -1,5 +1,5 @@
 import request from '@/utils/request'
-import type { TokenResponse, UserInfo } from '@tickcart/shared-types'
+import type { ProfileUpdateRequest, TokenResponse, UserInfo } from '@tickcart/shared-types'
 
 /**
  * 短信验证码场景，与后端 {@code AuthService} 的 SMS_SCENE_* 常量一一对应。
@@ -105,6 +105,23 @@ export function resetPassword(payload: {
 /** 获取当前用户信息。 */
 export function fetchUserInfo(): Promise<UserInfo> {
   return request.get('/auth/me')
+}
+
+/** 修改当前用户资料（仅用户名与性别），返回最新用户信息。 */
+export function updateProfile(payload: ProfileUpdateRequest): Promise<UserInfo> {
+  return request.put('/auth/me', payload)
+}
+
+/**
+ * 上传并更新当前用户头像，返回最新用户信息。
+ *
+ * 走 multipart/form-data，字段名固定为 `file`（与后端 `@RequestParam("file")` 对齐）。
+ * 不手动设置 Content-Type：交给浏览器按 FormData 自动带 boundary。
+ */
+export function uploadAvatar(file: File): Promise<UserInfo> {
+  const form = new FormData()
+  form.append('file', file)
+  return request.post('/auth/avatar', form)
 }
 
 /** 退出登录。 */

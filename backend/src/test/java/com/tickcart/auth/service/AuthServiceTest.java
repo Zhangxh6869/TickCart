@@ -4,12 +4,14 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.tickcart.auth.dto.LoginRequest;
+import com.tickcart.auth.dto.ProfileUpdateRequest;
 import com.tickcart.auth.dto.RegisterRequest;
 import com.tickcart.auth.dto.ResetPasswordRequest;
 import com.tickcart.auth.dto.SmsLoginRequest;
 import com.tickcart.auth.dto.SmsRegisterRequest;
 import com.tickcart.auth.dto.SmsCodeSendResult;
 import com.tickcart.auth.dto.TokenResponse;
+import com.tickcart.auth.dto.UserInfoResponse;
 import com.tickcart.auth.entity.RefreshToken;
 import com.tickcart.auth.entity.SmsCode;
 import com.tickcart.auth.entity.User;
@@ -169,6 +171,13 @@ class AuthServiceTest {
         req.setPhone(phone);
         req.setCode(code);
         req.setNewPassword(newPassword);
+        return req;
+    }
+
+    private ProfileUpdateRequest profileReq(String username, int gender) {
+        ProfileUpdateRequest req = new ProfileUpdateRequest();
+        req.setUsername(username);
+        req.setGender(gender);
         return req;
     }
 
@@ -525,6 +534,99 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.getUserInfo(null))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("未登录");
+    }
+
+    // ---------------- 自助修改资料 ----------------
+
+    @Test
+    @DisplayName("自助修改资料：更新用户名与性别，昵称同步，安全字段不被写入")
+    void updateProfileSuccess() {
+        User original = existingUser("demo", "123456", 0);
+        original.setGender(0);
+        User updated = existingUser("newname", "123456", 0);
+        updated.setGender(1);
+        updated.setNickname("newname");
+
+        // requireUser 取一次、getUserInfo 再取一次
+        when(userMapper.selectById(1L)).thenReturn(original, updated);
+        when(userMapper.selectOne(any())).thenReturn(null); // 新用户名未被占用
+        when(userMapper.updateById(any(User.class))).thenReturn(1);
+
+        UserInfoResponse resp = authService.updateProfile(1L, profileReq("newname", 1));
+
+        assertThat(resp.getUsername()).isEqualTo("newname");
+        assertThat(resp.getGender()).isEqualTo(1);
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userMapper).updateById(captor.capture());
+        User saved = captor.getValue();
+        assertThat(saved.getUsername()).isEqualTo("newname");
+        // ★ V24 不变式：昵称必须与用户名同值
+        assertThat(saved.getNickname()).isEqualTo("newname");
+        assertThat(saved.getGender()).isEqualTo(1);
+        // ★ 安全字段不得被写入（只 set 了 id/username/nickname/gender）
+        assertThat(saved.getRole()).isNull();
+        assertThat(saved.getStatus()).isNull();
+        assertThat(saved.getPhone()).isNull();
+        assertThat(saved.getPassword()).isNull();
+    }
+
+    @Test
+    @DisplayName("自助修改资料：用户名被他人占用时抛冲突且不落库")
+    void updateProfileDuplicateUsername() {
+        when(userMapper.selectById(1L)).thenReturn(existingUser("demo", "123456", 0));
+        when(userMapper.selectOne(any())).thenReturn(existingUser("taken", "x", 0));
+
+        assertThatThrownBy(() -> authService.updateProfile(1L, profileReq("taken", 1)))
+                .isInstanceOf(BizException.class)
+                .hasMessage("用户名已存在");
+        verify(userMapper, never()).updateById(any(User.class));
+    }
+
+    @Test
+    @DisplayName("自助修改资料：只改大小写不触发重名检查（唯一索引大小写不敏感）")
+    void updateProfileCaseOnlyChangeSkipsUniquenessCheck() {
+        when(userMapper.selectById(1L))
+                .thenReturn(existingUser("demo", "123456", 0),
+                        existingUser("DEMO", "123456", 0));
+        when(userMapper.updateById(any(User.class))).thenReturn(1);
+
+        authService.updateProfile(1L, profileReq("DEMO", 0));
+
+        // 没有走唯一性查询，避免被自己的旧行误判为重名
+        verify(userMapper, never()).selectOne(any());
+    }
+
+    @Test
+    @DisplayName("自助修改资料：性别值非法时拒绝且不落库")
+    void updateProfileRejectsInvalidGender() {
+        when(userMapper.selectById(1L)).thenReturn(existingUser("demo", "123456", 0));
+
+        assertThatThrownBy(() -> authService.updateProfile(1L, profileReq("demo", 5)))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("性别");
+        verify(userMapper, never()).updateById(any(User.class));
+    }
+
+    @Test
+    @DisplayName("更新头像：只写入 avatar 字段，不动其它资料")
+    void updateAvatarOnlySetsAvatar() {
+        User original = existingUser("demo", "123456", 0);
+        User updated = existingUser("demo", "123456", 0);
+        updated.setAvatar("/api/files/2026/11/01/a.jpg");
+        when(userMapper.selectById(1L)).thenReturn(original, updated);
+        when(userMapper.updateById(any(User.class))).thenReturn(1);
+
+        UserInfoResponse resp = authService.updateAvatar(1L, "/api/files/2026/11/01/a.jpg");
+
+        assertThat(resp.getAvatar()).isEqualTo("/api/files/2026/11/01/a.jpg");
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userMapper).updateById(captor.capture());
+        User saved = captor.getValue();
+        assertThat(saved.getAvatar()).isEqualTo("/api/files/2026/11/01/a.jpg");
+        assertThat(saved.getUsername()).isNull();
+        assertThat(saved.getGender()).isNull();
     }
 
     @Test

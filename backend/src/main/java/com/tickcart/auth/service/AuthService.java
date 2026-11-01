@@ -3,6 +3,7 @@ package com.tickcart.auth.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.tickcart.auth.dto.CaptchaChallenge;
 import com.tickcart.auth.dto.LoginRequest;
+import com.tickcart.auth.dto.ProfileUpdateRequest;
 import com.tickcart.auth.dto.RegisterRequest;
 import com.tickcart.auth.dto.ResetPasswordRequest;
 import com.tickcart.auth.dto.SmsCodeSendResult;
@@ -442,6 +443,86 @@ public class AuthService {
             throw BizException.notFound("用户不存在");
         }
         return UserInfoResponse.from(user);
+    }
+
+    /**
+     * 自助修改资料：仅更新用户名（nickname 同步）与性别。
+     *
+     * <p><b>边界</b>：role / status / phone / password 一律不碰 —— 手机号是登录账号，
+     * 角色与状态是安全字段，都不能由用户自助修改。请求体即使夹带这些字段也读不到。</p>
+     *
+     * <p>用户名唯一性用 {@code equalsIgnoreCase} 判断「是否真的变了」：
+     * {@code sys_user.username} 的唯一索引在 utf8mb4_general_ci 下大小写不敏感，
+     * 用户只改大小写时不应被自己的旧行挡成「用户名已存在」。</p>
+     *
+     * @param userId 当前登录用户 ID（来自 JWT，客户端无法指定）
+     * @param req    仅读取 username 与 gender
+     * @return 更新后的用户信息
+     */
+    @Transactional
+    public UserInfoResponse updateProfile(Long userId, ProfileUpdateRequest req) {
+        User user = requireUser(userId);
+
+        // 控制器已有 Bean Validation 兜底，这里再挡一次直接调用（Service 也可被内部复用）
+        if (req.getGender() == null || req.getGender() < 0 || req.getGender() > 2) {
+            throw BizException.badRequest("性别值不合法");
+        }
+
+        if (!user.getUsername().equalsIgnoreCase(req.getUsername())) {
+            User conflict = findByUsername(req.getUsername());
+            if (conflict != null) {
+                throw BizException.conflict("用户名已存在");
+            }
+        }
+
+        User update = new User();
+        update.setId(userId);
+        update.setUsername(req.getUsername());
+        // V24 不变式：nickname 始终与 username 同值
+        update.setNickname(req.getUsername());
+        update.setGender(req.getGender());
+        userMapper.updateById(update);
+
+        return getUserInfo(userId);
+    }
+
+    /**
+     * 更新当前用户头像。
+     *
+     * <p>只写入 {@code avatar} 一个字段；URL 由 {@code FileStorageService} 生成，
+     * 不接受客户端直接指定外部地址（避免把头像指向任意第三方资源）。</p>
+     *
+     * @param userId    当前登录用户 ID
+     * @param avatarUrl 存储服务返回的相对 URL
+     * @return 更新后的用户信息
+     */
+    @Transactional
+    public UserInfoResponse updateAvatar(Long userId, String avatarUrl) {
+        requireUser(userId);
+
+        User update = new User();
+        update.setId(userId);
+        update.setAvatar(avatarUrl);
+        userMapper.updateById(update);
+
+        return getUserInfo(userId);
+    }
+
+    /**
+     * 取当前用户，未登录/不存在时抛明确异常。
+     *
+     * <p>{@code /api/auth/**} 整体 permitAll，令牌失效后请求仍会进来，
+     * 此时 userId 为 null，必须显式 401 而不是退化成 404。</p>
+     */
+    private User requireUser(Long userId) {
+        if (userId == null) {
+            throw BizException.unauthorized("未登录或登录已过期");
+        }
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw BizException.notFound("用户不存在");
+        }
+        return user;
     }
 
     /**
