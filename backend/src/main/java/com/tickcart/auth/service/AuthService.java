@@ -352,9 +352,8 @@ public class AuthService {
         update.setPassword(passwordEncoder.encode(req.getNewPassword()));
         userMapper.updateById(update);
 
-        revokeAllRefreshTokens(user.getId());
-        // 改密后旧 access token 也不能再用：记下失效时间点，过滤器按签发时间比对
-        tokenBlacklist.revokeAllIssuedBefore(user.getId(), jwtTokenProvider.getAccessTokenSeconds());
+        // 改密后旧会话必须全部作废，否则拿到旧密码的人仍能继续用
+        revokeSessions(user.getId());
         log.info("用户 {} 通过短信验证码重置了密码", user.getId());
     }
 
@@ -419,6 +418,25 @@ public class AuthService {
     public void logout(Long userId, String jti, long remainingSeconds) {
         tokenBlacklist.revoke(jti, remainingSeconds);
         revokeAllRefreshTokens(userId);
+    }
+
+    /**
+     * 让某用户的所有会话立即失效（改密、后台禁用账号共用）。
+     *
+     * <p>两步缺一不可：</p>
+     * <ol>
+     *   <li>吊销全部 refresh token —— 挡住「用旧刷新令牌换新 access token」</li>
+     *   <li>记录 access token 失效时间点 —— 挡住「手上这个 access token 还能用满有效期」</li>
+     * </ol>
+     *
+     * <p>只做第一步是常见漏项：禁用后用户照样能拿旧 access token 下单，
+     * 直到它自然过期为止。</p>
+     *
+     * @param userId 目标用户
+     */
+    public void revokeSessions(Long userId) {
+        revokeAllRefreshTokens(userId);
+        tokenBlacklist.revokeAllIssuedBefore(userId, jwtTokenProvider.getAccessTokenSeconds());
     }
 
     // =========================================================================

@@ -43,6 +43,10 @@ async function onLogout() {
           <el-icon><Tickets /></el-icon>
           <span>订单管理</span>
         </el-menu-item>
+        <el-menu-item index="/users">
+          <el-icon><User /></el-icon>
+          <span>用户管理</span>
+        </el-menu-item>
         <el-menu-item index="/seckill">
           <el-icon><AlarmClock /></el-icon>
           <span>秒杀管理</span>

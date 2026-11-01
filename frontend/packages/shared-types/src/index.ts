@@ -670,3 +670,66 @@ export interface DashboardVO {
   orderTrend: DailyPoint[]
   amountTrend: DailyPoint[]
 }
+
+// ---------------------------------------------------------------------------
+// 后台用户管理
+// ---------------------------------------------------------------------------
+
+/**
+ * 后台用户列表行。
+ *
+ * `phone` 在这里是**脱敏后**的值（138****8888）：列表是随手截图的位置，
+ * 明文只在 `AdminUserDetail` 里给。
+ */
+export interface AdminUserSummary {
+  id: number
+  username: string
+  nickname: string | null
+  /** 已脱敏，如 138****8888 */
+  phone: string | null
+  gender: number
+  /** 0 普通用户 1 管理员 */
+  role: number
+  /** 0 正常 1 禁用 */
+  status: number
+  /** 下单总数（含已取消、已超时） */
+  orderCount: number
+  /** 已付款订单数（待发货/待收货/已完成） */
+  paidOrderCount: number
+  /** 累计消费（已付款且未退款） */
+  paidAmount: number
+  /** 最近下单时间；从未下单为 null */
+  lastOrderAt: string | null
+  createdAt: string
+}
+
+/** 用户详情里的最近订单摘要。 */
+export interface AdminUserOrderBrief {
+  orderNo: string
+  status: OrderStatusValue
+  statusLabel: string
+  payAmount: number
+  /** 0 普通 1 秒杀 */
+  channel: number
+  createdAt: string
+}
+
+/** 用户收货地址（后台只读）。 */
+export interface AdminUserAddress {
+  id: number
+  receiver: string
+  phone: string | null
+  fullAddress: string
+  isDefault: number
+}
+
+/** 后台用户详情：手机号明文 + 订单统计 + 最近订单 + 地址。 */
+export interface AdminUserDetail extends Omit<AdminUserSummary, 'phone'> {
+  /** 明文手机号 */
+  phone: string | null
+  avatar: string | null
+  /** 退款次数（含进行中） */
+  refundCount: number
+  recentOrders: AdminUserOrderBrief[]
+  addresses: AdminUserAddress[]
+}

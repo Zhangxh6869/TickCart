@@ -40,6 +40,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '订单管理', requiresAuth: true },
       },
       {
+        path: 'users',
+        name: 'users',
+        component: () => import('@/views/UserManageView.vue'),
+        meta: { title: '用户管理', requiresAuth: true },
+      },
+      {
         path: 'search-analytics',
         name: 'search-analytics',
         component: () => import('@/views/SearchAnalyticsView.vue'),

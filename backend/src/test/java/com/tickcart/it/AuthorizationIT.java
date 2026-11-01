@@ -113,6 +113,28 @@ class AuthorizationIT extends AbstractIntegrationTest {
                 .andExpect(status().isOk());
     }
 
+    /**
+     * 用户管理是「能看到所有人的手机号和地址」的接口，权限闸门必须与订单同级验证。
+     * 只靠新加的功能测试是发现不了的 —— 功能测试永远用管理员登录。
+     */
+    @Test
+    @DisplayName("S3 普通用户访问后台用户管理 → 403")
+    void normalUserCannotAccessAdminUsers() throws Exception {
+        long userA = data.createUser();
+
+        mockMvc.perform(get("/api/admin/users").header(AUTH, tokenOf(userA, ROLE_USER)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("正向对照：管理员访问后台用户管理 → 200")
+    void adminCanAccessAdminUsers() throws Exception {
+        long adminId = data.createUser();
+
+        mockMvc.perform(get("/api/admin/users").header(AUTH, tokenOf(adminId, ROLE_ADMIN)))
+                .andExpect(status().isOk());
+    }
+
     /** 为买家下单，返回订单号。 */
     private String placeOrder(TestDataFactory.BuyerFixture buyer) {
         OrderCreateRequest req = new OrderCreateRequest();
