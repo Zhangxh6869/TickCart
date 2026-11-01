@@ -185,7 +185,7 @@ function formatTime(value: string | null | undefined): string {
   return value ? value.replace('T', ' ').slice(0, 16) : '—'
 }
 
-/** 没有头像时用昵称首字占位，比灰色方块好认 */
+/** 没有头像时用用户名首字占位，比灰色方块好认 */
 function initialOf(row: AdminUserSummary): string {
   const name = row.nickname || row.username || ''
   return name.slice(0, 1).toUpperCase()
@@ -215,7 +215,7 @@ function hideBrokenImage(event: Event) {
         <el-input
           v-model="query.keyword"
           class="um__search"
-          placeholder="手机号 / 昵称 / 用户名 / ID"
+          placeholder="手机号 / 用户名 / ID"
           clearable
           :prefix-icon="Search"
           @keyup.enter="onSearch"
