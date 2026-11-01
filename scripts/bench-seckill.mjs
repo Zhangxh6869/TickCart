@@ -28,7 +28,8 @@ const REPO = path.resolve(HERE, '..')
 const TOKEN_FILE = path.join(REPO, '.workbuddy-ai', 'tmp', 'bench-tokens.json')
 
 const BASE = (process.env.BASE ?? 'http://localhost:8080').replace(/\/$/, '')
-const ADMIN_USER = process.env.ADMIN_USER ?? 'admin'
+// 登录账号已统一为手机号（种子管理员 13800000000 / admin123）
+const ADMIN_PHONE = process.env.ADMIN_PHONE ?? '13800000000'
 const ADMIN_PASS = process.env.ADMIN_PASS ?? 'admin123'
 const SCENARIO = process.env.SCENARIO ?? 'seckill'
 const STOCK = Number(process.env.STOCK ?? 100)
@@ -65,11 +66,11 @@ function queueDepth(queue) {
   return line ? Number(line.trim().split(/\s+/)[1]) : 0
 }
 
-async function login(username, password) {
+async function login(phone, password) {
   const res = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ phone, password }),
   })
   const json = await res.json()
   if (json.code !== 0) throw new Error(`登录失败：${JSON.stringify(json)}`)
@@ -165,7 +166,7 @@ async function main() {
     process.exit(1)
   }
 
-  adminToken = await login(ADMIN_USER, ADMIN_PASS)
+  adminToken = await login(ADMIN_PHONE, ADMIN_PASS)
   log(`\n=== 场景 ${SCENARIO} · 账号 ${users.length} · BASE ${BASE} ===`)
 
   // ---------------- 单用户连点 ----------------

@@ -11,6 +11,8 @@ import type { APIRequestContext } from '@playwright/test'
  * 然后统一走登录拿 token。这样本地反复跑、CI 全新库跑，都是同一条路径，不需要分支。</p>
  */
 export const E2E_USER = 'e2e_runner'
+/** 登录账号已统一为手机号：E2E 账号用这个号注册与登录（137 段避开种子与压测账号） */
+export const E2E_PHONE = '13700000001'
 /** 密码规则：8~32 位且必须同时含字母与数字 */
 export const E2E_PASSWORD = 'e2ePass123'
 
@@ -33,17 +35,28 @@ function authHeader(token: string) {
 }
 
 /**
- * 注册（若已存在则跳过）→ 登录 → 确保有收货地址，返回 access token。
+ * 登录（账号已就绪则直接返回）→ 确保有收货地址，返回 access token。
+ *
+ * <p>改造后登录账号是手机号、注册必须带短信验证码，所以不能再「先注册、失败就当作已存在」：
+ * 先直接登录，成功就跳过注册，既不浪费短信额度，也不会反复撞 30 秒发送间隔。</p>
  *
  * <p>任一步失败都直接抛：E2E 的前置条件不满足时，宁可让整个 suite 立刻红掉并给出原因，
  * 也不要在 spec 里等到 20 秒超时才发现「原来是没登录上」。</p>
  */
 export async function ensureAccount(ctx: APIRequestContext): Promise<string> {
-  // 注册失败是预期内的（账号已存在），不检查返回值
-  await ctx.post('/api/auth/register', { data: { username: E2E_USER, password: E2E_PASSWORD } })
+  const existing = await ctx.post('/api/auth/login', {
+    data: { phone: E2E_PHONE, password: E2E_PASSWORD },
+  })
+  if (existing.ok()) {
+    const token: string = (await existing.json()).data.accessToken
+    await ensureAddress(ctx, token)
+    return token
+  }
+
+  await registerAccount(ctx)
 
   const login = await ctx.post('/api/auth/login', {
-    data: { username: E2E_USER, password: E2E_PASSWORD },
+    data: { phone: E2E_PHONE, password: E2E_PASSWORD },
   })
   if (!login.ok()) {
     throw new Error(`E2E 账号登录失败：${login.status()} ${await login.text()}`)
@@ -52,6 +65,40 @@ export async function ensureAccount(ctx: APIRequestContext): Promise<string> {
 
   await ensureAddress(ctx, token)
   return token
+}
+
+/**
+ * 注册 E2E 专用账号：发 scene=1 验证码 → 从 devCode 取码 → 带 code 注册。
+ *
+ * <p>devCode 只在后端 Mock 模式下回显，因此 E2E 必须跑在 `tickcart.sms.mock-enabled=true`
+ * 的环境里（本地与 CI 都是）。</p>
+ */
+async function registerAccount(ctx: APIRequestContext): Promise<void> {
+  const sent = await ctx.post('/api/auth/sms/send', { data: { phone: E2E_PHONE, scene: 1 } })
+  if (!sent.ok()) {
+    throw new Error(`E2E 账号注册失败：验证码发送被拒 ${sent.status()} ${await sent.text()}`)
+  }
+  const code = (await sent.json()).data?.devCode
+  if (!code) {
+    throw new Error('E2E 账号注册失败：响应里没有 devCode，后端需开启 tickcart.sms.mock-enabled')
+  }
+
+  const created = await ctx.post('/api/auth/register', {
+    data: { username: E2E_USER, phone: E2E_PHONE, password: E2E_PASSWORD, code },
+  })
+  if (created.ok()) {
+    return
+  }
+
+  const body = await created.text()
+  // 改造前注册的手机号是可选的：旧库里的 e2e_runner 没有手机号，会占着用户名让这里 409
+  if (created.status() === 409 && body.includes('用户名已存在')) {
+    throw new Error(
+      `E2E 账号注册失败：用户名 ${E2E_USER} 已被占用，但该账号没有手机号 ${E2E_PHONE}。\n` +
+        "这是改造前遗留的账号，请先删除：DELETE FROM tickcart.sys_user WHERE username = 'e2e_runner';",
+    )
+  }
+  throw new Error(`E2E 账号注册失败：${created.status()} ${body}`)
 }
 
 /** 没有收货地址就建一条（种子数据里没有，CI 全新库必然触发）。 */

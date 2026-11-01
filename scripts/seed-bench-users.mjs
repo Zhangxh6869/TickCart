@@ -25,7 +25,8 @@ const args = process.argv.slice(2)
 const clean = args.includes('--clean')
 const count = Number(args.find((a) => /^\d+$/.test(a)) ?? 500)
 
-const ADMIN_USER = process.env.ADMIN_USER ?? 'admin'
+// 登录账号已统一为手机号：管理员用种子账号的手机号，压测账号见 benchPhone(i)
+const ADMIN_PHONE = process.env.ADMIN_PHONE ?? '13800000000'
 const ADMIN_PASS = process.env.ADMIN_PASS ?? 'admin123'
 const USER_PASS = process.env.TICKCART_PASS ?? '123456'
 const BASE = (process.env.BASE ?? 'http://localhost:8080').replace(/\/$/, '')
@@ -52,6 +53,8 @@ function mysqlQuery(sql) {
 }
 
 const prefixFor = (i) => `bench${String(i).padStart(4, '0')}`
+/** 压测账号手机号：与用户名一一对应。登录账号已统一为手机号，这里必须与落库值一致。 */
+const benchPhone = (i) => `1382000${String(i).padStart(4, '0')}`
 
 // ---------------- 清理 ----------------
 if (clean) {
@@ -90,10 +93,10 @@ const userRows = []
 const addrRows = []
 for (let i = 1; i <= count; i++) {
   const u = prefixFor(i)
-  userRows.push(`('${u}','${hash}','1382000${String(i).padStart(4, '0')}','压测${i}',0,0,0)`)
+  userRows.push(`('${u}','${hash}','${benchPhone(i)}','压测${i}',0,0,0)`)
   addrRows.push(
     `((SELECT id FROM tickcart.sys_user WHERE username='${u}'),'压测用户${i}',`
-    + `'1382000${String(i).padStart(4, '0')}','广东省','深圳市','南山区','科技园路 ${i} 号',1,0)`,
+    + `'${benchPhone(i)}','广东省','深圳市','南山区','科技园路 ${i} 号',1,0)`,
   )
 }
 
@@ -129,12 +132,12 @@ if (fs.existsSync(cacheFile)) {
  * 就算后端关了频控（`LOGIN_GUARD_ENABLED=false`），也保不齐有别的限制，
  * 所以这里统一退避重试，别让缓存半途而废。</p>
  */
-async function login(username, password) {
+async function login(phone, password) {
   for (let attempt = 0; attempt < 12; attempt++) {
     const res = await fetch(`${BASE}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ phone, password }),
     })
     const json = await res.json()
     if (json.code === 0) return json.data.accessToken
@@ -142,9 +145,9 @@ async function login(username, password) {
       await new Promise((r) => setTimeout(r, 300 + attempt * 200))
       continue
     }
-    throw new Error(`登录失败 ${username}: ${JSON.stringify(json)}`)
+    throw new Error(`登录失败 ${phone}: ${JSON.stringify(json)}`)
   }
-  throw new Error(`登录重试后仍失败：${username}`)
+  throw new Error(`登录重试后仍失败：${phone}`)
 }
 
 const entries = []
@@ -157,7 +160,7 @@ for (let start = 0; start < count; start += concurrency) {
 
   const tokens = await Promise.all(
     batchIndexes.map(async (i) => {
-      const token = await login(prefixFor(i), USER_PASS)
+      const token = await login(benchPhone(i), USER_PASS)
       const res = await fetch(`${BASE}/api/addresses`, {
         headers: { Authorization: `Bearer ${token}` },
       })

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { E2E_PASSWORD, E2E_USER, clearCart, ensureAccount } from './support/e2e-account'
+import { E2E_PASSWORD, E2E_PHONE, clearCart, ensureAccount } from './support/e2e-account'
 
 /**
  * G5 系统测试 · E1：下单主链路。
@@ -30,7 +30,7 @@ test.describe('下单主链路', () => {
   test('登录 → 搜索 → 加购 → 结算 → 支付 → 订单可见', async ({ page }) => {
     // ---- 1. 登录 ----
     await page.goto('/login')
-    await page.getByPlaceholder('请输入用户名').fill(E2E_USER)
+    await page.getByPlaceholder('请输入手机号').fill(E2E_PHONE)
     await page.getByPlaceholder('请输入密码').fill(E2E_PASSWORD)
     await page.locator('button[type="submit"]').click()
 

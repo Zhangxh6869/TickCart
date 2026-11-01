@@ -23,7 +23,8 @@ export interface RefundCleanupStats {
 }
 
 /** 后台管理员账号：Flyway 种子固定 admin/admin123；允许环境变量覆盖，换库时不必改代码 */
-const ADMIN_USER = process.env.E2E_ADMIN_USER ?? 'admin'
+// 登录账号已统一为手机号：默认取种子管理员的手机号
+const ADMIN_PHONE = process.env.E2E_ADMIN_PHONE ?? '13800000000'
 const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'admin123'
 
 /**
@@ -48,7 +49,7 @@ function authHeader(token: string) {
 /** 后台登录拿管理员令牌（审核退款需要 ROLE_ADMIN）。 */
 export async function ensureAdminToken(ctx: APIRequestContext): Promise<string> {
   const login = await ctx.post('/api/auth/login', {
-    data: { username: ADMIN_USER, password: ADMIN_PASSWORD },
+    data: { phone: ADMIN_PHONE, password: ADMIN_PASSWORD },
   })
   if (!login.ok()) {
     throw new Error(`管理员登录失败：${login.status()} ${await login.text()}`)
