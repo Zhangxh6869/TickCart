@@ -12,9 +12,18 @@ export const useAdminStore = defineStore('admin', () => {
   const isLoggedIn = computed(() => !!token.value)
   const isAdmin = computed(() => userInfo.value?.role === 1)
 
-  /** 后台登录：账号为手机号，登录后立即校验管理员角色。 */
-  async function login(phone: string, password: string) {
-    const res = await authApi.login(phone, password)
+  /**
+   * 后台登录：账号为手机号。
+   *
+   * @param captcha 仅在「需要人机验证」（40101）时传，由登录页拿到挑战后回填
+   */
+  async function login(phone: string, password: string, captcha?: { id: string; code: string }) {
+    const res = await authApi.login({
+      phone,
+      password,
+      captchaId: captcha?.id,
+      captchaCode: captcha?.code,
+    })
     setTokens(res.accessToken, res.refreshToken)
     token.value = res.accessToken
     await loadUserInfo()
