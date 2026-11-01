@@ -46,9 +46,9 @@ function authHeader(token: string) {
   return { Authorization: `Bearer ${token}` }
 }
 
-/** 后台登录拿管理员令牌（审核退款需要 ROLE_ADMIN）。 */
+/** 后台登录拿管理员令牌（审核退款需要 ROLE_ADMIN）：走后台专用接口，非管理员直接 403。 */
 export async function ensureAdminToken(ctx: APIRequestContext): Promise<string> {
-  const login = await ctx.post('/api/auth/login', {
+  const login = await ctx.post('/api/auth/admin/login', {
     data: { phone: ADMIN_PHONE, password: ADMIN_PASSWORD },
   })
   if (!login.ok()) {

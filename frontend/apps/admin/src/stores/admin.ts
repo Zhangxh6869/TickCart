@@ -18,7 +18,8 @@ export const useAdminStore = defineStore('admin', () => {
     setTokens(res.accessToken, res.refreshToken)
     token.value = res.accessToken
     await loadUserInfo()
-    // 后台登录必须校验管理员角色
+    // 后端 /auth/admin/login 已经拒绝了非管理员，这里保留一次兜底：
+    // 万一将来接口被改回通用登录，也不至于静默放行。
     if (!isAdmin.value) {
       await logout()
       throw new Error('该账号不是管理员，无法登录后台')
