@@ -5,8 +5,8 @@
  * 前置：
  *   1. 后端启动时关掉限流与登录频控（否则 429 会污染结果）：
  *        RATE_LIMIT_ENABLED=false LOGIN_GUARD_ENABLED=false mvn spring-boot:run
- *   2. 库里有 N 个测试账号 sku001..skuNNN（脚本不建账号），且手机号为 13910000001 起
- *      —— 登录已统一为手机号，sku001 对应 13910000001
+ *   2. 脚本会自动补齐测试账号 sku001..skuNNN（手机号 13910000001 起，密码同 demo/123456）
+ *      —— 需要本机 docker 里有 tickcart-mysql 容器；已有同名账号时只校正手机号
  *
  * 用法：
  *   STOCK=50 USERS=120 node scripts/verify-seckill-stock.mjs
@@ -19,6 +19,8 @@
  * 注意：B2 阶段还没有 MQ 消费者，抢购成功的消息会堆在 trade.seckill.order 队列里，
  * 跑完记得清队列（脚本会提示）。
  */
+import { execFileSync } from 'node:child_process'
+
 const BASE = (process.env.BASE ?? 'http://localhost:8080').replace(/\/$/, '')
 // 登录账号已统一为手机号：管理员取种子账号手机号，测试账号见 skuPhone()
 const ADMIN_PHONE = process.env.ADMIN_PHONE ?? '13800000000'
@@ -26,6 +28,8 @@ const ADMIN_PASS = process.env.ADMIN_PASS ?? 'admin123'
 const USER_PASS = process.env.TICKCART_PASS ?? '123456'
 /** 测试账号手机号：sku001 → 13910000001。库里的 sku 账号手机号需与之一致 */
 const skuPhone = (i) => `1391000${String(i).padStart(4, '0')}`
+/** 测试账号用户名：sku001、sku002 ……（与手机号规则一一对应） */
+const skuName = (i) => `sku${String(i).padStart(3, '0')}`
 const STOCK = Number(process.env.STOCK ?? 50)
 const USERS = Number(process.env.USERS ?? 120)
 const PRODUCT_ID = Number(process.env.PRODUCT_ID ?? 302)
@@ -85,9 +89,44 @@ async function login(phone, password) {
   return r.body.data.accessToken
 }
 
+// ── 测试账号：脚本自建，不再依赖手工预置 ──────────────────────────────
+
+function mysql(sql) {
+  execFileSync('docker', ['exec', '-i', 'tickcart-mysql', 'mysql', '-uroot', '-proot'], {
+    input: sql,
+    stdio: ['pipe', 'ignore', 'inherit'],
+  })
+}
+
+/**
+ * 补齐 sku001..skuNNN 测试账号。
+ *
+ * <p>登录已统一为手机号，账号手机号必须是 {@link skuPhone} 的规则值，否则脚本登不进去。
+ * 用 `INSERT ... ON DUPLICATE KEY UPDATE` 一次覆盖两种情况：不存在就建，已存在就把手机号
+ * 改成规则值（并复活逻辑删除的账号）—— 避免出现「用户名被占、手机号对不上」这种只能手工处理的局面。</p>
+ *
+ * <p>密码直接复制 demo 的 BCrypt 哈希（即 123456），与 USER_PASS 默认值一致。</p>
+ */
+function ensureSkuUsers(count) {
+  const rows = Array.from({ length: count }, (_, i) => {
+    const n = i + 1
+    return `SELECT '${skuName(n)}' AS username, password, '${skuPhone(n)}' AS phone,`
+      + ` '秒杀测试${n}' AS nickname, 0 AS role, 0 AS status, 0 AS deleted`
+      + " FROM tickcart.sys_user WHERE username = 'demo'"
+  })
+  mysql(`
+INSERT INTO tickcart.sys_user (username, password, phone, nickname, role, status, deleted)
+SELECT * FROM (${rows.join('\nUNION ALL ')}) t
+ON DUPLICATE KEY UPDATE phone = VALUES(phone), deleted = 0;`)
+  ok(`测试账号 ${skuName(1)}..${skuName(count)} 已就绪（手机号 ${skuPhone(1)} 起）`)
+}
+
 async function main() {
   console.log(`\n=== B2 秒杀库存并发验证 @ ${BASE} ===`)
   console.log(`库存 ${STOCK}，并发用户 ${USERS}\n`)
+
+  // 先补齐测试账号（自建，不再要求手工预置）
+  ensureSkuUsers(USERS)
 
   adminToken = await login(ADMIN_PHONE, ADMIN_PASS)
   ok('管理员登录成功')
