@@ -92,11 +92,13 @@ pnpm dev:admin      # 后台 → http://localhost:5174（另开一个终端）
 
 ### 4. 访问地址与账号
 
-| 入口 | 地址 | 账号 |
+| 入口 | 地址 | 账号（登录账号为手机号） |
 |---|---|---|
-| 前台商城 | http://localhost:5173 | `demo` / `123456` |
-| 后台管理 | http://localhost:5174 | `admin` / `admin123` |
-| 短信验证码 | — | 开发环境 Mock，每次随机生成；发送后由 `/api/auth/sms/send` 的 `data.devCode` 回显，前端 toast 直接显示 |
+| 前台商城 | http://localhost:5173 | `13900000000` / `123456` |
+| 后台管理 | http://localhost:5174 | `13800000000` / `admin123` |
+| 短信验证码 | — | 开发环境 Mock，每次随机生成；发送后由 `/api/auth/sms/send` 的 `data.devCode` 回显，前端直接显示 |
+
+> 用户名（`demo` / `admin`）只在注册时设置，用于展示与唯一标识，**不再用于登录**。
 
 ### 5. 常见问题
 
