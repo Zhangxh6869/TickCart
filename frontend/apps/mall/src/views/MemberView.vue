@@ -13,9 +13,10 @@ const userStore = useUserStore()
 const isLoggedIn = computed(() => userStore.isLoggedIn)
 const avatarUrl = computed(() => userStore.userInfo?.avatar || '')
 
-/** 头部主标题：未登录时这一行本身就是登录入口的文案 */
+/** 头部主标题：未登录时这一行本身就是登录入口的文案。
+ *  昵称自 V24 起与用户名全库统一，直接用 username，不再做 nickname 兜底 */
 const displayName = computed(() =>
-  isLoggedIn.value ? userStore.userInfo?.nickname || userStore.userInfo?.username || '' : '点击登录'
+  isLoggedIn.value ? userStore.userInfo?.username || '' : '点击登录'
 )
 
 /** 头部副标题：未登录时说明登录之后能得到什么，已登录时就是手机号 */

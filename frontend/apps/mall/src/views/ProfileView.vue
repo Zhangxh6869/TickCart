@@ -36,12 +36,13 @@ const roleText = computed(() => (info.value?.role === 1 ? '管理员' : '普通�
       <div v-else class="profile__avatar profile__avatar--empty">
         <van-icon name="user-o" size="30" />
       </div>
-      <div class="profile__name">{{ info?.nickname || info?.username || '-' }}</div>
+      <div class="profile__name">{{ info?.username || '-' }}</div>
     </div>
 
     <van-cell-group inset class="profile__cells">
+      <!-- 昵称与用户名自 V24 起全库统一（注册时 nickname = username），
+           两者必然同值，故只保留「用户名」这一行，避免同一字符串显示两遍 -->
       <van-cell title="用户名" :value="info?.username || '-'" />
-      <van-cell title="昵称" :value="info?.nickname || '未设置'" />
       <!-- 手机号由后端脱敏后返回（138****0000），前端不再二次处理 -->
       <van-cell title="手机号" :value="info?.phone || '未绑定'" />
       <van-cell title="性别" :value="genderText" />
