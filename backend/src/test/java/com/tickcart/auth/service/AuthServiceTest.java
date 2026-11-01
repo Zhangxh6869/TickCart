@@ -7,6 +7,7 @@ import com.tickcart.auth.dto.LoginRequest;
 import com.tickcart.auth.dto.RegisterRequest;
 import com.tickcart.auth.dto.ResetPasswordRequest;
 import com.tickcart.auth.dto.SmsLoginRequest;
+import com.tickcart.auth.dto.SmsRegisterRequest;
 import com.tickcart.auth.dto.SmsCodeSendResult;
 import com.tickcart.auth.dto.TokenResponse;
 import com.tickcart.auth.entity.RefreshToken;
@@ -18,6 +19,7 @@ import com.tickcart.auth.mapper.UserMapper;
 import com.tickcart.common.config.JwtProperties;
 import com.tickcart.common.exception.BizException;
 import com.tickcart.common.exception.RateLimitedException;
+import com.tickcart.common.exception.SmsCodeExhaustedException;
 import com.tickcart.common.exception.VerifyRequiredException;
 import com.tickcart.common.security.JwtTokenProvider;
 import com.tickcart.common.security.TokenBlacklist;
@@ -218,6 +220,69 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.registerByPassword(registerReq("alice", "abc12345")))
                 .isInstanceOf(BizException.class)
                 .hasMessage("手机号已被注册");
+    }
+
+    @Test
+    @DisplayName("注册必须带验证码：没有可用验证码时拒绝且不建号")
+    void registerRequiresSmsCode() {
+        when(smsCodeMapper.selectOne(any())).thenReturn(null);
+
+        assertThatThrownBy(() -> authService.registerByPassword(registerReq("alice", "abc12345")))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("验证码不存在");
+        verify(userMapper, never()).insert(any(User.class));
+    }
+
+    @Test
+    @DisplayName("验证码错误时拒绝注册且不建号")
+    void registerRejectsWrongCode() {
+        when(smsCodeMapper.selectOne(any()))
+                .thenReturn(validCode("13700000000", AuthService.SMS_SCENE_REGISTER, "483920"));
+
+        assertThatThrownBy(() -> authService.registerByPassword(
+                registerReq("alice", "13700000000", "abc12345", "000000")))
+                .isInstanceOf(BizException.class)
+                .hasMessage("验证码错误");
+        verify(userMapper, never()).insert(any(User.class));
+    }
+
+    @Test
+    @DisplayName("注册验证码错满上限时作废当前码，要求重新获取")
+    void registerInvalidatesCodeAfterTooManyFailures() {
+        when(smsCodeMapper.selectOne(any()))
+                .thenReturn(validCode("13700000000", AuthService.SMS_SCENE_REGISTER, "483920"));
+        when(smsCodeGuard.recordVerifyFailure(9L)).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.registerByPassword(
+                registerReq("alice", "13700000000", "abc12345", "000000")))
+                .isInstanceOf(SmsCodeExhaustedException.class)
+                .hasMessageContaining("次数过多");
+
+        ArgumentCaptor<SmsCode> captor = ArgumentCaptor.forClass(SmsCode.class);
+        verify(smsCodeMapper).updateById(captor.capture());
+        assertThat(captor.getValue().getUsed()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("验证码注册与账密注册等价：昵称同样取用户名")
+    void registerBySmsEqualsPasswordRegister() {
+        when(smsCodeMapper.selectOne(any()))
+                .thenReturn(validCode("13700000000", AuthService.SMS_SCENE_REGISTER, "483920"));
+        when(userMapper.selectOne(any())).thenReturn(null);
+        when(userMapper.insert(any(User.class))).thenReturn(1);
+
+        SmsRegisterRequest req = new SmsRegisterRequest();
+        req.setUsername("bob");
+        req.setPhone("13700000000");
+        req.setPassword("abc12345");
+        req.setCode("483920");
+
+        assertThat(authService.registerBySms(req).getAccessToken()).isNotBlank();
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userMapper).insert(captor.capture());
+        assertThat(captor.getValue().getNickname()).isEqualTo("bob");
+        assertThat(captor.getValue().getRole()).isEqualTo(0);
     }
 
     @Test
