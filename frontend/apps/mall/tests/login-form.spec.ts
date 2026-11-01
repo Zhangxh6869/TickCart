@@ -3,8 +3,10 @@ import {
   validateLoginForm,
   validateLoginField,
   hasFieldError,
-  showsCredentialFields,
-  showsPhoneFields,
+  showsUsername,
+  showsPhone,
+  showsPassword,
+  showsCode,
   type LoginFormContext,
   type LoginFormValues,
 } from '../src/utils/login-form'
@@ -19,45 +21,81 @@ const PWD_LOGIN: LoginFormContext = { method: 'password', mode: 'login' }
 const REGISTER: LoginFormContext = { method: 'password', mode: 'register' }
 
 describe('字段可见性', () => {
-  it('短信登录：只显示手机号与验证码', () => {
-    expect(showsCredentialFields(SMS_LOGIN)).toBe(false)
-    expect(showsPhoneFields(SMS_LOGIN)).toBe(true)
+  it('账密登录：手机号 + 密码，用户名与验证码不显示', () => {
+    expect(showsUsername(PWD_LOGIN)).toBe(false)
+    expect(showsPhone(PWD_LOGIN)).toBe(true)
+    expect(showsPassword(PWD_LOGIN)).toBe(true)
+    expect(showsCode(PWD_LOGIN)).toBe(false)
   })
 
-  it('账密登录：只显示账密', () => {
-    expect(showsCredentialFields(PWD_LOGIN)).toBe(true)
-    expect(showsPhoneFields(PWD_LOGIN)).toBe(false)
+  it('验证码登录：手机号 + 验证码，用户名与密码不显示', () => {
+    expect(showsUsername(SMS_LOGIN)).toBe(false)
+    expect(showsPhone(SMS_LOGIN)).toBe(true)
+    expect(showsPassword(SMS_LOGIN)).toBe(false)
+    expect(showsCode(SMS_LOGIN)).toBe(true)
   })
 
-  it('注册：两组都显示（一次收齐全部字段）', () => {
-    expect(showsCredentialFields(REGISTER)).toBe(true)
-    expect(showsPhoneFields(REGISTER)).toBe(true)
+  it('注册：四项全显示', () => {
+    expect(showsUsername(REGISTER)).toBe(true)
+    expect(showsPhone(REGISTER)).toBe(true)
+    expect(showsPassword(REGISTER)).toBe(true)
+    expect(showsCode(REGISTER)).toBe(true)
+  })
+
+  it('手机号在两种登录方式下都显示（切换方式不该让它消失）', () => {
+    expect(showsPhone(PWD_LOGIN)).toBe(true)
+    expect(showsPhone(SMS_LOGIN)).toBe(true)
   })
 })
 
-describe('短信验证码登录（回归：曾因校验隐藏字段导致点登录无反应）', () => {
-  it('账密为空不算错 —— 这两个输入框根本没渲染', () => {
-    const errors = validateLoginForm(form({ phone: '13700000000', code: '123456' }), SMS_LOGIN)
+describe('账密登录（账号为手机号）', () => {
+  it('手机号与密码都必填', () => {
+    const errors = validateLoginForm(form(), PWD_LOGIN)
+    expect(errors.phone).toBe('请输入手机号')
+    expect(errors.password).toBe('请输入密码')
+  })
+
+  it('用户名不参与登录校验（输入框根本没渲染）', () => {
+    const errors = validateLoginForm(form({ phone: '13900000000', password: '123456' }), PWD_LOGIN)
     expect(errors.username).toBe('')
+    expect(hasFieldError(errors)).toBe(false)
+  })
+
+  it('登录侧不卡密码强度（历史账号 13900000000/123456 必须能进）', () => {
+    const errors = validateLoginForm(form({ phone: '13900000000', password: '123456' }), PWD_LOGIN)
+    expect(errors.password).toBe('')
+  })
+
+  it('手机号格式不对要报错', () => {
+    expect(validateLoginForm(form({ phone: '12345678901', password: 'x' }), PWD_LOGIN).phone).toBe(
+      '请输入正确的手机号'
+    )
+  })
+
+  it('密码不能含空格、不能超长', () => {
+    const ok = (password: string) =>
+      validateLoginForm(form({ phone: '13900000000', password }), PWD_LOGIN).password
+    expect(ok('a b')).toBe('密码不能包含空格')
+    expect(ok('a'.repeat(33))).toBe('密码最长 32 位')
+  })
+})
+
+describe('验证码登录（回归：曾因校验隐藏字段导致点登录无反应）', () => {
+  it('手机号与验证码都必填', () => {
+    const errors = validateLoginForm(form(), SMS_LOGIN)
+    expect(errors.phone).toBe('请输入手机号')
+    expect(errors.code).toBe('请输入验证码')
+  })
+
+  it('密码不参与校验 —— 这个输入框没渲染，值为空是正常的', () => {
+    const errors = validateLoginForm(form({ phone: '13700000000', code: '123456' }), SMS_LOGIN)
     expect(errors.password).toBe('')
     expect(hasFieldError(errors)).toBe(false)
   })
 
-  it('单字段校验同样跳过账密', () => {
+  it('单字段校验同样跳过密码', () => {
     const values = form({ phone: '13700000000', code: '123456' })
-    expect(validateLoginField('username', values, SMS_LOGIN)).toBe('')
     expect(validateLoginField('password', values, SMS_LOGIN)).toBe('')
-  })
-
-  it('手机号缺失时拦住，并给出手机号提示', () => {
-    const errors = validateLoginForm(form({ code: '123456' }), SMS_LOGIN)
-    expect(errors.phone).toBe('请输入手机号')
-    expect(errors.username).toBe('')
-  })
-
-  it('验证码缺失时拦住', () => {
-    const errors = validateLoginForm(form({ phone: '13700000000' }), SMS_LOGIN)
-    expect(errors.code).toBe('请输入验证码')
   })
 
   it('验证码必须是 6 位数字', () => {
@@ -75,66 +113,57 @@ describe('短信验证码登录（回归：曾因校验隐藏字段导致点登�
   })
 })
 
-describe('账密登录', () => {
-  it('账密都为空时两项都报错', () => {
-    const errors = validateLoginForm(form(), PWD_LOGIN)
+describe('注册（四项必填）', () => {
+  it('四项都为空时四项都报错', () => {
+    const errors = validateLoginForm(form(), REGISTER)
     expect(errors.username).toBe('请输入用户名')
+    expect(errors.phone).toBe('请输入手机号')
     expect(errors.password).toBe('请输入密码')
+    expect(errors.code).toBe('请输入验证码')
   })
 
-  it('登录侧不卡密码强度（历史账号 demo/123456 必须能进）', () => {
-    const errors = validateLoginForm(form({ username: 'demo', password: '123456' }), PWD_LOGIN)
+  it('四项填全后通过', () => {
+    const errors = validateLoginForm(
+      form({
+        username: 'newuser',
+        phone: '13700000000',
+        password: 'abc12345',
+        code: '483920',
+      }),
+      REGISTER
+    )
     expect(hasFieldError(errors)).toBe(false)
   })
 
-  it('手机号与验证码不参与账密登录的校验', () => {
-    const errors = validateLoginForm(form({ username: 'demo', password: '123456' }), PWD_LOGIN)
-    expect(errors.phone).toBe('')
-    expect(errors.code).toBe('')
+  it('注册侧要求密码强度（登录侧不要求）', () => {
+    expect(
+      validateLoginForm(form({ username: 'newuser', phone: '13700000000', password: '12345678' }), REGISTER)
+        .password
+    ).toBe('密码需同时包含字母和数字')
+    expect(
+      validateLoginForm(form({ username: 'newuser', phone: '13700000000', password: 'abc123' }), REGISTER)
+        .password
+    ).toBe('密码至少 8 位')
   })
 
   it('用户名长度与字符集', () => {
-    const ok = (username: string) => validateLoginForm(form({ username, password: 'x' }), PWD_LOGIN).username
+    const ok = (username: string) =>
+      validateLoginForm(
+        form({ username, phone: '13700000000', password: 'abc12345', code: '483920' }),
+        REGISTER
+      ).username
     expect(ok('abc')).toBe('用户名长度需在 4~20 位')
     expect(ok('a'.repeat(21))).toBe('用户名长度需在 4~20 位')
     expect(ok('demo user')).toBe('用户名只能包含字母、数字、下划线')
     expect(ok('demo_user')).toBe('')
   })
 
-  it('密码不能含空格、不能超长', () => {
-    const ok = (password: string) => validateLoginForm(form({ username: 'demo', password }), PWD_LOGIN).password
-    expect(ok('a b')).toBe('密码不能包含空格')
-    expect(ok('a'.repeat(33))).toBe('密码最长 32 位')
-  })
-})
-
-describe('注册', () => {
-  it('四项都要校验', () => {
-    const errors = validateLoginForm(form(), REGISTER)
-    expect(errors.username).toBe('请输入用户名')
-    expect(errors.password).toBe('请输入密码')
-    expect(errors.phone).toBe('')
-    expect(errors.code).toBe('')
-  })
-
-  it('注册侧要求密码强度', () => {
-    const errors = validateLoginForm(form({ username: 'newuser', password: '12345678' }), REGISTER)
-    expect(errors.password).toBe('密码需同时包含字母和数字')
-  })
-
-  it('注册时手机号与验证码同样必填', () => {
+  it('手机号格式不对要报错', () => {
     const errors = validateLoginForm(
-      form({ username: 'newuser', password: 'abc12345' }),
+      form({ username: 'newuser', phone: '110', password: 'abc12345', code: '483920' }),
       REGISTER
     )
-    // 注册态没填手机号：提示文案是空串（手机号在注册里是可选的，由后端判定），
-    // 但只要填了就必须合法
-    expect(errors.phone).toBe('')
-    const bad = validateLoginForm(
-      form({ username: 'newuser', password: 'abc12345', phone: '110' }),
-      REGISTER
-    )
-    expect(bad.phone).toBe('请输入正确的手机号')
+    expect(errors.phone).toBe('请输入正确的手机号')
   })
 })
 

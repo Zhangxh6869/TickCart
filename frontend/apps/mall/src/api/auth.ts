@@ -29,9 +29,9 @@ export interface SmsCodeSendResult {
   devCode?: string
 }
 
-/** 账密登录入参：captcha 两字段只在「需要安全验证」时出现。 */
+/** 账密登录入参：账号为手机号；captcha 两字段只在「需要安全验证」时出现。 */
 export interface LoginPayload {
-  username: string
+  phone: string
   password: string
   captchaId?: string
   captchaCode?: string
@@ -61,12 +61,16 @@ export function fetchCaptcha(): Promise<CaptchaChallenge> {
   return request.get('/auth/captcha')
 }
 
-/** 账密注册。 */
+/**
+ * 账密注册（四项必填）。
+ *
+ * 这是注册的主入口；`/auth/register/sms` 与之等价，仅为兼容既有调用方而保留。
+ */
 export function registerByPassword(payload: {
   username: string
+  phone: string
   password: string
-  phone?: string
-  nickname?: string
+  code: string
 }): Promise<TokenResponse> {
   return request.post('/auth/register', payload)
 }
@@ -76,13 +80,12 @@ export function loginBySms(phone: string, code: string): Promise<TokenResponse> 
   return request.post('/auth/login/sms', { phone, code })
 }
 
-/** 手机验证码注册。 */
+/** 手机验证码注册（与账密注册等价，四项同样必填）。 */
 export function registerBySms(payload: {
+  username: string
   phone: string
+  password: string
   code: string
-  username?: string
-  password?: string
-  nickname?: string
 }): Promise<TokenResponse> {
   return request.post('/auth/register/sms', payload)
 }

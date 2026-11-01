@@ -29,7 +29,13 @@ export const useUserStore = defineStore('user', () => {
     await loadUserInfo()
   }
 
-  async function register(payload: { username: string; password: string; phone?: string; nickname?: string }) {
+  /** 注册（四项必填：用户名、手机号、密码、短信验证码），成功后直接进入登录态。 */
+  async function register(payload: {
+    username: string
+    phone: string
+    password: string
+    code: string
+  }) {
     const res = await authApi.registerByPassword(payload)
     applyToken(res)
     await loadUserInfo()

@@ -8,6 +8,10 @@ import { SMS_SCENE, fetchCaptcha, sendSmsCode, type CaptchaChallenge } from '@/a
 import {
   PHONE_RE,
   hasFieldError,
+  showsCode,
+  showsPassword,
+  showsPhone,
+  showsUsername,
   validateLoginField,
   validateLoginForm,
   type LoginFormContext,
@@ -27,7 +31,6 @@ const form = reactive({
   password: '',
   phone: '',
   code: '',
-  nickname: '',
 })
 
 type FieldName = 'username' | 'password' | 'phone' | 'code'
@@ -79,6 +82,19 @@ const formContext = computed<LoginFormContext>(() => ({
   mode: mode.value,
 }))
 
+/**
+ * 字段可见性：唯一来源是 login-form.ts 的 `shows*`。
+ *
+ * <p>模板不再自己写 `v-if="method === 'sms' || isRegister"` 这类条件 ——
+ * 校验规则与渲染条件一旦各写一份，就会重演「校验了看不见的字段」那个回归。</p>
+ */
+const visible = computed(() => ({
+  username: showsUsername(formContext.value),
+  phone: showsPhone(formContext.value),
+  password: showsPassword(formContext.value),
+  code: showsCode(formContext.value),
+}))
+
 function blurField(name: FieldName) {
   // 空字段还没输入就报错会很吵：只有填过内容、或已有错误时才即时校验
   const value = form[name]
@@ -116,6 +132,8 @@ function toggleMethod() {
 
 function switchMode() {
   mode.value = isRegister.value ? 'login' : 'register'
+  // 注册不展示登录方式切换：强制回到账密，避免从验证码登录切过来时残留 sms 状态
+  if (isRegister.value) method.value = 'password'
   resetErrors()
 }
 
@@ -222,7 +240,7 @@ async function submit() {
     if (mode.value === 'login') {
       if (method.value === 'password') {
         await userStore.login({
-          username: form.username.trim(),
+          phone: form.phone,
           password: form.password,
           captchaId: captcha.value?.id,
           captchaCode: captcha.value ? captchaCode.value.trim() : undefined,
@@ -232,11 +250,12 @@ async function submit() {
       }
       showToast('登录成功')
     } else {
+      // 注册走账密注册入口：四项必填，手机号 + 验证码一起保证账号真实性
       await userStore.register({
         username: form.username.trim(),
+        phone: form.phone,
         password: form.password,
-        phone: form.phone || undefined,
-        nickname: form.nickname || undefined,
+        code: form.code,
       })
       showToast('注册成功')
     }
@@ -283,82 +302,82 @@ onUnmounted(() => {
     <p class="login__subtitle">{{ subtitle }}</p>
 
     <van-form class="login__form" @submit="submit">
-      <template v-if="method === 'password' || isRegister">
-        <label class="login__field">
-          <span class="login__label">用户名</span>
+      <!-- 用户名：仅注册。登录不再接受用户名，所以登录态这一行根本不渲染 -->
+      <label v-if="visible.username" class="login__field">
+        <span class="login__label">用户名</span>
+        <input
+          v-model="form.username"
+          class="login__input"
+          :class="{ 'login__input--error': fieldErrors.username }"
+          type="text"
+          placeholder="4~20 位字母、数字或下划线"
+          autocomplete="username"
+          @blur="blurField('username')"
+        />
+        <p v-if="fieldErrors.username" class="login__err">{{ fieldErrors.username }}</p>
+      </label>
+
+      <!-- 手机号：账密登录、验证码登录、注册三处共用，切换方式时保留已输入的值 -->
+      <label v-if="visible.phone" class="login__field">
+        <span class="login__label">手机号</span>
+        <input
+          v-model="form.phone"
+          class="login__input"
+          :class="{ 'login__input--error': fieldErrors.phone }"
+          type="tel"
+          inputmode="numeric"
+          maxlength="11"
+          placeholder="请输入手机号"
+          autocomplete="tel"
+          @blur="blurField('phone')"
+        />
+        <p v-if="fieldErrors.phone" class="login__err">{{ fieldErrors.phone }}</p>
+      </label>
+
+      <!-- 密码：账密登录 或 注册 -->
+      <label v-if="visible.password" class="login__field">
+        <span class="login__label">密码</span>
+        <span class="login__input-wrap">
           <input
-            v-model="form.username"
-            class="login__input"
-            :class="{ 'login__input--error': fieldErrors.username }"
-            type="text"
-            placeholder="请输入用户名"
-            autocomplete="username"
-            @blur="blurField('username')"
+            v-model="form.password"
+            class="login__input login__input--pwd"
+            :class="{ 'login__input--error': fieldErrors.password }"
+            :type="showPassword ? 'text' : 'password'"
+            :placeholder="isRegister ? '8~32 位，需含字母和数字' : '请输入密码'"
+            :autocomplete="isRegister ? 'new-password' : 'current-password'"
+            @blur="blurField('password')"
           />
-          <p v-if="fieldErrors.username" class="login__err">{{ fieldErrors.username }}</p>
-        </label>
+          <!-- 显隐切换：手机上输错密码的挫败感主要来自「看不见自己输了什么」 -->
+          <button
+            class="login__eye"
+            type="button"
+            :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+            @click.prevent="showPassword = !showPassword"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path
+                v-if="!showPassword"
+                d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+              />
+              <path
+                v-else
+                d="M4 4l16 16M9.9 5.2A9.9 9.9 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 3.9M6.3 7.4A16.6 16.6 0 0 0 2 12s3.6 7 10 7c1 0 1.9-.2 2.8-.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        </span>
+        <p v-if="fieldErrors.password" class="login__err">{{ fieldErrors.password }}</p>
+      </label>
 
-        <label class="login__field">
-          <span class="login__label">密码</span>
-          <span class="login__input-wrap">
-            <input
-              v-model="form.password"
-              class="login__input login__input--pwd"
-              :class="{ 'login__input--error': fieldErrors.password }"
-              :type="showPassword ? 'text' : 'password'"
-              placeholder="请输入密码"
-              autocomplete="current-password"
-              @blur="blurField('password')"
-            />
-            <!-- 显隐切换：手机上输错密码的挫败感主要来自「看不见自己输了什么」 -->
-            <button
-              class="login__eye"
-              type="button"
-              :aria-label="showPassword ? '隐藏密码' : '显示密码'"
-              @click.prevent="showPassword = !showPassword"
-            >
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-                <path
-                  v-if="!showPassword"
-                  d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                />
-                <path
-                  v-else
-                  d="M4 4l16 16M9.9 5.2A9.9 9.9 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 3.9M6.3 7.4A16.6 16.6 0 0 0 2 12s3.6 7 10 7c1 0 1.9-.2 2.8-.5"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                />
-              </svg>
-            </button>
-          </span>
-          <p v-if="fieldErrors.password" class="login__err">{{ fieldErrors.password }}</p>
-        </label>
-
-        <label v-if="isRegister" class="login__field">
-          <span class="login__label">昵称</span>
-          <input v-model="form.nickname" class="login__input" type="text" placeholder="选填" />
-        </label>
-      </template>
-
-      <template v-if="method === 'sms' || isRegister">
-        <label class="login__field">
-          <span class="login__label">手机号</span>
-          <input
-            v-model="form.phone"
-            class="login__input"
-            :class="{ 'login__input--error': fieldErrors.phone }"
-            type="tel"
-            placeholder="请输入手机号"
-            autocomplete="tel"
-            @blur="blurField('phone')"
-          />
-          <p v-if="fieldErrors.phone" class="login__err">{{ fieldErrors.phone }}</p>
-        </label>
+      <!-- 验证码：验证码登录 或 注册 -->
+      <template v-if="visible.code">
         <div class="login__code-row">
           <label class="login__field login__field--code">
             <span class="login__label">验证码</span>
