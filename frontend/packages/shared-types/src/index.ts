@@ -698,6 +698,8 @@ export interface AdminUserSummary {
   nickname: string | null
   /** 已脱敏，如 138****8888 */
   phone: string | null
+  /** 头像地址；未设置为 null。后台列表无头像时用用户名首字占位 */
+  avatar: string | null
   gender: number
   /** 0 普通用户 1 管理员 */
   role: number

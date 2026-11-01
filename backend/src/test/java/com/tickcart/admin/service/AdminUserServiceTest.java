@@ -96,6 +96,7 @@ class AdminUserServiceTest {
     @DisplayName("列表：手机号脱敏，订单统计按用户合并进来")
     void pageMasksPhoneAndMergesStats() {
         User user = user(USER_ID, "13800008888", 0, 0);
+        user.setAvatar("/api/files/2026/11/01/a.jpg");
         stubPage(List.of(user), 1);
 
         Map<String, Object> row = new HashMap<>();
@@ -111,6 +112,8 @@ class AdminUserServiceTest {
         assertThat(result.getTotal()).isEqualTo(1);
         AdminUserVO vo = result.getRecords().get(0);
         assertThat(vo.getPhone()).isEqualTo("138****8888");
+        // 列表行必须带头像，否则后台用户管理页只能显示首字占位
+        assertThat(vo.getAvatar()).isEqualTo("/api/files/2026/11/01/a.jpg");
         assertThat(vo.getOrderCount()).isEqualTo(5);
         assertThat(vo.getPaidOrderCount()).isEqualTo(2);
         assertThat(vo.getPaidAmount()).isEqualByComparingTo("199.00");

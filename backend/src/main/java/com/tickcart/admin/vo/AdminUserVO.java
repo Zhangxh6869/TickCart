@@ -29,6 +29,9 @@ public class AdminUserVO {
     @Schema(description = "手机号（已脱敏）", example = "138****8888")
     private String phone;
 
+    @Schema(description = "头像地址；未设置时为 null")
+    private String avatar;
+
     @Schema(description = "性别 0未知 1男 2女")
     private Integer gender;
 
@@ -83,6 +86,14 @@ public class AdminUserVO {
 
     public void setPhone(String phone) {
         this.phone = phone;
+    }
+
+    public String getAvatar() {
+        return avatar;
+    }
+
+    public void setAvatar(String avatar) {
+        this.avatar = avatar;
     }
 
     public Integer getGender() {

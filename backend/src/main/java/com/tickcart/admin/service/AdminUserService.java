@@ -308,6 +308,8 @@ public class AdminUserService {
         vo.setUsername(user.getUsername());
         vo.setNickname(user.getNickname());
         vo.setPhone(maskPhone(user.getPhone()));
+        // 头像与详情保持同一口径：直接透传原始 URL，前端负责首字兜底
+        vo.setAvatar(user.getAvatar());
         vo.setGender(user.getGender());
         vo.setRole(user.getRole());
         vo.setStatus(normalizedStatus(user));
