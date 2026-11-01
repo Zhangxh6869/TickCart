@@ -113,9 +113,15 @@ class AuthServiceTest {
     }
 
     private RegisterRequest registerReq(String username, String password) {
+        return registerReq(username, "13700000000", password, "483920");
+    }
+
+    private RegisterRequest registerReq(String username, String phone, String password, String code) {
         RegisterRequest req = new RegisterRequest();
         req.setUsername(username);
+        req.setPhone(phone);
         req.setPassword(password);
+        req.setCode(code);
         return req;
     }
 
@@ -167,6 +173,8 @@ class AuthServiceTest {
     @Test
     @DisplayName("账密注册成功并签发令牌")
     void registerSuccess() {
+        when(smsCodeMapper.selectOne(any()))
+                .thenReturn(validCode("13700000000", AuthService.SMS_SCENE_REGISTER, "483920"));
         when(userMapper.selectOne(any())).thenReturn(null);
         when(userMapper.insert(any(User.class))).thenReturn(1);
 
@@ -176,16 +184,40 @@ class AuthServiceTest {
         assertThat(token.getRefreshToken()).isNotBlank();
         assertThat(token.getTokenType()).isEqualTo("Bearer");
         assertThat(token.getExpiresIn()).isEqualTo(30 * 60);
+
+        // 昵称固定取用户名；角色与状态不接受请求体覆盖，注册接口不能用来造管理员
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userMapper).insert(captor.capture());
+        User saved = captor.getValue();
+        assertThat(saved.getNickname()).isEqualTo("alice");
+        assertThat(saved.getPhone()).isEqualTo("13700000000");
+        assertThat(saved.getRole()).isEqualTo(0);
+        assertThat(saved.getStatus()).isEqualTo(0);
     }
 
     @Test
     @DisplayName("用户名重复注册抛冲突异常")
     void registerDuplicateUsername() {
-        when(userMapper.selectOne(any())).thenReturn(existingUser("alice", "x", 0));
+        when(smsCodeMapper.selectOne(any()))
+                .thenReturn(validCode("13700000000", AuthService.SMS_SCENE_REGISTER, "483920"));
+        // 第一次查手机号（不存在），第二次查用户名（已存在）
+        when(userMapper.selectOne(any())).thenReturn(null, existingUser("alice", "x", 0));
 
         assertThatThrownBy(() -> authService.registerByPassword(registerReq("alice", "abc12345")))
                 .isInstanceOf(BizException.class)
                 .hasMessage("用户名已存在");
+    }
+
+    @Test
+    @DisplayName("手机号重复注册抛冲突异常")
+    void registerDuplicatePhone() {
+        when(smsCodeMapper.selectOne(any()))
+                .thenReturn(validCode("13700000000", AuthService.SMS_SCENE_REGISTER, "483920"));
+        when(userMapper.selectOne(any())).thenReturn(userWithPhone("13700000000", "abc12345"));
+
+        assertThatThrownBy(() -> authService.registerByPassword(registerReq("alice", "abc12345")))
+                .isInstanceOf(BizException.class)
+                .hasMessage("手机号已被注册");
     }
 
     @Test

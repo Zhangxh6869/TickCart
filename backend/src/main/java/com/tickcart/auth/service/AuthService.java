@@ -28,7 +28,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -200,63 +199,67 @@ public class AuthService {
     // 注册
     // =========================================================================
 
-    /** 账密注册。 */
-    @Transactional
+    /**
+     * 账密注册（用户名、手机号、密码、验证码四项必填）。
+     *
+     * <p>顺序固定为：密码策略 → 消费验证码 → 查重 → 建号。三个选择各有理由：</p>
+     * <ul>
+     *   <li><b>密码策略先行</b>：不合规的密码不该白白吃掉一次验证码。</li>
+     *   <li><b>消费验证码先于查重</b>：反过来的话，未验证手机号的人就能拿「手机号已被注册」
+     *       探测注册状态。代价是「已注册」也会走到消费这一步 —— 但查重抛出的异常会让事务回滚，
+     *       {@code markUsed} 一起回滚，验证码实际仍然可用。</li>
+     *   <li><b>noRollbackFor</b>：验证码错满上限时要作废当前码，这个动作不能被回滚掉。</li>
+     * </ul>
+     */
+    @Transactional(noRollbackFor = SmsCodeExhaustedException.class)
     public TokenResponse registerByPassword(RegisterRequest req) {
-        // 先做纯本地校验，避免占用数据库连接（也避免验证码等一次性资源被无谓消耗）
         passwordPolicy.validatePassword(req.getPassword(), req.getUsername());
-        if (findByUsername(req.getUsername()) != null) {
-            throw BizException.conflict("用户名已存在");
-        }
-        if (StringUtils.hasText(req.getPhone()) && findByPhone(req.getPhone()) != null) {
-            throw BizException.conflict("手机号已被注册");
-        }
-
-        User user = new User();
-        user.setUsername(req.getUsername());
-        user.setPassword(passwordEncoder.encode(req.getPassword()));
-        user.setPhone(StringUtils.hasText(req.getPhone()) ? req.getPhone() : null);
-        user.setNickname(StringUtils.hasText(req.getNickname()) ? req.getNickname() : req.getUsername());
-        user.setGender(0);
-        user.setRole(0);
-        user.setStatus(STATUS_NORMAL);
-        userMapper.insert(user);
-
-        return issueTokens(user);
+        verifyAndConsumeCode(req.getPhone(), SMS_SCENE_REGISTER, req.getCode());
+        assertNotRegistered(req.getPhone(), req.getUsername());
+        return issueTokens(createUser(req.getUsername(), req.getPhone(), req.getPassword()));
     }
 
-    /** 手机验证码注册（用户名/密码可选，缺省时用户名取手机号）。 */
+    /**
+     * 手机验证码注册（与账密注册同一套校验，仅入口不同）。
+     *
+     * <p>改造后用户名与密码都是必填，不再有「只凭手机号建号、密码写随机串」的形态 ——
+     * 手机号已经是唯一登录账号，注册就是一次完整开户。</p>
+     */
     @Transactional(noRollbackFor = SmsCodeExhaustedException.class)
     public TokenResponse registerBySms(SmsRegisterRequest req) {
-        String username = StringUtils.hasText(req.getUsername()) ? req.getUsername() : req.getPhone();
-        // 密码策略先于验证码消费：不合规的密码不该白白吃掉一次验证码
-        if (StringUtils.hasText(req.getPassword())) {
-            passwordPolicy.validatePassword(req.getPassword(), username);
-        }
-
+        passwordPolicy.validatePassword(req.getPassword(), req.getUsername());
         verifyAndConsumeCode(req.getPhone(), SMS_SCENE_REGISTER, req.getCode());
+        assertNotRegistered(req.getPhone(), req.getUsername());
+        return issueTokens(createUser(req.getUsername(), req.getPhone(), req.getPassword()));
+    }
 
-        if (findByPhone(req.getPhone()) != null) {
+    /** 手机号与用户名查重：两个注册入口共用。 */
+    private void assertNotRegistered(String phone, String username) {
+        if (findByPhone(phone) != null) {
             throw BizException.conflict("手机号已被注册");
         }
         if (findByUsername(username) != null) {
             throw BizException.conflict("用户名已存在");
         }
+    }
 
+    /**
+     * 建号：两个注册入口共用，昵称固定取用户名。
+     *
+     * <p>{@code role} 与 {@code status} 在这里写死为普通用户 / 正常，
+     * 不接受来自请求体的任何覆盖 —— 否则注册接口就成了造管理员账号的入口。</p>
+     */
+    private User createUser(String username, String phone, String rawPassword) {
         User user = new User();
         user.setUsername(username);
-        // 无密码时写入随机 BCrypt 串，保证字段非空且该账号无法用密码登录
-        String rawPassword = StringUtils.hasText(req.getPassword())
-                ? req.getPassword() : UUID.randomUUID().toString();
         user.setPassword(passwordEncoder.encode(rawPassword));
-        user.setPhone(req.getPhone());
-        user.setNickname(StringUtils.hasText(req.getNickname()) ? req.getNickname() : username);
+        user.setPhone(phone);
+        user.setNickname(username);
         user.setGender(0);
         user.setRole(0);
         user.setStatus(STATUS_NORMAL);
         userMapper.insert(user);
-
-        return issueTokens(user);
+        return user;
     }
 
     // =========================================================================
