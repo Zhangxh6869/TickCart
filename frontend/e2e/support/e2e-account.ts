@@ -91,11 +91,13 @@ async function registerAccount(ctx: APIRequestContext): Promise<void> {
   }
 
   const body = await created.text()
-  // 改造前注册的手机号是可选的：旧库里的 e2e_runner 没有手机号，会占着用户名让这里 409
+  // 改造前注册的手机号是可选的：旧库里的 e2e_runner 可能没有手机号，会占着用户名让这里 409。
+  // 补一个手机号即可，不必删账号 —— 那个账号名下的历史订单还能继续用。
   if (created.status() === 409 && body.includes('用户名已存在')) {
     throw new Error(
       `E2E 账号注册失败：用户名 ${E2E_USER} 已被占用，但该账号没有手机号 ${E2E_PHONE}。\n` +
-        "这是改造前遗留的账号，请先删除：DELETE FROM tickcart.sys_user WHERE username = 'e2e_runner';",
+        '这是改造前遗留的账号（当时手机号可选），补一个手机号即可：\n' +
+        `  UPDATE tickcart.sys_user SET phone = '${E2E_PHONE}' WHERE username = '${E2E_USER}' AND phone IS NULL;`,
     )
   }
   throw new Error(`E2E 账号注册失败：${created.status()} ${body}`)
