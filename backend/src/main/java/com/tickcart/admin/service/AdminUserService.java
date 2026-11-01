@@ -38,14 +38,16 @@ import java.util.Map;
 /**
  * 后台用户管理服务。
  *
- * <p>只做「看得见 + 停得掉」两件事：</p>
+ * <p>做三件事：</p>
  * <ul>
  *   <li>看得见：按手机号/昵称/ID 找到人，顺带把订单与消费统计拼上（一页只查一次库）</li>
  *   <li>停得掉：启用/禁用账号，禁用立即吊销会话</li>
+ *   <li>调得了角色：管理员可给他人升降级，但必须过护栏（不能改自己、至少保留一个可用管理员），
+ *       且变更后强制吊销该用户会话 —— JWT 的 role 是签发时快照，不吊销的话降级要等令牌过期才生效</li>
  * </ul>
  *
- * <p><b>刻意不提供</b>改密码、改角色、删除用户：前者等于客服可以冒充任意用户，
- * 中者是误提权入口，后者会让历史订单的 {@code user_id} 悬空。</p>
+ * <p><b>刻意不提供</b>改密码、删除用户：前者等于客服可以冒充任意用户，
+ * 后者会让历史订单的 {@code user_id} 悬空。</p>
  */
 @Service
 public class AdminUserService {
@@ -55,7 +57,8 @@ public class AdminUserService {
     /** 用户状态：正常 / 禁用 */
     private static final int STATUS_NORMAL = 0;
     private static final int STATUS_DISABLED = 1;
-    /** 角色：管理员 */
+    /** 角色：普通用户 / 管理员 */
+    private static final int ROLE_USER = 0;
     private static final int ROLE_ADMIN = 1;
     /** 详情里带几笔最近订单 */
     private static final int RECENT_ORDER_LIMIT = 5;
@@ -288,6 +291,59 @@ public class AdminUserService {
     }
 
     // =========================================================================
+    // 修改角色
+    // =========================================================================
+
+    /**
+     * 修改账号角色（普通用户 ↔ 管理员）。
+     *
+     * <p><b>为什么必须吊销会话</b>：JWT 的 role 是签发时的快照，只改库不改令牌的话 ——
+     * 降级的管理员旧 token 仍是 ROLE_ADMIN，能继续进后台直到过期（最长一个 access token 周期）；
+     * 升级的普通用户旧 token 仍是 ROLE_USER，会一直 403。所以改完一律强制下线，
+     * 让本人重新登录拿新角色的令牌。</p>
+     *
+     * <p><b>护栏</b>：不能改自己（防止误操作自锁）；不能把最后一个可用管理员降级
+     * （否则后台再没人能操作）。同角色重复调用直接返回，不写库也不重复吊销。</p>
+     *
+     * @param operatorId 当前操作人（管理员）ID
+     * @param userId     目标用户
+     * @param role       0 普通用户 / 1 管理员
+     */
+    @Transactional
+    public void changeRole(Long operatorId, Long userId, Integer role) {
+        if (role == null || (role != ROLE_USER && role != ROLE_ADMIN)) {
+            throw BizException.badRequest("账号角色只能是 0（普通用户）或 1（管理员）");
+        }
+        User user = requireUser(userId);
+
+        if (userId.equals(operatorId)) {
+            throw BizException.badRequest("不能修改自己的角色");
+        }
+        if (normalizedRole(user) == role) {
+            // 幂等：重复点同一个角色不该重复吊销会话
+            return;
+        }
+        if (role == ROLE_USER) {
+            // 降级前确认还留得下至少一个能登录的管理员
+            long activeAdmins = userMapper.selectCount(new LambdaQueryWrapper<User>()
+                    .eq(User::getRole, ROLE_ADMIN)
+                    .eq(User::getStatus, STATUS_NORMAL));
+            if (activeAdmins <= 1) {
+                throw BizException.badRequest("系统至少需要保留一个可用管理员");
+            }
+        }
+
+        User update = new User();
+        update.setId(userId);
+        update.setRole(role);
+        userMapper.updateById(update);
+
+        // role 在 JWT 里是快照，不吊销会话 = 降级不生效
+        authService.revokeSessions(userId);
+        log.info("管理员 {} 将用户 {} 的角色改为 {}，已吊销其全部会话", operatorId, userId, role);
+    }
+
+    // =========================================================================
     // 内部方法
     // =========================================================================
 
@@ -440,6 +496,10 @@ public class AdminUserService {
 
     private static int normalizedStatus(User user) {
         return user.getStatus() == null ? STATUS_NORMAL : user.getStatus();
+    }
+
+    private static int normalizedRole(User user) {
+        return user.getRole() == null ? ROLE_USER : user.getRole();
     }
 
     private static String statusLabel(Integer code) {

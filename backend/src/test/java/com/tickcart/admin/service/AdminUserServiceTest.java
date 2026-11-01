@@ -269,6 +269,81 @@ class AdminUserServiceTest {
     }
 
     // =========================================================================
+    // 修改角色
+    // =========================================================================
+
+    @Test
+    @DisplayName("升为管理员：改 role + 吊销会话（旧 token 仍是普通用户）")
+    void promoteToAdminRevokesSessions() {
+        when(userMapper.selectById(USER_ID)).thenReturn(user(USER_ID, "13800008888", 0, 0));
+
+        service.changeRole(ADMIN_ID, USER_ID, 1);
+
+        assertThat(capturedRole()).isEqualTo(1);
+        verify(authService).revokeSessions(USER_ID);
+    }
+
+    @Test
+    @DisplayName("降为普通用户：改 role + 吊销会话（否则旧 token 还能进后台）")
+    void demoteToUserRevokesSessions() {
+        when(userMapper.selectById(USER_ID)).thenReturn(user(USER_ID, "13800008888", 1, 0));
+        when(userMapper.selectCount(any())).thenReturn(2L);
+
+        service.changeRole(ADMIN_ID, USER_ID, 0);
+
+        assertThat(capturedRole()).isEqualTo(0);
+        verify(authService).revokeSessions(USER_ID);
+    }
+
+    @Test
+    @DisplayName("不能修改自己的角色")
+    void cannotChangeOwnRole() {
+        when(userMapper.selectById(ADMIN_ID)).thenReturn(user(ADMIN_ID, "13800000000", 1, 0));
+
+        assertThatThrownBy(() -> service.changeRole(ADMIN_ID, ADMIN_ID, 0))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("自己");
+
+        verify(userMapper, never()).updateById(any(User.class));
+        verify(authService, never()).revokeSessions(anyLong());
+    }
+
+    @Test
+    @DisplayName("最后一个可用管理员不能降级")
+    void cannotDemoteLastActiveAdmin() {
+        when(userMapper.selectById(USER_ID)).thenReturn(user(USER_ID, "13800008888", 1, 0));
+        when(userMapper.selectCount(any())).thenReturn(1L);
+
+        assertThatThrownBy(() -> service.changeRole(ADMIN_ID, USER_ID, 0))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("至少");
+
+        verify(userMapper, never()).updateById(any(User.class));
+        verify(authService, never()).revokeSessions(anyLong());
+    }
+
+    @Test
+    @DisplayName("角色未变化：幂等，不写库也不吊销")
+    void sameRoleIsIdempotent() {
+        when(userMapper.selectById(USER_ID)).thenReturn(user(USER_ID, "13800008888", 0, 0));
+
+        service.changeRole(ADMIN_ID, USER_ID, 0);
+
+        verify(userMapper, never()).updateById(any(User.class));
+        verify(authService, never()).revokeSessions(anyLong());
+    }
+
+    @Test
+    @DisplayName("非法角色值 → 400")
+    void rejectsIllegalRole() {
+        assertThatThrownBy(() -> service.changeRole(ADMIN_ID, USER_ID, 2))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("角色");
+
+        verify(userMapper, never()).selectById(any());
+    }
+
+    // =========================================================================
     // 夹具
     // =========================================================================
 
@@ -286,6 +361,13 @@ class AdminUserServiceTest {
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
         verify(userMapper).updateById(captor.capture());
         return captor.getValue().getStatus();
+    }
+
+    /** 取最后一次 updateById 里的 role。 */
+    private int capturedRole() {
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userMapper).updateById(captor.capture());
+        return captor.getValue().getRole();
     }
 
     private static User user(long id, String phone, int role, int status) {

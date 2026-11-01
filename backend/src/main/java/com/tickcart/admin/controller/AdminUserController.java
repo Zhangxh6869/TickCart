@@ -21,8 +21,8 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>路径前缀 {@code /api/admin/**}，由 {@code SecurityConfig} 统一要求管理员角色。</p>
  *
- * <p>只有三个动作：查列表、查详情、启用/禁用。改密码、改角色、删除用户
- * 都是刻意不做的（理由见 {@link AdminUserService} 类注释）。</p>
+ * <p>四个动作：查列表、查详情、启用/禁用、修改角色。改密码与删除用户
+ * 仍是刻意不做的（理由见 {@link AdminUserService} 类注释）。</p>
  */
 @Tag(name = "用户(后台)", description = "用户查询与账号状态")
 @RestController
@@ -53,6 +53,15 @@ public class AdminUserController {
     @PutMapping("/{id}/status")
     public R<Void> changeStatus(@PathVariable Long id, @RequestParam Integer status) {
         adminUserService.changeStatus(UserContext.getUserId(), id, status);
+        return R.ok();
+    }
+
+    @Operation(summary = "修改用户角色",
+            description = "role 0普通用户 1管理员。不能改自己；不能把最后一个可用管理员降级；"
+                    + "变更后会立即吊销该用户全部会话（JWT 的 role 是签发时快照），需重新登录")
+    @PutMapping("/{id}/role")
+    public R<Void> changeRole(@PathVariable Long id, @RequestParam Integer role) {
+        adminUserService.changeRole(UserContext.getUserId(), id, role);
         return R.ok();
     }
 }

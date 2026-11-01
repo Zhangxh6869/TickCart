@@ -35,3 +35,13 @@ export function fetchUserDetail(id: number): Promise<AdminUserDetail> {
 export function changeUserStatus(id: number, status: 0 | 1): Promise<void> {
   return request.put(`/admin/users/${id}/status`, null, { params: { status } })
 }
+
+/**
+ * 修改账号角色（0 普通用户 / 1 管理员）。
+ *
+ * 变更后后端会**吊销该用户全部会话**：JWT 里的 role 是签发时快照，
+ * 不重登的话降级不生效、升级会一直 403。因此调用前必须让管理员二次确认。
+ */
+export function changeUserRole(id: number, role: 0 | 1): Promise<void> {
+  return request.put(`/admin/users/${id}/role`, null, { params: { role } })
+}

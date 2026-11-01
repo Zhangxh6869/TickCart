@@ -4,7 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import type { AdminUserDetail, AdminUserSummary } from '@tickcart/shared-types'
 import { formatPrice } from '@tickcart/shared-utils'
-import { changeUserStatus, fetchUserDetail, fetchUsers } from '@/api/user'
+import { changeUserRole, changeUserStatus, fetchUserDetail, fetchUsers } from '@/api/user'
 import { useAdminStore } from '@/stores/admin'
 
 type TagType = 'primary' | 'success' | 'info' | 'warning' | 'danger'
@@ -164,6 +164,48 @@ async function onToggle(user: { id: number; role: number; status: number; nickna
     ElMessage.success(`已${action}`)
   } catch {
     // 后端拒绝（禁用自己 / 管理员账号）时，拦截器已弹出具体原因
+    return
+  }
+
+  await load()
+  if (drawer.value && detail.value?.id === user.id) {
+    await openDetail(user.id)
+  }
+}
+
+// ---------------- 修改角色 ----------------
+
+/**
+ * 能不能调整这个账号的角色。
+ *
+ * 只有一条前端护栏：不能改自己（后端也会拒）。与 {@link canOperate} 不同，
+ * 这里**允许**对管理员操作 —— 降级另一个管理员是正常管理动作。
+ */
+function canChangeRole(user: { id: number }): boolean {
+  return user.id !== adminStore.userInfo?.id
+}
+
+async function onChangeRole(user: AdminUserSummary | AdminUserDetail) {
+  const next: 0 | 1 = user.role === 1 ? 0 : 1
+  const nextLabel = next === 1 ? '管理员' : '普通用户'
+  const name = user.nickname || user.username || `用户 ${user.id}`
+
+  try {
+    await ElMessageBox.confirm(
+      `将「${name}」的角色改为「${nextLabel}」？变更后该用户会被强制下线，需重新登录才能生效。`,
+      '修改角色',
+      { type: 'warning', confirmButtonText: '确认修改', cancelButtonText: '取消' },
+    )
+  } catch {
+    // 点了取消
+    return
+  }
+
+  try {
+    await changeUserRole(user.id, next)
+    ElMessage.success('角色已修改，该用户需重新登录')
+  } catch {
+    // 后端拒绝（改自己 / 最后一个管理员）时拦截器已提示
     return
   }
 
@@ -384,6 +426,27 @@ function hideBrokenImage(event: Event) {
             </el-descriptions-item>
           </el-descriptions>
 
+          <div class="ud__block">
+            <div class="ud__title">
+              账号角色
+              <span class="ud__hint">变更后该用户会被强制下线，需重新登录</span>
+            </div>
+            <div class="ud__role">
+              <el-tag :type="detail.role === 1 ? 'warning' : 'info'" effect="plain">
+                {{ detail.role === 1 ? '管理员' : '普通用户' }}
+              </el-tag>
+              <el-button
+                v-if="canChangeRole(detail)"
+                size="small"
+                :type="detail.role === 1 ? 'danger' : 'primary'"
+                plain
+                @click="onChangeRole(detail)"
+              >
+                {{ detail.role === 1 ? '降为普通用户' : '设为管理员' }}
+              </el-button>
+            </div>
+          </div>
+
           <div class="ud__stats">
             <div class="stat">
               <div class="stat__k">下单</div>
@@ -581,6 +644,11 @@ function hideBrokenImage(event: Event) {
 }
 .ud__desc {
   margin-bottom: 14px;
+}
+.ud__role {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .ud__stats {
   display: grid;
