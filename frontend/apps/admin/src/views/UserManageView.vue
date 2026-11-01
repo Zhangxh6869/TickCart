@@ -268,7 +268,8 @@ function hideBrokenImage(event: Event) {
                     管理员
                   </el-tag>
                 </div>
-                <div class="ucell__sub">ID {{ row.id }} · @{{ row.username }}</div>
+                <!-- 昵称自 V24 起与用户名全库统一，主标题已是账号名，副标题不再重复展示 username -->
+                <div class="ucell__sub">ID {{ row.id }}</div>
               </div>
             </div>
           </template>
@@ -366,7 +367,8 @@ function hideBrokenImage(event: Event) {
                   {{ detail.status === 1 ? '已禁用' : '正常' }}
                 </el-tag>
               </div>
-              <div class="ud__sub">@{{ detail.username }} · ID {{ detail.id }}</div>
+              <!-- 与列表保持同一口径：主标题给名字，副标题只给内部编号 -->
+              <div class="ud__sub">ID {{ detail.id }}</div>
             </div>
           </div>
 
