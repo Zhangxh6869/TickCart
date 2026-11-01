@@ -9,16 +9,23 @@ const router = useRouter()
 const adminStore = useAdminStore()
 
 const loading = ref(false)
-const form = reactive({ username: 'admin', password: 'admin123' })
+/** 登录账号为手机号（与前台统一），默认填种子管理员 */
+const form = reactive({ phone: '13800000000', password: 'admin123' })
+
+const PHONE_RE = /^1[3-9]\d{9}$/
 
 async function onSubmit() {
-  if (!form.username || !form.password) {
-    ElMessage.warning('请输入用户名和密码')
+  if (!form.phone || !form.password) {
+    ElMessage.warning('请输入手机号和密码')
+    return
+  }
+  if (!PHONE_RE.test(form.phone)) {
+    ElMessage.warning('请输入正确的手机号')
     return
   }
   loading.value = true
   try {
-    await adminStore.login(form.username, form.password)
+    await adminStore.login(form.phone, form.password)
     ElMessage.success('登录成功')
     // 没有 redirect 参数时进数据看板（与侧边栏首项、路由默认 redirect 保持一致）
     const redirect = (route.query.redirect as string) || '/dashboard'
@@ -36,8 +43,8 @@ async function onSubmit() {
     <el-card class="login__card">
       <div class="login__title">TickCart 管理后台</div>
       <el-form label-position="top" @submit.prevent="onSubmit">
-        <el-form-item label="用户名">
-          <el-input v-model="form.username" placeholder="请输入用户名" />
+        <el-form-item label="手机号">
+          <el-input v-model="form.phone" maxlength="11" placeholder="请输入手机号" />
         </el-form-item>
         <el-form-item label="密码">
           <el-input v-model="form.password" type="password" placeholder="请输入密码" show-password />
@@ -46,7 +53,7 @@ async function onSubmit() {
           登录
         </el-button>
       </el-form>
-      <div class="login__tip">默认管理员：admin / admin123</div>
+      <div class="login__tip">默认管理员：13800000000 / admin123</div>
     </el-card>
   </div>
 </template>

@@ -12,8 +12,9 @@ export const useAdminStore = defineStore('admin', () => {
   const isLoggedIn = computed(() => !!token.value)
   const isAdmin = computed(() => userInfo.value?.role === 1)
 
-  async function login(username: string, password: string) {
-    const res = await authApi.login(username, password)
+  /** 后台登录：账号为手机号，登录后立即校验管理员角色。 */
+  async function login(phone: string, password: string) {
+    const res = await authApi.login(phone, password)
     setTokens(res.accessToken, res.refreshToken)
     token.value = res.accessToken
     await loadUserInfo()
