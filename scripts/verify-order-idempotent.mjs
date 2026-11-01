@@ -4,7 +4,7 @@
  *
  * 用法（后端需已启动、MySQL/Redis/RabbitMQ 就绪）：
  *   node scripts/verify-order-idempotent.mjs
- *   BASE=http://localhost:8080 TICKCART_USER=demo TICKCART_PASS=123456 CONCURRENCY=50 \
+ *   BASE=http://localhost:8080 TICKCART_PHONE=13900000000 TICKCART_PASS=123456 CONCURRENCY=50 \
  *     node scripts/verify-order-idempotent.mjs
  *
  * 可选：
@@ -23,7 +23,8 @@
  *   请用 RATE_LIMIT_ENABLED=false 启动后端，否则会大面积 429（脚本会提示）。
  */
 const BASE = (process.env.BASE ?? 'http://localhost:8080').replace(/\/$/, '')
-const USER = process.env.TICKCART_USER ?? 'demo'
+// 登录账号已统一为手机号（默认取种子演示用户 demo 的手机号）
+const PHONE = process.env.TICKCART_PHONE ?? '13900000000'
 const PASS = process.env.TICKCART_PASS ?? '123456'
 const CONCURRENCY = Number(process.env.CONCURRENCY ?? 50)
 const RUN_CONTROL = process.env.RUN_CONTROL === '1'
@@ -96,7 +97,7 @@ function reportOthers(others) {
 }
 
 async function login() {
-  const r = await call('POST', '/api/auth/login', { username: USER, password: PASS })
+  const r = await call('POST', '/api/auth/login', { phone: PHONE, password: PASS })
   if (r.status !== 200 || r.body?.code !== 0) {
     throw new Error(`登录失败：HTTP ${r.status} ${JSON.stringify(r.body)}`)
   }
@@ -152,7 +153,7 @@ async function addToCart(product, quantity = 1) {
 }
 
 async function main() {
-  console.log(`\n=== A1 并发验证 @ ${BASE}（用户 ${USER}，并发 ${CONCURRENCY}）===\n`)
+  console.log(`\n=== A1 并发验证 @ ${BASE}（手机号 ${PHONE}，并发 ${CONCURRENCY}）===\n`)
   await login()
   ok('登录成功')
 

@@ -4,7 +4,8 @@
  *
  * 前置：
  *   1. 后端启动（关限流与登录频控）：RATE_LIMIT_ENABLED=false LOGIN_GUARD_ENABLED=false
- *   2. 库里有测试账号 sku001..skuNNN（脚本不建账号）
+ *   2. 库里有测试账号 sku001..skuNNN（脚本不建账号），且手机号为 13910000001 起
+ *      —— 登录已统一为手机号，sku001 对应 13910000001
  *
  * 用法：STOCK=5 USERS=5 node scripts/verify-seckill-order.mjs
  *
@@ -15,9 +16,12 @@
  *   ④ 取消其中一单 → soldCount 减 1，订单状态变已取消
  */
 const BASE = (process.env.BASE ?? 'http://localhost:8080').replace(/\/$/, '')
-const ADMIN_USER = process.env.ADMIN_USER ?? 'admin'
+// 登录账号已统一为手机号：管理员取种子账号手机号，测试账号见 skuPhone()
+const ADMIN_PHONE = process.env.ADMIN_PHONE ?? '13800000000'
 const ADMIN_PASS = process.env.ADMIN_PASS ?? 'admin123'
 const USER_PASS = process.env.TICKCART_PASS ?? '123456'
+/** 测试账号手机号：sku001 → 13910000001。库里的 sku 账号手机号需与之一致 */
+const skuPhone = (i) => `1391000${String(i).padStart(4, '0')}`
 const STOCK = Number(process.env.STOCK ?? 5)
 const USERS = Number(process.env.USERS ?? 5)
 const PRODUCT_ID = Number(process.env.PRODUCT_ID ?? 302)
@@ -65,10 +69,10 @@ function fail(msg) {
   process.exitCode = 1
 }
 
-async function login(username, password) {
-  const r = await call('POST', '/api/auth/login', { username, password })
+async function login(phone, password) {
+  const r = await call('POST', '/api/auth/login', { phone, password })
   if (r.status !== 200 || r.body?.code !== 0) {
-    throw new Error(`登录失败 ${username}: HTTP ${r.status} ${JSON.stringify(r.body)}`)
+    throw new Error(`登录失败 ${phone}: HTTP ${r.status} ${JSON.stringify(r.body)}`)
   }
   return r.body.data.accessToken
 }
@@ -77,7 +81,7 @@ async function main() {
   console.log(`\n=== B3 秒杀端到端验证 @ ${BASE} ===`)
   console.log(`库存 ${STOCK}，抢购用户 ${USERS}\n`)
 
-  adminToken = await login(ADMIN_USER, ADMIN_PASS)
+  adminToken = await login(ADMIN_PHONE, ADMIN_PASS)
   ok('管理员登录成功')
 
   const created = await call('POST', '/api/admin/seckill/activities', {
@@ -98,8 +102,8 @@ async function main() {
 
   // ① 并发抢购
   console.log(`\n① ${USERS} 个用户并发抢 ${STOCK} 件`)
-  const usernames = Array.from({ length: USERS }, (_, i) => `sku${String(i + 1).padStart(3, '0')}`)
-  const tokens = await Promise.all(usernames.map((u) => login(u, USER_PASS)))
+  const phones = Array.from({ length: USERS }, (_, i) => skuPhone(i + 1))
+  const tokens = await Promise.all(phones.map((p) => login(p, USER_PASS)))
   // 抢购必须指定本人的收货地址：先取每个用户的第一条地址
   const addressIds = await Promise.all(tokens.map(async (token) => {
     const r = await call('GET', '/api/addresses', undefined, token)

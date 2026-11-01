@@ -5,7 +5,8 @@
  * 前置：
  *   1. 后端启动时关掉限流与登录频控（否则 429 会污染结果）：
  *        RATE_LIMIT_ENABLED=false LOGIN_GUARD_ENABLED=false mvn spring-boot:run
- *   2. 库里有 N 个测试账号 sku001..skuNNN（脚本不建账号，见 README 的验证命令）
+ *   2. 库里有 N 个测试账号 sku001..skuNNN（脚本不建账号），且手机号为 13910000001 起
+ *      —— 登录已统一为手机号，sku001 对应 13910000001
  *
  * 用法：
  *   STOCK=50 USERS=120 node scripts/verify-seckill-stock.mjs
@@ -19,9 +20,12 @@
  * 跑完记得清队列（脚本会提示）。
  */
 const BASE = (process.env.BASE ?? 'http://localhost:8080').replace(/\/$/, '')
-const ADMIN_USER = process.env.ADMIN_USER ?? 'admin'
+// 登录账号已统一为手机号：管理员取种子账号手机号，测试账号见 skuPhone()
+const ADMIN_PHONE = process.env.ADMIN_PHONE ?? '13800000000'
 const ADMIN_PASS = process.env.ADMIN_PASS ?? 'admin123'
 const USER_PASS = process.env.TICKCART_PASS ?? '123456'
+/** 测试账号手机号：sku001 → 13910000001。库里的 sku 账号手机号需与之一致 */
+const skuPhone = (i) => `1391000${String(i).padStart(4, '0')}`
 const STOCK = Number(process.env.STOCK ?? 50)
 const USERS = Number(process.env.USERS ?? 120)
 const PRODUCT_ID = Number(process.env.PRODUCT_ID ?? 302)
@@ -73,10 +77,10 @@ function fail(msg) {
   process.exitCode = 1
 }
 
-async function login(username, password) {
-  const r = await call('POST', '/api/auth/login', { username, password })
+async function login(phone, password) {
+  const r = await call('POST', '/api/auth/login', { phone, password })
   if (r.status !== 200 || r.body?.code !== 0) {
-    throw new Error(`登录失败 ${username}: HTTP ${r.status} ${JSON.stringify(r.body)}`)
+    throw new Error(`登录失败 ${phone}: HTTP ${r.status} ${JSON.stringify(r.body)}`)
   }
   return r.body.data.accessToken
 }
@@ -85,7 +89,7 @@ async function main() {
   console.log(`\n=== B2 秒杀库存并发验证 @ ${BASE} ===`)
   console.log(`库存 ${STOCK}，并发用户 ${USERS}\n`)
 
-  adminToken = await login(ADMIN_USER, ADMIN_PASS)
+  adminToken = await login(ADMIN_PHONE, ADMIN_PASS)
   ok('管理员登录成功')
 
   // 建一场「进行中」的活动
@@ -109,8 +113,8 @@ async function main() {
 
   // ① 多用户并发抢购
   console.log(`\n① ${USERS} 个不同用户并发抢 ${STOCK} 件`)
-  const usernames = Array.from({ length: USERS }, (_, i) => `sku${String(i + 1).padStart(3, '0')}`)
-  const tokens = await Promise.all(usernames.map((u) => login(u, USER_PASS)))
+  const phones = Array.from({ length: USERS }, (_, i) => skuPhone(i + 1))
+  const tokens = await Promise.all(phones.map((p) => login(p, USER_PASS)))
   ok(`${tokens.length} 个测试账号登录完成`)
 
   const results = await Promise.all(
