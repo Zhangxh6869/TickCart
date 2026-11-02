@@ -47,7 +47,13 @@ function loadImage(src: string): Promise<HTMLImageElement | null> {
   })
 }
 
-/** 等比裁剪铺满（`object-fit: cover` 的手写版） */
+/**
+ * 等比裁剪铺满（`object-fit: cover` 的手写版）。
+ *
+ * <p><b>必须自己裁剪</b>：cover 的绘制尺寸一定**大于**目标框（竖图高溢出、横图宽溢出），
+ * canvas 不像 `<img>` 那样会按元素盒子裁剪，溢出的部分会直接画到标题/价格上
+ * （实测 800×1000 的竖图向下溢出 94px，正好压住第一行商品名）。</p>
+ */
 function drawCover(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
@@ -59,7 +65,12 @@ function drawCover(
   const scale = Math.max(w / img.width, h / img.height)
   const drawW = img.width * scale
   const drawH = img.height * scale
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(x, y, w, h)
+  ctx.clip()
   ctx.drawImage(img, x + (w - drawW) / 2, y + (h - drawH) / 2, drawW, drawH)
+  ctx.restore()
 }
 
 /**
