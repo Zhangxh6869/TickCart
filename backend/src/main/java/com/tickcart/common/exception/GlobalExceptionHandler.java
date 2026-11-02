@@ -17,6 +17,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -25,7 +26,8 @@ import java.util.stream.Collectors;
  * 全局异常处理器。
  *
  * <p>把各类异常统一收敛为 {@link R} 结构，并按语义映射 HTTP 状态码：
- * 参数校验 → 400，业务异常按 {@link ResultCode} 前缀映射，未知异常 → 500 并记录堆栈。</p>
+ * 参数校验 → 400，路由不存在 → 404，业务异常按 {@link ResultCode} 前缀映射，
+ * 未知异常 → 500 并记录堆栈。</p>
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -114,6 +116,26 @@ public class GlobalExceptionHandler {
     public ResponseEntity<R<Void>> handleAccessDenied(AccessDeniedException ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(R.fail(ResultCode.FORBIDDEN));
+    }
+
+    /**
+     * 路由不存在（请求路径没有对应的 handler）。
+     *
+     * <p>★ <b>必须单独声明，不能靠 {@link #handleUnknown} 兜底</b>：Spring 6.1 在
+     * 「没有 handler 匹配」时抛 {@link NoResourceFoundException}，它本身就带 404 语义。
+     * 掉进兜底分支会有两个后果：① 返回 {@code 50000 服务器内部错误}，前端把「接口拼错」
+     * 误判成「服务挂了」，排查方向直接跑偏；② 每次拼错都打一条 ERROR + 完整堆栈，
+     * 真故障来了反而被噪音淹掉。</p>
+     *
+     * <p>注意只有「安全过滤器放行过」的路径才会走到这里 —— 被 {@code anyRequest().authenticated()}
+     * 拦住的未知路径会先返回 401（见 {@code SecurityConfig}），那是有意的：
+     * 未登录用户不该通过 404 / 401 的差异探测出哪些路径存在。</p>
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<R<Void>> handleNoResourceFound(NoResourceFoundException ex,
+                                                         HttpServletRequest request) {
+        log.warn("路由不存在 [{}] {}", request.getMethod(), request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(R.fail(ResultCode.NOT_FOUND));
     }
 
     /** 兜底：未知异常视为系统故障，记录完整堆栈便于排查。 */
