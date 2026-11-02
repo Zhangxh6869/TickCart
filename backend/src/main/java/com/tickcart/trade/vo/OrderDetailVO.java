@@ -48,6 +48,12 @@ public class OrderDetailVO {
     @Schema(description = "发货时间")
     private LocalDateTime shipTime;
 
+    @Schema(description = "快递公司（未填写时为空）")
+    private String expressCompany;
+
+    @Schema(description = "运单号（未填写时为空）")
+    private String trackingNo;
+
     @Schema(description = "完成时间")
     private LocalDateTime finishTime;
 
@@ -161,6 +167,22 @@ public class OrderDetailVO {
 
     public void setShipTime(LocalDateTime shipTime) {
         this.shipTime = shipTime;
+    }
+
+    public String getExpressCompany() {
+        return expressCompany;
+    }
+
+    public void setExpressCompany(String expressCompany) {
+        this.expressCompany = expressCompany;
+    }
+
+    public String getTrackingNo() {
+        return trackingNo;
+    }
+
+    public void setTrackingNo(String trackingNo) {
+        this.trackingNo = trackingNo;
     }
 
     public LocalDateTime getFinishTime() {

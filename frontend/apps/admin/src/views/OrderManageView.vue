@@ -355,27 +355,53 @@ async function onBatchShip() {
 
 // ---------------- 单条操作 ----------------
 
-async function shipByNo(orderNo: string) {
-  try {
-    await ElMessageBox.confirm(
-      `确认对订单「${orderNo}」发货？发货后订单进入「待收货」，不可撤销。`,
-      '发货',
-      { type: 'warning' },
-    )
-  } catch {
+/**
+ * 发货弹窗：单笔发货要录快递公司与运单号。
+ *
+ * <p>★ 为什么从「一键确认」改成弹窗：`t_order` 之前没有这两个字段，用户端「待收货」
+ * 只能看到发货时间，查不到货到哪了。批量发货仍是确认框 —— 几十单共用一个单号
+ * 没有意义，硬要填只会逼管理员乱填。</p>
+ *
+ * <p>★ 两项都可以留空（快递员还没给单号时可以先发货），但「只填单号不填快递公司」
+ * 会被后端拒绝（单号脱离承运商没有查询价值），这里先拦一次，省一次往返。</p>
+ */
+const shipDialogVisible = ref(false)
+const shipTarget = ref('')
+const shipping = ref(false)
+const shipForm = reactive({ expressCompany: '', trackingNo: '' })
+
+function openShipDialog(orderNo: string) {
+  shipTarget.value = orderNo
+  shipForm.expressCompany = ''
+  shipForm.trackingNo = ''
+  shipDialogVisible.value = true
+}
+
+async function confirmShip() {
+  const expressCompany = shipForm.expressCompany.trim()
+  const trackingNo = shipForm.trackingNo.trim()
+  if (trackingNo && !expressCompany) {
+    ElMessage.warning('填写运单号时请同时填写快递公司')
     return
   }
+  shipping.value = true
   try {
-    await shipOrder(orderNo)
+    await shipOrder(shipTarget.value, {
+      expressCompany: expressCompany || undefined,
+      trackingNo: trackingNo || undefined,
+    })
     ElMessage.success('已发货')
+    shipDialogVisible.value = false
     await reload()
   } catch {
     // 错误提示由请求拦截器统一处理
+  } finally {
+    shipping.value = false
   }
 }
 
 function onShip(row: AdminOrderSummary) {
-  return shipByNo(row.orderNo)
+  openShipDialog(row.orderNo)
 }
 
 // ---------------- 详情抽屉 ----------------
@@ -404,7 +430,7 @@ async function onShipFromDrawer() {
   if (!detail.value) return
   const orderNo = detail.value.orderNo
   drawerVisible.value = false
-  await shipByNo(orderNo)
+  openShipDialog(orderNo)
 }
 
 /**
@@ -884,6 +910,28 @@ async function copy(text: string, label: string) {
       />
     </el-card>
 
+    <!-- 发货弹窗：单笔发货录物流信息 -->
+    <el-dialog v-model="shipDialogVisible" title="发货" width="420px" :close-on-click-modal="false">
+      <div class="ship-form">
+        <div class="ship-form__no">订单号 {{ shipTarget }}</div>
+        <el-form label-width="76px" @submit.prevent>
+          <el-form-item label="快递公司">
+            <el-input v-model="shipForm.expressCompany" maxlength="32" placeholder="如 顺丰速运（可留空）" clearable />
+          </el-form-item>
+          <el-form-item label="运单号">
+            <el-input v-model="shipForm.trackingNo" maxlength="64" placeholder="如 SF1234567890（可留空）" clearable />
+          </el-form-item>
+        </el-form>
+        <div class="ship-form__tip">
+          发货后订单进入「待收货」，不可撤销。留空则用户端只看到发货时间，无法查询物流。
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="shipDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="shipping" @click="confirmShip">确认发货</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 详情抽屉 -->
     <el-drawer v-model="drawerVisible" size="760px" :with-header="false">
       <div v-loading="detailLoading" class="drawer">
@@ -1113,6 +1161,18 @@ async function copy(text: string, label: string) {
 </template>
 
 <style scoped>
+/* 发货弹窗：订单号置顶做上下文，底部补一句不可撤销 + 留空的后果 */
+.ship-form__no {
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #606266;
+}
+.ship-form__tip {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #909399;
+}
 .om__kpis {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

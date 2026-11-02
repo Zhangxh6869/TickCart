@@ -17,6 +17,7 @@ import RefundApplySheet from '@/components/RefundApplySheet.vue'
 import RefundTrackingSheet from '@/components/RefundTrackingSheet.vue'
 import { usePayCountdown } from '@/composables/usePayCountdown'
 import { ORDER_ORIGIN_BUY_NOW, ORDER_ORIGIN_CART, parseOrderOrigin } from '@/utils/checkout-route'
+import { copyText } from '@/utils/share'
 
 const route = useRoute()
 const router = useRouter()
@@ -87,6 +88,24 @@ const refundTagType = computed<'warning' | 'success' | 'danger' | 'default'>(() 
   if (status === 2) return 'danger'
   return 'default'
 })
+
+/**
+ * 是否展示物流块。
+ *
+ * <p>★ 不能只看「已发货」：历史订单与批量发货都没有采集单号（后端允许为空），
+ * 无条件渲染会得到一个只有标题的空卡片。有任一字段才显示。</p>
+ */
+const hasExpress = computed(
+  () => Boolean(order.value?.expressCompany || order.value?.trackingNo),
+)
+
+/** 复制运单号：单号长、手输易错，用户多半要粘到快递 App 里查 */
+async function onCopyTrackingNo() {
+  const no = order.value?.trackingNo
+  if (!no) return
+  const ok = await copyText(no)
+  showToast(ok ? '运单号已复制' : '复制失败，请长按选择')
+}
 
 /** 下单来源（结算页提交时写在 URL 上）；从订单列表等入口进来时为 null */
 const orderOrigin = computed(() => parseOrderOrigin(route.query))
@@ -343,6 +362,21 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <div v-if="hasExpress" class="card">
+        <div class="row"><span>物流信息</span><span class="row__muted">已发货</span></div>
+        <div v-if="order.expressCompany" class="row">
+          <span>快递公司</span>
+          <span class="row__muted">{{ order.expressCompany }}</span>
+        </div>
+        <div v-if="order.trackingNo" class="row">
+          <span>运单号</span>
+          <span class="row__muted">
+            {{ order.trackingNo }}
+            <button class="copy-btn" type="button" @click="onCopyTrackingNo">复制</button>
+          </span>
+        </div>
+      </div>
+
       <div class="card">
         <div class="row"><span>订单编号</span><span class="row__muted">{{ order.orderNo }}</span></div>
         <div class="row"><span>下单时间</span><span class="row__muted">{{ formatTime(order.createdAt) }}</span></div>
@@ -531,6 +565,17 @@ onBeforeUnmount(() => {
 }
 .row__muted {
   color: #969799;
+}
+/* 运单号的「复制」：贴着单号右侧，做成小胶囊，避免和整行文字混在一起 */
+.copy-btn {
+  margin-left: 6px;
+  padding: 1px 8px;
+  border: 0.5px solid #dcdcdc;
+  border-radius: 9px;
+  background: transparent;
+  font-size: 12px;
+  line-height: 16px;
+  color: #6ba3c8;
 }
 .detail__actions {
   display: flex;

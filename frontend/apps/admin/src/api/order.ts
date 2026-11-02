@@ -39,9 +39,20 @@ export function fetchOrderDetail(orderNo: string): Promise<AdminOrderDetail> {
   return request.get(`/admin/orders/${orderNo}`)
 }
 
-/** 发货：待发货 → 待收货。 */
-export function shipOrder(orderNo: string): Promise<void> {
-  return request.put(`/admin/orders/${orderNo}/ship`)
+/** 发货时填写的物流信息；两项都可省略（省略即只改状态，与旧的「一键发货」等价）。 */
+export interface ShipPayload {
+  expressCompany?: string
+  trackingNo?: string
+}
+
+/**
+ * 发货：待发货 → 待收货，可同时登记快递公司与运单号。
+ *
+ * <p>★ 不传 payload 时后端收到空请求体，只推进状态 —— 这是批量发货与历史流程的路径。
+ * 单笔发货请尽量填，否则用户端查不到物流。</p>
+ */
+export function shipOrder(orderNo: string, payload?: ShipPayload): Promise<void> {
+  return request.put(`/admin/orders/${orderNo}/ship`, payload)
 }
 
 /**

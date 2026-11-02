@@ -322,6 +322,10 @@ export interface OrderDetail {
   createdAt: string
   payTime?: string | null
   shipTime?: string | null
+  /** 快递公司；发货时未填写则为 null（历史订单、批量发货都没有） */
+  expressCompany?: string | null
+  /** 运单号；发货时未填写则为 null */
+  trackingNo?: string | null
   finishTime?: string | null
   cancelTime?: string | null
   items: OrderItem[]

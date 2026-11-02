@@ -54,6 +54,12 @@ public class Order {
 
     private LocalDateTime shipTime;
 
+    /** 快递公司（发货时填写，可空） */
+    private String expressCompany;
+
+    /** 运单号（发货时填写，可空） */
+    private String trackingNo;
+
     private LocalDateTime finishTime;
 
     private LocalDateTime cancelTime;
@@ -177,6 +183,22 @@ public class Order {
 
     public void setShipTime(LocalDateTime shipTime) {
         this.shipTime = shipTime;
+    }
+
+    public String getExpressCompany() {
+        return expressCompany;
+    }
+
+    public void setExpressCompany(String expressCompany) {
+        this.expressCompany = expressCompany;
+    }
+
+    public String getTrackingNo() {
+        return trackingNo;
+    }
+
+    public void setTrackingNo(String trackingNo) {
+        this.trackingNo = trackingNo;
     }
 
     public LocalDateTime getFinishTime() {

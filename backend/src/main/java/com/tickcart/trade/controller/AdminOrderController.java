@@ -3,6 +3,7 @@ package com.tickcart.trade.controller;
 import com.tickcart.common.api.PageResult;
 import com.tickcart.common.api.R;
 import com.tickcart.trade.dto.AdminOrderQuery;
+import com.tickcart.trade.dto.ShipRequest;
 import com.tickcart.trade.service.OrderService;
 import com.tickcart.trade.service.RefundService;
 import com.tickcart.trade.vo.AdminOrderDetailVO;
@@ -11,6 +12,7 @@ import com.tickcart.trade.vo.BatchShipResultVO;
 import com.tickcart.trade.vo.OrderOverviewVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -63,10 +65,13 @@ public class AdminOrderController {
         return R.ok(vo);
     }
 
-    @Operation(summary = "发货", description = "仅待发货订单可发货，发货后订单进入待收货")
+    @Operation(summary = "发货",
+            description = "仅待发货订单可发货，发货后订单进入待收货。可带快递公司与运单号，"
+                    + "请求体整体省略等价于「只改状态」")
     @PutMapping("/{orderNo}/ship")
-    public R<Void> ship(@PathVariable String orderNo) {
-        orderService.ship(orderNo);
+    public R<Void> ship(@PathVariable String orderNo,
+                        @Valid @RequestBody(required = false) ShipRequest req) {
+        orderService.ship(orderNo, req);
         return R.ok();
     }
 

@@ -25,6 +25,7 @@ import com.tickcart.trade.dto.AdminOrderQuery;
 import com.tickcart.trade.dto.OrderBuyNowRequest;
 import com.tickcart.trade.dto.OrderCreateRequest;
 import com.tickcart.trade.dto.OrderQuery;
+import com.tickcart.trade.dto.ShipRequest;
 import com.tickcart.trade.entity.Order;
 import com.tickcart.trade.entity.OrderItem;
 import com.tickcart.trade.entity.PaymentRecord;
@@ -890,6 +891,72 @@ class OrderServiceTest {
         assertThat(captor.getValue().getParamNameValuePairs().values())
                 .contains(OrderStatus.PENDING_RECEIPT.getCode())
                 .anyMatch(value -> value instanceof LocalDateTime);
+    }
+
+    @Test
+    @DisplayName("发货可带物流信息：快递公司与运单号落库，首尾空白被去掉")
+    void shipPersistsExpressInfo() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO25", UID, OrderStatus.PENDING_SHIPMENT));
+        when(orderMapper.update(ArgumentMatchers.<Order>isNull(), any())).thenReturn(1);
+
+        ShipRequest req = new ShipRequest();
+        req.setExpressCompany("  顺丰速运  ");
+        req.setTrackingNo(" SF1234567890 ");
+
+        orderService.ship("NO25", req);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaUpdateWrapper<Order>> captor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(orderMapper).update(ArgumentMatchers.<Order>isNull(), captor.capture());
+        assertThat(captor.getValue().getParamNameValuePairs().values())
+                .contains(OrderStatus.PENDING_RECEIPT.getCode(), "顺丰速运", "SF1234567890");
+    }
+
+    @Test
+    @DisplayName("发货不带物流信息也能成功（批量发货与旧流程的兼容路径）")
+    void shipWithoutExpressInfoStillWorks() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO26", UID, OrderStatus.PENDING_SHIPMENT));
+        when(orderMapper.update(ArgumentMatchers.<Order>isNull(), any())).thenReturn(1);
+
+        orderService.ship("NO26", null);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaUpdateWrapper<Order>> captor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(orderMapper).update(ArgumentMatchers.<Order>isNull(), captor.capture());
+        // 没填就不该出现这两个值，否则等于把列刷成空字符串
+        assertThat(captor.getValue().getParamNameValuePairs().values())
+                .doesNotContain("顺丰速运", "SF1234567890");
+    }
+
+    @Test
+    @DisplayName("只填运单号不填快递公司：拒绝发货，且不写库")
+    void shipRejectedWhenOnlyTrackingNoGiven() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO27", UID, OrderStatus.PENDING_SHIPMENT));
+
+        ShipRequest req = new ShipRequest();
+        req.setTrackingNo("SF1234567890");
+
+        assertThatThrownBy(() -> orderService.ship("NO27", req))
+                .isInstanceOf(BizException.class)
+                .hasMessage("填写运单号时请同时填写快递公司");
+        verify(orderMapper, never()).update(any(), any());
+    }
+
+    @Test
+    @DisplayName("物流信息全是空白视为未填，不触发「只填单号」校验")
+    void shipTreatsBlankExpressInfoAsAbsent() {
+        when(orderMapper.selectOne(any())).thenReturn(order("NO28", UID, OrderStatus.PENDING_SHIPMENT));
+        when(orderMapper.update(ArgumentMatchers.<Order>isNull(), any())).thenReturn(1);
+
+        ShipRequest req = new ShipRequest();
+        req.setExpressCompany("   ");
+        req.setTrackingNo("   ");
+
+        orderService.ship("NO28", req);
+
+        verify(orderMapper).update(ArgumentMatchers.<Order>isNull(), any());
     }
 
     @Test

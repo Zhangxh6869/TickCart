@@ -22,6 +22,7 @@ import com.tickcart.trade.dto.AdminOrderQuery;
 import com.tickcart.trade.dto.OrderBuyNowRequest;
 import com.tickcart.trade.dto.OrderCreateRequest;
 import com.tickcart.trade.dto.OrderQuery;
+import com.tickcart.trade.dto.ShipRequest;
 import com.tickcart.trade.entity.Order;
 import com.tickcart.trade.entity.OrderItem;
 import com.tickcart.trade.entity.PaymentRecord;
@@ -735,6 +736,8 @@ public class OrderService {
         vo.setCreatedAt(order.getCreatedAt());
         vo.setPayTime(order.getPayTime());
         vo.setShipTime(order.getShipTime());
+        vo.setExpressCompany(order.getExpressCompany());
+        vo.setTrackingNo(order.getTrackingNo());
         vo.setFinishTime(order.getFinishTime());
         vo.setCancelTime(order.getCancelTime());
         vo.setItems(loadItems(order.getOrderNo()));
@@ -786,29 +789,77 @@ public class OrderService {
     }
 
     /**
-     * 发货：待发货 → 待收货，并记录发货时间。
+     * 发货（不采集物流信息）。
+     *
+     * <p>保留这个签名是给「批量发货」用的：几十单共用一个单号没有意义，
+     * 批量流程刻意只推进状态。单笔发货请走 {@link #ship(String, ShipRequest)}，
+     * 否则订单会永远查不到快递公司与运单号。</p>
+     */
+    @Transactional
+    public void ship(String orderNo) {
+        ship(orderNo, null);
+    }
+
+    /**
+     * 发货：待发货 → 待收货，记录发货时间与可选的物流信息。
      *
      * <p>由后台管理员触发。落库用「带状态条件的 UPDATE」，与其它状态流转并发时
      * 只有一个能成功，避免重复发货或把已取消订单推成待收货。</p>
      *
-     * @throws BizException 订单不存在、当前状态不允许发货、并发下状态已被他人变更
+     * <p><b>物流信息可以为空</b>（{@code req} 为 null 或两项都空）：历史流程与批量发货
+     * 都不采集单号，强行必填只会逼管理员乱填。但「只填单号不填快递公司」会被拒 ——
+     * 单号脱离承运商没有任何查询价值。</p>
+     *
+     * <p>★ 用 {@code set()} 而不是 {@code updateById()}：后者对 null 字段会跳过，
+     * 语义上像是「保留原值」，但这里要的正是「本次没填就保持为空」，用条件 UPDATE
+     * 一次说清，也避免多读一次订单对象。</p>
+     *
+     * @param orderNo 订单号
+     * @param req     物流信息，可为 null
+     * @throws BizException 订单不存在、当前状态不允许发货、物流信息只填了一半、
+     *                      或并发下状态已被他人变更
      */
     @Transactional
-    public void ship(String orderNo) {
+    public void ship(String orderNo, ShipRequest req) {
         Order order = loadByOrderNo(orderNo);
         OrderStatus status = OrderStatus.of(order.getStatus());
         assertShippable(status);
         status.assertTransitionTo(OrderStatus.PENDING_RECEIPT, "发货");
 
-        int affected = orderMapper.update(null, new LambdaUpdateWrapper<Order>()
+        String expressCompany = trimToNull(req == null ? null : req.getExpressCompany());
+        String trackingNo = trimToNull(req == null ? null : req.getTrackingNo());
+        if (trackingNo != null && expressCompany == null) {
+            throw BizException.badRequest("填写运单号时请同时填写快递公司");
+        }
+
+        LambdaUpdateWrapper<Order> update = new LambdaUpdateWrapper<Order>()
                 .eq(Order::getOrderNo, orderNo)
                 .eq(Order::getStatus, OrderStatus.PENDING_SHIPMENT.getCode())
                 .set(Order::getStatus, OrderStatus.PENDING_RECEIPT.getCode())
-                .set(Order::getShipTime, LocalDateTime.now()));
+                .set(Order::getShipTime, LocalDateTime.now());
+        // 只在填了才写：不填就不动列，避免把（理论上不存在的）既有值刷成 NULL
+        if (expressCompany != null) {
+            update.set(Order::getExpressCompany, expressCompany);
+        }
+        if (trackingNo != null) {
+            update.set(Order::getTrackingNo, trackingNo);
+        }
+
+        int affected = orderMapper.update(null, update);
         if (affected == 0) {
             throw BizException.conflict("订单状态已变更，请刷新后重试");
         }
     }
+
+    /** 去首尾空白，全空白视为未填。 */
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
 
     /**
      * 支付成功后推进订单：待付款 → 待发货，并记录支付时间。
